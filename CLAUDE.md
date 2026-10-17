@@ -24,6 +24,23 @@ FastAPI service in front of Claude and Gemini. Reliability and cost-control laye
 - Python 3.12, type hints throughout.
 - ruff (lint/format), mypy (types), pytest (tests).
 - async httpx for all provider calls.
+- Each module gets a short docstring explaining why it exists and its key design choices, so the owner can defend it in interviews.
+
+## Environment
+
+- Developed on Windows with PowerShell. Do not assume bash syntax.
+
+## Commands
+
+```
+uv sync
+uv run pytest
+uv run ruff check
+uv run ruff format --check
+uv run mypy
+```
+
+All five must pass before any task is reported done.
 
 ## Security
 
