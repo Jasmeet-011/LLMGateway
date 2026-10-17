@@ -3,11 +3,13 @@
 The schema covers only what both Claude and Gemini support. Provider-specific
 limits (for example the maximum number of stop sequences or a model's maximum
 output tokens) are enforced in the adapters, not here.
+
+Collections are tuples so that frozen models are truly immutable and hashable.
 """
 
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, field_validator
 
 Role = Literal["user", "assistant"]
 Provider = Literal["claude", "gemini", "mock"]
@@ -25,15 +27,28 @@ class Message(_Model):
 
 class ChatRequest(_Model):
     model: Annotated[str, Field(min_length=1)]
-    messages: Annotated[list[Message], Field(min_length=1)]
+    messages: tuple[Message, ...]
     system: Annotated[str, Field(min_length=1)] | None = None
     max_tokens: Annotated[int, Field(ge=1)]
     # Claude documents 0-1 for both (newer Claude models reject non-default values;
     # the adapter handles that). Gemini's range is unverified; 0-1 is assumed to fit.
     temperature: Annotated[float, Field(ge=0.0, le=1.0)] | None = None
     top_p: Annotated[float, Field(ge=0.0, le=1.0)] | None = None
-    stop: list[Annotated[str, Field(min_length=1)]] | None = None
-    stream: bool = False
+    stop: tuple[Annotated[str, Field(min_length=1)], ...] | None = None
+    # Strict: lax mode would turn "yes" or 1 into True and silently enable streaming.
+    stream: StrictBool = False
+
+    @field_validator("messages")
+    @classmethod
+    def _messages_end_with_user(cls, messages: tuple[Message, ...]) -> tuple[Message, ...]:
+        # Not Field(min_length=1): on a tuple pydantic checks length after item
+        # validation, so one bad message would also report a spurious "empty" error.
+        if not messages:
+            raise ValueError("messages must not be empty")
+        # Prefilling an assistant turn returns a 400 on Claude 4.6 models.
+        if messages[-1].role != "user":
+            raise ValueError("the last message must have role 'user'")
+        return messages
 
 
 class Usage(_Model):
