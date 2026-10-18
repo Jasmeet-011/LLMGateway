@@ -13,9 +13,9 @@ client
 FastAPI gateway
   ├─ auth            hashed API keys in Postgres (SQLAlchemy + Alembic), constant-time compare
   ├─ rate limiter    Redis token bucket, atomic Lua script using Redis server time
-  ├─ spend caps      atomic per-key budget check
   ├─ cache           Redis; deterministic, non-streaming requests only; key includes tenant ID
   ├─ coalescing      identical in-flight requests share one upstream call
+  ├─ spend caps      atomic per-key budget check
   ├─ router          timeouts, retries (backoff + jitter), circuit breaker,
   │                  fallback to the other provider before the first streamed byte
   ├─ adapters        unified schema ⇄ Claude / Gemini / mock provider (async httpx, SSE streaming)

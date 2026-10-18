@@ -1,5 +1,7 @@
 # FLOW.md
 
+## 1. About this file
+
 **Last updated:** 2026-10-18
 **Status table reflects commit:** `a9d7cc3` on `main`
 
@@ -52,9 +54,9 @@ flowchart LR
 
 Where spend caps, coalescing state, and usage records live is not decided yet (see section 9).
 
-## 4. Order of checks per request (proposed)
+## 4. Order of checks per request
 
-This order is a **proposal**. No part of it is built, and it is not yet recorded in DECISIONS.md.
+Decided in D-018. Not built.
 
 ```mermaid
 flowchart TD
@@ -64,20 +66,23 @@ flowchart TD
     C -->|no| R2[Reject, status to be decided]
     C -->|yes| D{Within rate limit}
     D -->|no| R3[Reject, status to be decided]
-    D -->|yes| E{Cache hit}
-    E -->|yes| H[Use cached response, billed zero]
+    D -->|yes| K{Cacheable, deterministic and non streaming}
+    K -->|yes| E{Cache hit}
+    E -->|yes| H[Record usage, cache_hit flag, billed zero]
     E -->|no| F{Identical request in flight}
     F -->|yes| W[Wait for that request and share its result]
+    W --> WU[Record usage, billing to be decided]
     F -->|no| G{Within spend cap}
+    K -->|no| G
     G -->|no| R4[Reject, status to be decided]
     G -->|yes| RT[Router calls a provider]
     RT --> U[Record usage]
-    U --> S{Deterministic and non streaming}
+    U --> S{Cacheable}
     S -->|yes| SC[Store in cache]
     S -->|no| OUT[Respond with gateway request ID]
     SC --> OUT
     H --> OUT
-    W --> OUT
+    WU --> OUT
 ```
 
 Why each check sits where it does:
@@ -85,9 +90,9 @@ Why each check sits where it does:
 1. **Validate the body first.** It is the cheapest check and needs no database or Redis call. A malformed request should not cost a key lookup.
 2. **API key next.** Every later check is per key (rate limit, cache key, spend cap), so the gateway must know who is calling before it can apply them.
 3. **Rate limit before any expensive work.** A caller over its limit should be turned away before the gateway does a cache lookup or calls a provider. Whether cache hits also count against the limit is an open question (section 11). PLAN.md measurement 5 expects 429 for this case, but no D-entry records it yet.
-4. **Cache lookup before calling anyone.** A hit made no upstream call, so it is returned at once and billed zero (D-012). The cache key includes the caller, so one tenant never sees another tenant's response (D-003).
-5. **Coalescing after a cache miss.** If an identical request is already on its way to a provider, this one waits for that result instead of making a second upstream call. PLAN.md measurement 6 targets exactly one upstream call for N identical requests.
-6. **Spend cap just before spending.** This is the last point where the gateway can refuse before money is spent. Placing it after the cache and coalescing means free answers are never blocked by the cap. The rejection status is to be decided.
+4. **Cache lookup before calling anyone.** Only cacheable requests are looked up; the rest go straight to the spend cap. A hit made no upstream call, so it is returned at once and billed zero (D-012). The cache key includes the caller, so one tenant never sees another tenant's response (D-003).
+5. **Coalescing after a cache miss.** If an identical request is already on its way to a provider, this one waits for that result instead of making a second upstream call. PLAN.md measurement 6 targets exactly one upstream call for N identical requests. The coalescing key is the cache key, including the caller, so tenants never share an in-flight result. Only cacheable requests coalesce.
+6. **Spend cap just before spending.** This is the last point where the gateway can refuse before money is spent. Placing it after the cache and coalescing means free answers are never blocked by the cap. The rejection status is to be decided. Checking the cap before the call and recording usage after it is not atomic: concurrent requests can all pass the check before any of them records its cost. How the cap stays atomic across a provider call (for example, reserving the worst-case cost before the call and settling the real cost after) is not decided.
 7. **Router.** Applies timeouts, retries, the circuit breaker, and fallback (section 5).
 8. **Record usage after the call.** Real token counts are only known once the provider answers.
 9. **Store in cache only if deterministic and non-streaming** (D-003). Sampled output should not be replayed as if it were the only answer.
@@ -154,6 +159,7 @@ sequenceDiagram
     R-->>G: Allowed
     G->>R: Cache lookup
     R-->>G: Miss
+    G->>G: No identical request in flight
     G->>G: Check spend cap
     G->>RT: Route request
     RT->>A: complete
@@ -230,6 +236,8 @@ Listed, not answered.
 - The status code returned when a spend cap rejects a request.
 - Retry counts, timeouts, and circuit breaker thresholds: to be chosen, then measured.
 - Whether the circuit breaker counts provider rate limits as failures (D-014).
+- How coalesced requests are billed.
+- How spend caps stay atomic across a provider call.
 
 ## 12. Keeping this file honest
 
