@@ -187,6 +187,38 @@ def test_input_list_mutation_does_not_affect_request() -> None:
     assert len(req.messages) == 1
 
 
+@pytest.mark.parametrize("empty", [[], ()])
+def test_empty_stop_normalized_to_none(empty: list[str] | tuple[str, ...]) -> None:
+    omitted = ChatRequest.model_validate(_request())
+    explicit_none = ChatRequest.model_validate(_request(stop=None))
+    normalized = ChatRequest.model_validate(_request(stop=empty))
+    assert normalized.stop is None
+    assert normalized == explicit_none == omitted
+    assert hash(normalized) == hash(explicit_none) == hash(omitted)
+    assert normalized.model_dump() == omitted.model_dump()
+
+
+def test_empty_stop_from_json_normalized_to_none() -> None:
+    req = ChatRequest.model_validate_json(
+        '{"model": "mock-1", "messages": [{"role": "user", "content": "hi"}],'
+        ' "max_tokens": 16, "stop": []}'
+    )
+    assert req.stop is None
+    assert req == ChatRequest.model_validate(_request())
+
+
+def test_non_empty_stop_untouched() -> None:
+    assert ChatRequest.model_validate(_request(stop=["a", "b"])).stop == ("a", "b")
+
+
+def test_stop_with_empty_string_still_rejected() -> None:
+    with pytest.raises(ValidationError) as exc_info:
+        ChatRequest.model_validate(_request(stop=["a", ""]))
+    errors = exc_info.value.errors()
+    assert len(errors) == 1, errors
+    assert errors[0]["loc"] == ("stop", 1)
+
+
 # Coercion policy: pydantic lax mode stays on, except for `stream`.
 def test_lax_numeric_coercion_kept() -> None:
     req = ChatRequest.model_validate(_request(max_tokens="16", temperature="0.5"))
@@ -220,6 +252,13 @@ def test_response_json_round_trip() -> None:
     )
     assert ChatResponse.model_validate_json(resp.model_dump_json()) == resp
     assert resp.usage.total_tokens == 5
+    assert resp.provider_response_id is None
+
+
+def test_response_provider_id_round_trip() -> None:
+    resp = ChatResponse.model_validate(_response(provider_response_id="msg_123"))
+    assert resp.provider_response_id == "msg_123"
+    assert ChatResponse.model_validate_json(resp.model_dump_json()) == resp
 
 
 @pytest.mark.parametrize(
