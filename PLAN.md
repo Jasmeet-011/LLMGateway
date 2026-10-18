@@ -48,12 +48,12 @@ Every entry in `docs/RESULTS.md` records: machine (CPU, RAM), OS, Python version
 
 ## Open design questions
 
-Not yet decided. Each will be answered in `DECISIONS.md` when the step that needs it starts.
+Each question is answered in `DECISIONS.md` when the step that needs it starts. Decided questions link their entry; any part still open is listed under the question.
 
-- (a) How the request's `model` field maps to a provider, and which Gemini model is the fallback for which Claude model.
-- (b) Whether `ChatResponse.id` is the provider's ID or a gateway-generated request ID. Cache hits and mock responses need one either way.
-- (c) How cache hits are represented in accounting, since no tokens are billed. Likely response metadata or headers.
-- (d) `stop=[]` and `stop=None` mean the same thing and must normalize to one cache key.
+- (a) How the request's `model` field maps to a provider, and which Gemini model is the fallback for which Claude model. **Decided in D-010, not implemented:** clients send an alias, and config maps each alias to an ordered list of (provider, model) pairs; fallback is the next entry. Still open: which pairs go in each alias list.
+- (b) Whether `ChatResponse.id` is the provider's ID or a gateway-generated request ID. Cache hits and mock responses need one either way. **Decided in D-011:** the gateway generates the response ID, and the provider's ID goes in the separate `provider_response_id` field. Still open: the ID format and generator.
+- (c) How cache hits are represented in accounting, since no tokens are billed. Likely response metadata or headers. **Decided in D-012, implemented with the cache:** hits are billed zero via a `cache_hit` flag in accounting, and also exposed in a response header. Still open: the header name.
+- (d) `stop=[]` and `stop=None` mean the same thing and must normalize to one cache key. **Decided in D-013:** an empty `stop` is normalized to `None` in the schema.
 
 ## Cut order if behind
 
