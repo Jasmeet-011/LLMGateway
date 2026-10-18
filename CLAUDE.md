@@ -18,6 +18,7 @@ FastAPI service in front of Claude and Gemini. Reliability and cost-control laye
 - Update `DECISIONS.md` after each step.
 - Stop and ask before adding dependencies, changing the schema, or changing these rules.
 - The owner writes the failure-injection tests. You may draft them, but flag them for review.
+- FLOW.md is a living document. Any task that merges a component or changes the request flow must update the FLOW.md status table, and the Last updated date and commit SHA, in the same PR. Mark a component Built only when its code is on main and the five checks pass. Edit the target-design diagrams only when a decision in DECISIONS.md changes the design, and reference its D-number.
 
 ## Stack
 
