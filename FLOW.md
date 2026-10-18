@@ -3,7 +3,7 @@
 ## 1. About this file
 
 **Last updated:** 2026-10-18
-**Status table reflects commit:** `a9d7cc3` on `main`
+**Status table reflects commit:** `a91b883` (branch `step-5-endpoint`; it reaches `main` when that PR is merged with a merge commit)
 
 How a request moves through LLMGateway, in plain English.
 
@@ -11,7 +11,7 @@ How a request moves through LLMGateway, in plain English.
 
 ## 2. Status
 
-A component is **Built** only when its code is on `main` and the five checks in [CLAUDE.md](CLAUDE.md) pass (`uv sync`, `uv run pytest`, `uv run ruff check`, `uv run ruff format --check`, `uv run mypy`). At `a9d7cc3` all five pass (85 tests).
+A component is **Built** only when its code is on `main` and the five checks in [CLAUDE.md](CLAUDE.md) pass (`uv sync`, `uv run pytest`, `uv run ruff check`, `uv run ruff format --check`, `uv run mypy`). At `a91b883` all five pass (112 tests).
 
 | Component | Status | Evidence |
 | --- | --- | --- |
@@ -19,8 +19,8 @@ A component is **Built** only when its code is on `main` and the five checks in 
 | Provider errors | Built | `src/llmgateway/providers/base.py`; exercised by the failure-injection tests in `tests/test_mock_provider.py`, which are drafts awaiting owner review (D-014) |
 | Adapter interface | Built | `src/llmgateway/providers/base.py`; `test_mock_satisfies_adapter_protocol` in `tests/test_mock_provider.py`, checked by mypy (D-015) |
 | Mock provider | Built | `src/llmgateway/providers/mock.py`, `tests/test_mock_provider.py` (D-001, D-016). Not yet ticked in PROGRESS.md |
-| FastAPI endpoint | Planned | none yet |
-| Response IDs | Planned | none yet. Only the `provider_response_id` field exists in `schema.py`; gateway ID generation is not built (D-011) |
+| FastAPI endpoint | Built | `src/llmgateway/app.py`, `src/llmgateway/errors.py`, `src/llmgateway/main.py`, `tests/test_app.py` (D-019, D-022 to D-027). Provider failure tests are drafts awaiting owner review |
+| Response IDs | Built | `new_request_id` and the request middleware in `src/llmgateway/app.py`; `provider_response_id` in `schema.py`; `tests/test_app.py` (D-011, D-020) |
 | Auth: hashed API keys | Planned | none yet |
 | Rate limiter | Planned | none yet (D-002) |
 | Cache | Planned | none yet (D-003, D-012) |
@@ -61,7 +61,7 @@ Decided in D-018. Not built.
 ```mermaid
 flowchart TD
     A[Request arrives] --> B{Body valid}
-    B -->|no| R1[Reject, status to be decided]
+    B -->|no| R1[Reject with 422]
     B -->|yes| C{API key valid}
     C -->|no| R2[Reject, status to be decided]
     C -->|yes| D{Within rate limit}
@@ -87,7 +87,7 @@ flowchart TD
 
 Why each check sits where it does:
 
-1. **Validate the body first.** It is the cheapest check and needs no database or Redis call. A malformed request should not cost a key lookup.
+1. **Validate the body first.** It is the cheapest check and needs no database or Redis call. A malformed request should not cost a key lookup. Rejected with 422 (D-019).
 2. **API key next.** Every later check is per key (rate limit, cache key, spend cap), so the gateway must know who is calling before it can apply them.
 3. **Rate limit before any expensive work.** A caller over its limit should be turned away before the gateway does a cache lookup or calls a provider. Whether cache hits also count against the limit is an open question (section 11). PLAN.md measurement 5 expects 429 for this case, but no D-entry records it yet.
 4. **Cache lookup before calling anyone.** Only cacheable requests are looked up; the rest go straight to the spend cap. A hit made no upstream call, so it is returned at once and billed zero (D-012). The cache key includes the caller, so one tenant never sees another tenant's response (D-003).
@@ -174,7 +174,7 @@ sequenceDiagram
 
 ## 8. Module map
 
-What exists under `src/llmgateway` at `a9d7cc3`, plus planned modules. Planned names may change.
+What exists under `src/llmgateway` at `a91b883`, plus planned modules. Planned names may change.
 
 ```
 src/llmgateway/
@@ -186,7 +186,9 @@ src/llmgateway/
 │   ├── mock.py          Built: MockProvider
 │   ├── claude.py        planned, name may change
 │   └── gemini.py        planned, name may change
-├── app                  planned, name may change: FastAPI app and endpoint
+├── app.py               Built: create_app, request middleware, endpoints
+├── errors.py            Built: error body, status mapping, exception handlers
+├── main.py              Built: module-level app for uvicorn
 ├── auth                 planned, name may change: API key hashing and lookup
 ├── ratelimit            planned, name may change: Redis Lua token bucket
 ├── cache                planned, name may change: cache key and storage
@@ -197,7 +199,7 @@ src/llmgateway/
 └── metrics              planned, name may change: Prometheus metrics
 ```
 
-Tests: `tests/test_schema.py` and `tests/test_mock_provider.py` exist.
+Tests: `tests/test_schema.py`, `tests/test_mock_provider.py`, and `tests/test_app.py` exist.
 
 ## 9. What lives where (data)
 
