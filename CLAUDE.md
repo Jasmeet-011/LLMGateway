@@ -55,6 +55,7 @@ All five must pass before any task is reported done.
 
 - Rate limiter is a Redis Lua script using Redis server time, tested against real Redis.
 - Cache key = hash of normalized request + model + params + key/tenant ID. Cache only deterministic non-streaming requests.
+- Cache keys are built from a canonical JSON dump of the request, never from `model_dump(exclude_unset=True)`, because `stop=[]` and an omitted `stop` are equal requests that differ only in the unset marker.
 - Fallback only before the first streamed byte.
 
 ## Out of scope

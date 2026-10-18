@@ -248,8 +248,25 @@ async def test_different_seeds_give_different_sequences() -> None:
 async def test_failure_count_reproducible_at_fixed_seed() -> None:
     provider = MockProvider(failure_rate=0.3, seed=1234, sleep=FakeSleep())
     outcomes = await _outcomes(provider, 1000)
-    # Measured, not derived: 271 failures observed on 2026-10-18 (Python 3.12.12,
-    # three identical runs). It depends on CPython's random.Random sequence for this
-    # seed, so a Python change that alters that sequence would change it.
+    # Regression snapshot, not a statistical check: it pins the exact sequence for
+    # one seed (test_failure_rate_is_honest checks the rate itself). Measured, not
+    # derived: 271 failures observed on 2026-10-18 (Python 3.12.12, three identical
+    # runs). It depends on CPython's random.Random sequence for this seed, so a
+    # Python change that alters that sequence would change it.
     assert outcomes.count(False) == 271
     assert provider.call_count == 1000
+
+
+# DRAFT: owner review required
+@pytest.mark.asyncio
+async def test_failure_rate_is_honest() -> None:
+    failures = 0
+    for seed in range(50):
+        provider = MockProvider(failure_rate=0.3, seed=seed, sleep=FakeSleep())
+        failures += (await _outcomes(provider, 200)).count(False)
+    observed = failures / 10_000
+    # Over 10,000 calls the standard deviation of the observed rate is
+    # sqrt(0.3 * 0.7 / 10,000), about 0.005, so 0.02 is roughly four standard
+    # deviations: wide enough not to be flaky, narrow enough to catch a biased roll.
+    # Seeds 0-49 are fixed, so the result is deterministic (0.312 when measured).
+    assert abs(observed - 0.3) <= 0.02

@@ -4,7 +4,9 @@ version = "0.1.0"
 description = "FastAPI reliability and cost-control gateway in front of Claude and Gemini"
 requires-python = ">=3.12"
 dependencies = [
+    "fastapi==0.146.0",
     "pydantic==2.14.1",
+    "uvicorn==0.54.0",
 ]
 
 [build-system]
@@ -13,6 +15,7 @@ build-backend = "uv_build"
 
 [dependency-groups]
 dev = [
+    "httpx==0.28.1",
     "mypy==2.4.0",
     "pytest==9.1.1",
     "pytest-asyncio==1.4.0",
