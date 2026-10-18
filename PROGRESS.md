@@ -7,13 +7,13 @@ A milestone is checked only when its work is merged. **Verified** records the ev
 | Done | Milestone | Verified |
 | --- | --- | --- |
 | [x] | Repo docs: README, CLAUDE.md, PLAN.md, DECISIONS.md, PROGRESS.md, .gitignore | Docs only, nothing to run. Merged in PR #1. |
-| [ ] | Project skeleton: uv, pyproject, ruff/mypy/pytest config | `ruff check`, `ruff format --check`, `mypy` (strict) clean on 2026-10-15; to be ticked when merged |
+| [x] | Project skeleton: uv, pyproject, ruff/mypy/pytest config | `uv sync`: 18 packages checked; `uv run ruff check`: all checks passed; `uv run ruff format --check`: 8 files already formatted; `uv run mypy`: no issues in 3 source files. Windows 11 Home Single Language 10.0.26300, Python 3.12.12, 2026-10-17. Merged in PR #2. |
 
 ## Week 1
 
 | Done | Milestone | Verified |
 | --- | --- | --- |
-| [ ] | Unified request/response schema | `uv run pytest`: 18 passed (tests/test_schema.py) on 2026-10-15, Python 3.12.3; to be ticked when merged |
+| [x] | Unified request/response schema | `uv run pytest`: 45 passed (tests/test_schema.py); `ruff check`, `ruff format --check` and `mypy` clean. Windows 11 Home Single Language 10.0.26300, Python 3.12.12, 2026-10-17. Merged in PR #2; hardening merged in PR #3 (merge commit 027f419). |
 | [ ] | Claude adapter | |
 | [ ] | Gemini adapter | |
 | [ ] | SSE streaming | |
