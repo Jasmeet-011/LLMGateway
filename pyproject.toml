@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "FastAPI reliability and cost-control gateway in front of Claude and Gemini"
 requires-python = ">=3.12"
 dependencies = [
-    "fastapi==0.146.0",
+    "fastapi==0.143.1",
     "pydantic==2.14.1",
     "uvicorn==0.54.0",
 ]
@@ -19,8 +19,13 @@ dev = [
     "mypy==2.4.0",
     "pytest==9.1.1",
     "pytest-asyncio==1.4.0",
-    "ruff==0.17.1",
+    "ruff==0.17.0",
 ]
+
+[tool.uv]
+# Age floor (D-029): ignore anything uploaded less than 7 days before locking.
+# Move it forward deliberately; never remove it.
+exclude-newer = "2026-10-15T00:00:00Z"
 
 [tool.ruff]
 line-length = 100

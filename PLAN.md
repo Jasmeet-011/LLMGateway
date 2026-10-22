@@ -23,9 +23,9 @@ A FastAPI gateway in front of Claude and Gemini that adds reliability and cost c
 - Retries with backoff and jitter
 - Circuit breaker
 - Provider fallback
-- Request coalescing
-- Atomic per-key spend caps
-- Prometheus metrics
+- Request coalescing (stretch)
+- Atomic per-key spend caps (stretch)
+- Prometheus metrics (stretch)
 - k6 load test
 - GitHub Actions CI
 - README with architecture and results table
@@ -43,25 +43,27 @@ Every entry in `docs/RESULTS.md` records: machine (CPU, RAM), OS, Python version
 | 3 | Cache hit vs. miss latency, and hit rate, on a named workload | None set | Workload name and definition (request mix, repeat ratio) |
 | 4 | Success rate under 30% injected provider failures, with fallback and without fallback | None set | Injected failure rate (30%), failure type, retry settings, both runs |
 | 5 | 429 behavior under a burst: requests over the limit get 429; requests within it do not | Correct behavior | Rate limit settings, burst size and duration, count of 429s and of successes |
-| 6 | Upstream calls made when N identical requests arrive at once | 1 | N, upstream call count |
-| 7 | Spend-cap overshoot under concurrent load | 0 | Cap value, concurrency, spend recorded vs. cap |
+| 6 | Upstream calls made when N identical requests arrive at once (stretch) | 1 | N, upstream call count |
+| 7 | Spend-cap overshoot under concurrent load (stretch) | 0 | Cap value, concurrency, spend recorded vs. cap |
 
 ## Open design questions
 
 Each question is answered in `DECISIONS.md` when the step that needs it starts. Decided questions link their entry; any part still open is listed under the question.
 
 - (a) How the request's `model` field maps to a provider, and which Gemini model is the fallback for which Claude model. **Decided in D-010, not implemented:** clients send an alias, and config maps each alias to an ordered list of (provider, model) pairs; fallback is the next entry. Still open: which pairs go in each alias list.
-- (b) Whether `ChatResponse.id` is the provider's ID or a gateway-generated request ID. Cache hits and mock responses need one either way. **Decided in D-011:** the gateway generates the response ID, and the provider's ID goes in the separate `provider_response_id` field. Still open: the ID format and generator.
-- (c) How cache hits are represented in accounting, since no tokens are billed. Likely response metadata or headers. **Decided in D-012, implemented with the cache:** hits are billed zero via a `cache_hit` flag in accounting, and also exposed in a response header. Still open: the header name.
+- (b) Whether `ChatResponse.id` is the provider's ID or a gateway-generated request ID. Cache hits and mock responses need one either way. **Decided in D-011 and D-020:** the gateway generates the response ID, and the provider's ID goes in the separate `provider_response_id` field. D-020 sets the format: `gw_` plus a random UUID4 in hex, also returned in the `x-request-id` header.
+- (c) How cache hits are represented in accounting, since no tokens are billed. Likely response metadata or headers. **Decided in D-012 and D-021, implemented with the cache:** hits are billed zero via a `cache_hit` flag in accounting, and also exposed in the `x-gateway-cache` response header (`hit` or `miss`).
 - (d) `stop=[]` and `stop=None` mean the same thing and must normalize to one cache key. **Decided in D-013:** an empty `stop` is normalized to `None` in the schema.
 
-## Cut order if behind
+## Stretch (not required for done)
 
-Cut in this order:
+Not needed for the project to be done (D-031). Streaming is required. Measurements 6 and 7 depend on stretch items and stay in the table; if they are not run, the results table says so.
 
-1. Grafana
-2. Cloud deploy
-3. Streaming
+- Request coalescing
+- Atomic per-key spend caps
+- Prometheus metrics
+- Grafana dashboard
+- Cloud deploy
 
 ## Out of scope
 

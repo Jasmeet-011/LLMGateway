@@ -52,11 +52,13 @@ flowchart LR
     Prometheus[Prometheus] -->|scrapes| Gateway
 ```
 
+Coalescing, spend caps and Prometheus metrics are stretch goals (D-031).
+
 Where spend caps, coalescing state, and usage records live is not decided yet (see section 9).
 
 ## 4. Order of checks per request
 
-Decided in D-018. Not built.
+Decided in D-018. Body validation is built (422, D-019); the rest is not.
 
 ```mermaid
 flowchart TD
@@ -89,7 +91,7 @@ Why each check sits where it does:
 
 1. **Validate the body first.** It is the cheapest check and needs no database or Redis call. A malformed request should not cost a key lookup. Rejected with 422 (D-019).
 2. **API key next.** Every later check is per key (rate limit, cache key, spend cap), so the gateway must know who is calling before it can apply them.
-3. **Rate limit before any expensive work.** A caller over its limit should be turned away before the gateway does a cache lookup or calls a provider. Whether cache hits also count against the limit is an open question (section 11). PLAN.md measurement 5 expects 429 for this case, but no D-entry records it yet.
+3. **Rate limit before any expensive work.** A caller over its limit should be turned away before the gateway does a cache lookup or calls a provider. Whether cache hits also count against the limit is an open question (section 11). PLAN.md measurement 5 expects 429 for this case, and D-019 reserves 429 for the gateway's own rate limiter.
 4. **Cache lookup before calling anyone.** Only cacheable requests are looked up; the rest go straight to the spend cap. A hit made no upstream call, so it is returned at once and billed zero (D-012). The cache key includes the caller, so one tenant never sees another tenant's response (D-003).
 5. **Coalescing after a cache miss.** If an identical request is already on its way to a provider, this one waits for that result instead of making a second upstream call. PLAN.md measurement 6 targets exactly one upstream call for N identical requests. The coalescing key is the cache key, including the caller, so tenants never share an in-flight result. Only cacheable requests coalesce.
 6. **Spend cap just before spending.** This is the last point where the gateway can refuse before money is spent. Placing it after the cache and coalescing means free answers are never blocked by the cap. The rejection status is to be decided. Checking the cap before the call and recording usage after it is not atomic: concurrent requests can all pass the check before any of them records its cost. How the cap stays atomic across a provider call (for example, reserving the worst-case cost before the call and settling the real cost after) is not decided.
@@ -232,14 +234,13 @@ Tests: `tests/test_schema.py`, `tests/test_mock_provider.py`, and `tests/test_ap
 Listed, not answered.
 
 - Which provider and model pairs go into each alias list, and in what order (the mechanism is decided in D-010; the lists are not).
-- The format and generator of the gateway response ID (D-011).
-- The name of the cache-hit response header (D-012).
 - Whether cache hits count against rate limits.
 - The status code returned when a spend cap rejects a request.
 - Retry counts, timeouts, and circuit breaker thresholds: to be chosen, then measured.
 - Whether the circuit breaker counts provider rate limits as failures (D-014).
 - How coalesced requests are billed.
 - How spend caps stay atomic across a provider call.
+- Whether the API key is checked before the request body is parsed, once auth exists. Parsing first lets unauthenticated callers make the gateway parse large bodies (D-018, D-025).
 
 ## 12. Keeping this file honest
 
