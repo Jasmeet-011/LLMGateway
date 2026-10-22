@@ -2,8 +2,8 @@
 
 ## 1. About this file
 
-**Last updated:** 2026-10-18
-**Status table reflects commit:** `a91b883` (branch `step-5-endpoint`; it reaches `main` when that PR is merged with a merge commit)
+**Last updated:** 2026-10-22
+**Status table reflects commit:** `81c1a8d` (branch `step-5b-fixup`)
 
 How a request moves through LLMGateway, in plain English.
 
@@ -11,7 +11,7 @@ How a request moves through LLMGateway, in plain English.
 
 ## 2. Status
 
-A component is **Built** only when its code is on `main` and the five checks in [CLAUDE.md](CLAUDE.md) pass (`uv sync`, `uv run pytest`, `uv run ruff check`, `uv run ruff format --check`, `uv run mypy`). At `a91b883` all five pass (112 tests).
+A component is **Built** only when its code is on `main` and the five checks in [CLAUDE.md](CLAUDE.md) pass (`uv sync`, `uv run pytest`, `uv run ruff check`, `uv run ruff format --check`, `uv run mypy`). At `81c1a8d` all five pass (114 tests).
 
 | Component | Status | Evidence |
 | --- | --- | --- |
@@ -176,7 +176,7 @@ sequenceDiagram
 
 ## 8. Module map
 
-What exists under `src/llmgateway` at `a91b883`, plus planned modules. Planned names may change.
+What exists under `src/llmgateway` at `81c1a8d`, plus planned modules. Planned names may change.
 
 ```
 src/llmgateway/
