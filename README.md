@@ -1,8 +1,8 @@
 # LLMGateway
 
-LLMGateway is a FastAPI service that sits in front of Anthropic Claude and Google Gemini and is being built to add a reliability and cost-control layer: API-key authentication, per-key rate limits, a response cache, timeouts and retries, provider fallback, per-key cost tracking and spend caps, and Prometheus metrics. The goal is for clients to call one unified API while the gateway handles provider differences, failures, and accounting. It is a personal systems project for learning and demonstrating backend reliability engineering, not a product.
+LLMGateway is a FastAPI service that sits in front of Anthropic Claude and Google Gemini and is being built to add a reliability and cost-control layer: API-key authentication, per-key rate limits, a response cache, timeouts and retries, provider fallback, and per-key cost tracking. Per-key spend caps and Prometheus metrics are stretch goals. The goal is for clients to call one unified API while the gateway handles provider differences, failures, and accounting. It is a personal systems project for learning and demonstrating backend reliability engineering, not a product.
 
-**Status: in progress.** The unified schema, provider error types, adapter interface, and mock provider are implemented and tested. The HTTP endpoint, auth, rate limiting, caching, real provider adapters, and resilience are not built yet. See [PLAN.md](PLAN.md) for scope and [PROGRESS.md](PROGRESS.md) for what is done and verified.
+**Status: in progress.** The unified schema, provider error types, adapter interface, mock provider, and a first HTTP endpoint (POST /v1/chat, wired to the mock provider) are implemented and tested. Auth, rate limiting, caching, real provider adapters, streaming, and resilience are not built yet. See [PLAN.md](PLAN.md) for scope and [PROGRESS.md](PROGRESS.md) for what is done and verified.
 
 ## Planned architecture
 
@@ -14,12 +14,12 @@ FastAPI gateway
   ├─ auth            hashed API keys in Postgres (SQLAlchemy + Alembic), constant-time compare
   ├─ rate limiter    Redis token bucket, atomic Lua script using Redis server time
   ├─ cache           Redis; deterministic, non-streaming requests only; key includes tenant ID
-  ├─ coalescing      identical in-flight requests share one upstream call
-  ├─ spend caps      atomic per-key budget check
+  ├─ coalescing      identical in-flight requests share one upstream call (stretch)
+  ├─ spend caps      atomic per-key budget check (stretch)
   ├─ router          timeouts, retries (backoff + jitter), circuit breaker,
   │                  fallback to the other provider before the first streamed byte
   ├─ adapters        unified schema ⇄ Claude / Gemini / mock provider (async httpx, SSE streaming)
-  └─ accounting      token counts and cost per request, Prometheus metrics
+  └─ accounting      token counts and cost per request, Prometheus metrics (stretch)
   │
   ▼
 Claude API · Gemini API · mock provider (default; configurable latency and failure rate)

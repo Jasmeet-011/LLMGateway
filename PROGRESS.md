@@ -33,16 +33,16 @@ A milestone is checked only when its work is merged. **Verified** records the ev
 | [ ] | Retries with backoff and jitter | |
 | [ ] | Circuit breaker | |
 | [ ] | Provider fallback (before first streamed byte) | |
-| [ ] | Request coalescing | |
-| [ ] | Atomic per-key spend caps | |
-| [ ] | Prometheus metrics | |
 | [ ] | k6 load test, results in `docs/RESULTS.md` | |
 | [ ] | GitHub Actions CI | |
 | [ ] | README with architecture and results table | |
 
-## Optional (first to cut)
+## Stretch (not required for done)
 
 | Done | Milestone | Verified |
 | --- | --- | --- |
+| [ ] | Request coalescing | |
+| [ ] | Atomic per-key spend caps | |
+| [ ] | Prometheus metrics | |
 | [ ] | Grafana dashboard | |
 | [ ] | Cloud deploy | |

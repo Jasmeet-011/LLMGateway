@@ -178,6 +178,37 @@ async def test_malformed_json_is_422_without_echo() -> None:
 
 
 @pytest.mark.asyncio
+async def test_model_over_128_chars_is_422_and_not_echoed_or_logged(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.INFO, logger="llmgateway.request")
+    long_model = "model-marker-" + "x" * 116
+    assert len(long_model) == 129
+    provider = MockProvider(sleep=FakeSleep())
+    async with _client(create_app(provider=provider)) as client:
+        response = await client.post("/v1/chat", json=_body(model=long_model))
+    error = _assert_error(response, 422, "validation_error")
+    assert error.error.details is not None
+    assert [d.loc for d in error.error.details] == [("body", "model")]
+    assert long_model not in response.text
+    assert provider.call_count == 0
+
+    lines = [r.getMessage() for r in caplog.records if r.name == "llmgateway.request"]
+    assert len(lines) == 1
+    assert "model=- status=422" in lines[0]
+    assert long_model not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_model_of_128_chars_succeeds() -> None:
+    model = "m" * 128
+    async with _client(create_app(provider=MockProvider(sleep=FakeSleep()))) as client:
+        response = await client.post("/v1/chat", json=_body(model=model))
+    assert response.status_code == 200
+    assert ChatResponse.model_validate(response.json()).model == model
+
+
+@pytest.mark.asyncio
 async def test_unknown_route_uses_error_body() -> None:
     async with _client(create_app()) as client:
         response = await client.get("/nope")
