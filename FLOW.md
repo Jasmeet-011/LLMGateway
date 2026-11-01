@@ -3,7 +3,7 @@
 ## 1. About this file
 
 **Last updated:** 2026-11-01
-**Status table reflects commit:** `PENDING` (branch `step-6-claude-adapter`)
+**Status table reflects commit:** `8d618a9` (branch `step-6-claude-adapter`)
 
 How a request moves through LLMGateway, in plain English.
 
@@ -11,7 +11,7 @@ How a request moves through LLMGateway, in plain English.
 
 ## 2. Status
 
-A component is **Built** only when its code is on `main` and the five checks in [CLAUDE.md](CLAUDE.md) pass (`uv sync`, `uv run pytest`, `uv run ruff check`, `uv run ruff format --check`, `uv run mypy`). At `PENDING` all five pass (PENDING tests).
+A component is **Built** only when its code is on `main` and the five checks in [CLAUDE.md](CLAUDE.md) pass (`uv sync`, `uv run pytest`, `uv run ruff check`, `uv run ruff format --check`, `uv run mypy`). At `8d618a9` all five pass (204 tests).
 
 | Component | Status | Evidence |
 | --- | --- | --- |
@@ -176,7 +176,7 @@ sequenceDiagram
 
 ## 8. Module map
 
-What exists under `src/llmgateway` at `PENDING`, plus planned modules. Planned names may change.
+What exists under `src/llmgateway` at `8d618a9`, plus planned modules. Planned names may change.
 
 ```
 src/llmgateway/
