@@ -215,7 +215,6 @@ async def test_unknown_route_uses_error_body() -> None:
     _assert_error(response, 404, "not_found")
 
 
-# DRAFT: owner review required
 @pytest.mark.parametrize(
     ("failure_type", "status", "code"),
     [
@@ -240,7 +239,6 @@ async def test_provider_failures_map_to_status(
     assert "retry-after" not in response.headers
 
 
-# DRAFT: owner review required
 @pytest.mark.asyncio
 async def test_provider_rate_limit_sends_retry_after() -> None:
     async with _client(create_app(provider=RateLimitedProvider())) as client:

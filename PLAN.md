@@ -2,7 +2,7 @@
 
 ## Goal
 
-A FastAPI gateway in front of Claude and Gemini that adds reliability and cost control: auth, rate limits, cache, retries, fallback, cost tracking, metrics. Personal systems project, not a product.
+A FastAPI gateway in front of Claude and Gemini that adds reliability and cost control: auth, rate limits, cache, retries, fallback, and cost tracking are required; metrics are stretch (D-031). Personal systems project, not a product.
 
 ## Week 1: core path
 

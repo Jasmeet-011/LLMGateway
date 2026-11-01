@@ -231,6 +231,7 @@ Log of design decisions. Add a new entry after each step; do not rewrite old ent
 - **Alternatives:** Validate `model` against a fixed list now (would be thrown away when aliases arrive).
 - **Risk:** Any `model` string is accepted and answered by the mock.
 - **Revisit when:** The alias and router step starts.
+- **Superseded in part by D-036:** the single provider is now chosen at startup by `LLMGATEWAY_PROVIDER` (mock or claude). The `model` echo still holds, and with the Claude adapter `model` is sent to Claude as the model ID, until aliases exist.
 
 ## D-028 Web dependencies
 
@@ -263,3 +264,51 @@ Log of design decisions. Add a new entry after each step; do not rewrite old ent
 - **Alternatives:** The full PLAN.md scope (more to build before anything is finished, and coalescing, spend caps and Prometheus add no claim the bullets make); dropping accounting and the word cost-control (a smaller project that no longer matches its own description).
 - **Risk:** Stretch items PLAN.md fixed in advance, measurements 6 and 7, may go unmeasured. The results table must show them as not run, not drop them.
 - **Revisit when:** All required items are merged.
+
+## D-032 Raw httpx for provider calls, not the Anthropic SDK
+
+- **Decision:** The Claude adapter calls `POST https://api.anthropic.com/v1/messages` with its own `httpx.AsyncClient`. The Anthropic SDK is not a dependency. The Gemini adapter will follow the same pattern.
+- **Why:** The official SDK retries connection errors, rate limits and 5xx responses twice by default (Anthropic's errors page). Stacked under the router's retries, one client request could reach Claude up to three times per router attempt, and the circuit breaker would never see the failures the SDK absorbed. Calling the API directly gives the adapter the raw status code and `retry-after` header for the D-014 mapping, lets it set its own timeouts (D-034), and keeps provider error text out of exceptions (D-035). Writing both adapters the same way means the router sees the same behavior from each.
+- **Alternatives:** The SDK with `max_retries=0` (typed requests and responses, but a new dependency whose exception hierarchy still has to be translated, and its retry default is one config line away from coming back); a multi-provider client library (another layer of retries and error mapping to audit).
+- **Risk:** The adapter tracks API changes itself: new stop reasons, error types, API versions. A request-building bug that SDK types would have caught is caught only by tests or by the provider's 400.
+- **Revisit when:** The streaming step, if parsing Claude's SSE events by hand proves costly, or the Messages API changes shape.
+
+## D-033 Claude API version `2026-10-21`; `temperature` and `top_p` rejected in the adapter
+
+- **Decision:** The adapter sends `anthropic-version: 2026-10-21`. A request that sets `temperature` or `top_p` is rejected by the adapter with `ProviderBadRequest` (400 `provider_bad_request`) before any network call. The step-6 instruction was to send them when set; the docs below changed that.
+- **Why:** Anthropic's versioning page lists `2026-10-21` as the latest version and recommends the latest. On it, any `temperature`, `top_p` or `top_k` returns a 400 on every model. On the older `2023-06-01`, every current model (Claude 4.7 and later, including Opus 5.5, Sonnet 5.5 and Haiku 5.5) already rejects non-default values and rejects `temperature` and `top_p` sent together; the `top_p` default there is 0.99, so even `top_p=1` fails. Passing them through would get a provider 400 on any current model, so rejecting locally gives the same answer without a round trip. Dropping them silently would hand the client default sampling when it asked for something else, and could let a sampled answer be cached as if it were deterministic (D-003).
+- **Alternatives:** `2023-06-01` and pass them through when set (honored only by legacy models such as Sonnet 4.6, Opus 4.6 and Haiku 4.5, and pins the gateway to an old version); `2026-10-21` and drop them silently (wrong output with no signal); remove the fields from the schema (a schema change, and Gemini may support them).
+- **Risk:** A client that sends `temperature=1.0` for Claude gets a 400 although that is the default. Once fallback exists, such a request fails non-retryably on Claude, and whether non-retryable errors fall back is still open (FLOW.md section 5). The comment in `schema.py` saying Claude documents 0 to 1 for both is out of date for current models.
+- **Revisit when:** The Gemini adapter is built (decide how the schema exposes sampling), aliases and fallback arrive, or Anthropic releases a new API version.
+
+## D-034 Claude adapter timeouts
+
+- **Decision:** `httpx.Timeout(connect=5, read=60, write=10, pool=5)` seconds, overridable through the `ClaudeAdapter` constructor.
+- **Why:** httpx's read timeout is the longest wait for the next bytes, not a total deadline. A non-streaming Messages response sends nothing until generation ends, so 60s read effectively caps generation time: long enough for short and moderate `max_tokens`, short enough that a hung call ends and the router can act. Connect 5s: a connect or TLS handshake that slow means the host is unreachable and fallback should start. Write 10s: request bodies are small text. Pool 5s: waiting longer than that for a free pooled connection means the gateway is saturated, and failing is better than queueing. httpx's default (5s for everything) would cut off ordinary generations; the SDK's 10-minute default would hold a connection and a client for 10 minutes before fallback.
+- **Alternatives:** httpx defaults (too short for generation); a 10-minute read timeout like the SDK (no timely fallback); one total deadline per call with `asyncio.timeout` (httpx has no overall timeout; the router step will own deadlines).
+- **Risk:** None of these values is measured. Requests with a large `max_tokens`, or a thinking model at high effort, can legitimately exceed 60s and are reported as `ProviderTimeout`, which is retryable, so a retry repeats the same long and billed generation. Because read is not a total deadline, a slow trickle of bytes can run past 60s.
+- **Revisit when:** The router step chooses deadlines, streaming arrives (read then means time between events), or load tests measure real latencies.
+
+## D-035 Classifying Claude failures: 529, malformed bodies, transport errors
+
+- **Decision:** Refines D-014 for Claude. 529 (`overloaded_error`) and every other 5xx map to `ProviderUnavailable`. A 2xx body that is not JSON, or lacks a non-empty `id`, a `content` list of typed blocks (text blocks must have `text`), a string `stop_reason`, or non-negative integer `usage.input_tokens` and `usage.output_tokens`, maps to `ProviderUnavailable`. httpx timeouts (connect, read, write, pool) map to `ProviderTimeout`; every other httpx transport error (connect, read, write, protocol) maps to `ProviderUnavailable`. An unexpected 3xx, which httpx does not follow, maps to `ProviderUnavailable`. Unknown `stop_reason` values map to finish reason `other`, not to an error. Other 4xx map to `ProviderBadRequest`, as the step instruction set.
+- **Why:** Anthropic documents 529 as "the API is temporarily overloaded" across all users: a provider capacity problem, handled like a 503 by retrying later or falling back. It is not `ProviderRateLimited`, because it is not the gateway's quota and has no `retry-after`, and the client would be told the provider is rate limiting the gateway. A 2xx the adapter cannot parse is a provider-side fault, such as a proxy page or a truncated body. The request itself may be fine, so the error is retryable, not a bad request, and not a 500 that looks like a gateway bug. The versioning policy says enum values may be added, so a new stop reason must not break responses.
+- **Alternatives:** 529 as `ProviderRateLimited` (wrong client message, and it would feed whatever breaker rule rate limits get); malformed bodies as `ProviderBadRequest` (non-retryable, blames the client) or left to raise as a 500; an error for unknown stop reasons (breaks on every enum addition).
+- **Risk:** Retrying after a malformed 2xx can repeat a generation Claude completed and billed, and the failed attempt's tokens are not recorded. A 429 sent when the organization reaches its monthly spend cap carries no `retry-after` and keeps failing until the next month, but is still classed as a retryable rate limit. 402 (`billing_error`) is the gateway's account problem but reaches the client as a 400.
+- **Revisit when:** The router and circuit breaker step, or the accounting step if failed attempts must be costed.
+
+## D-036 Provider selection by environment variable (temporary)
+
+- **Decision:** Temporary, until model aliases (D-010). Supersedes the single-provider part of D-027. `main.py` reads `LLMGATEWAY_PROVIDER`: `mock` (the default when unset) or `claude`. Any other value, including an empty string, stops startup. `claude` requires a non-blank `ANTHROPIC_API_KEY`, or startup stops. Configuration errors end the process at import with a `SystemExit` message that never echoes the values set. The app owns its provider and closes it on shutdown through a FastAPI lifespan. `create_app` still takes an injected provider for tests (D-024).
+- **Why:** The owner can run the gateway against real Claude without code changes, and it still defaults to the mock (CLAUDE.md). Failing at startup turns a misconfiguration into one clear error instead of a 502 on every request. Not echoing values means a key pasted into the wrong variable is not printed to a console or CI log.
+- **Alternatives:** A settings library such as pydantic-settings (a new dependency for two variables); failing on the first request (the server looks healthy while broken); loading `.env` automatically (a new dependency, and a file silently overriding the shell is a common surprise).
+- **Risk:** The environment is read when `main` is imported, so tests that import it must set a valid environment. Only one provider can be used at a time, so there is no fallback. `/healthz` reports ok even with a wrong key; the first chat request fails with 502 `provider_auth_error`.
+- **Revisit when:** The alias and router step, which moves provider choice into alias configuration.
+
+## D-037 Runtime dependencies: httpx and starlette
+
+- **Decision:** httpx 0.28.1 moves from the dev group to runtime dependencies (superseding the dev-only part of D-028), and starlette 1.8.0 is declared as a direct runtime dependency. Re-locked under the existing `exclude-newer` (D-029); no locked version changed.
+- **Why:** Production code now imports httpx (`providers/claude.py`). `app.py` and `errors.py` import starlette directly; relying on fastapi to pull it in would let a fastapi upgrade change starlette's version without `pyproject.toml` showing that the code depends on it. Pinning the version fastapi 0.143.1 already resolved keeps the lock unchanged.
+- **Alternatives:** Leave starlette transitive (works today, but the dependency is implicit); import only FastAPI's re-exports (not every type used, such as `starlette.types`, is re-exported).
+- **Risk:** The starlette pin must move together with fastapi's; a fastapi upgrade that needs another starlette version fails to resolve until both pins change.
+- **Revisit when:** fastapi is upgraded.

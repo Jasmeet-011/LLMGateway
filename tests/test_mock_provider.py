@@ -184,7 +184,6 @@ def test_boundary_config_accepted() -> None:
 # Failure injection
 
 
-# DRAFT: owner review required
 @pytest.mark.parametrize(
     ("failure_type", "error_class", "retryable"),
     [
@@ -208,7 +207,6 @@ async def test_failure_type_maps_to_error(
     assert "hello" not in exc_info.value.message
 
 
-# DRAFT: owner review required
 @pytest.mark.asyncio
 async def test_failed_call_still_waits_latency() -> None:
     sleep = FakeSleep()
@@ -218,14 +216,12 @@ async def test_failed_call_still_waits_latency() -> None:
     assert sleep.calls == [0.1]
 
 
-# DRAFT: owner review required
 @pytest.mark.asyncio
 async def test_zero_failure_rate_never_fails() -> None:
     provider = MockProvider(failure_rate=0.0, seed=7, sleep=FakeSleep())
     assert all(await _outcomes(provider, 200))
 
 
-# DRAFT: owner review required
 @pytest.mark.asyncio
 async def test_same_seed_reproduces_sequence() -> None:
     first = await _outcomes(MockProvider(failure_rate=0.5, seed=42, sleep=FakeSleep()), 100)
@@ -235,7 +231,6 @@ async def test_same_seed_reproduces_sequence() -> None:
     assert any(first)
 
 
-# DRAFT: owner review required
 @pytest.mark.asyncio
 async def test_different_seeds_give_different_sequences() -> None:
     first = await _outcomes(MockProvider(failure_rate=0.5, seed=1, sleep=FakeSleep()), 50)
@@ -243,7 +238,6 @@ async def test_different_seeds_give_different_sequences() -> None:
     assert first != second
 
 
-# DRAFT: owner review required
 @pytest.mark.asyncio
 async def test_failure_count_reproducible_at_fixed_seed() -> None:
     provider = MockProvider(failure_rate=0.3, seed=1234, sleep=FakeSleep())
@@ -257,7 +251,6 @@ async def test_failure_count_reproducible_at_fixed_seed() -> None:
     assert provider.call_count == 1000
 
 
-# DRAFT: owner review required
 @pytest.mark.asyncio
 async def test_failure_rate_is_honest() -> None:
     failures = 0
