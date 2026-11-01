@@ -4,7 +4,7 @@ Rules for AI-assisted work on LLMGateway. These apply to every task. Changing th
 
 ## Project
 
-FastAPI service in front of Claude and Gemini. Reliability and cost-control layer: auth, rate limits, cache, retries, fallback, cost tracking, metrics. Personal systems project, not a product. Scope lives in `PLAN.md`; status in `PROGRESS.md`; design decisions in `DECISIONS.md`.
+FastAPI service in front of Claude and Gemini. Reliability and cost-control layer: auth, rate limits, cache, retries, fallback, cost tracking; metrics are stretch (D-031). Personal systems project, not a product. Scope lives in `PLAN.md`; status in `PROGRESS.md`; design decisions in `DECISIONS.md`.
 
 ## Honesty
 
@@ -22,6 +22,8 @@ FastAPI service in front of Claude and Gemini. Reliability and cost-control laye
 - FLOW.md is a living document. Any task that merges a component or changes the request flow must update the FLOW.md status table, and the Last updated date and commit SHA, in the same PR. Mark a component Built only when its code is on main and the five checks pass. Edit the target-design diagrams only when a decision in DECISIONS.md changes the design, and reference its D-number.
 - Doc updates ship in the same PR as the code they describe; no docs-only PRs.
 - Every report ends with: what changed, what you were unsure about, and choices the owner did not specify.
+- Dependencies follow the age floor in D-029: no package uploaded less than 7 days before locking; exclude-newer in pyproject.toml is moved forward deliberately and never removed.
+- Only the owner edits PROGRESS.md, after reproducing the checks; code PRs do not touch it.
 
 ## Stack
 

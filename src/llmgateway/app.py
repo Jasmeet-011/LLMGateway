@@ -7,7 +7,11 @@ Key design choices:
 
 - `create_app(provider=None, id_factory=None)` (D-024): tests inject a provider and
   deterministic IDs; the default is `MockProvider`, so nothing calls a real
-  provider unless configured to.
+  provider unless configured to. Which provider the server uses is chosen in
+  `main` (D-036).
+- The app owns its provider: on shutdown its lifespan calls the provider's
+  `aclose()` if it has one, which closes the Claude adapter's HTTP client. The
+  adapter interface does not require `aclose()`, so the mock needs none.
 - A small pure ASGI middleware, not `BaseHTTPMiddleware`, assigns the request ID,
   adds `x-request-id` to every response, writes one log line per request, and turns
   unexpected exceptions into the standard 500 body. It handles those itself
@@ -27,7 +31,9 @@ Key design choices:
 import logging
 import time
 import uuid
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
+from contextlib import asynccontextmanager
+from typing import Protocol, runtime_checkable
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -55,6 +61,11 @@ REQUEST_ID_HEADER = "x-request-id"
 
 def new_request_id() -> str:
     return f"gw_{uuid.uuid4().hex}"
+
+
+@runtime_checkable
+class _Closeable(Protocol):
+    async def aclose(self) -> None: ...
 
 
 class RequestContextMiddleware:
@@ -114,10 +125,17 @@ def create_app(
 ) -> FastAPI:
     adapter: ProviderAdapter = provider if provider is not None else MockProvider()
 
+    @asynccontextmanager
+    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        yield
+        if isinstance(adapter, _Closeable):
+            await adapter.aclose()
+
     app = FastAPI(
         title="LLMGateway",
         version="0.1.0",
         telemetry={"tracing": False, "metrics": False, "logs": False},
+        lifespan=lifespan,
     )
     app.add_middleware(RequestContextMiddleware, id_factory=id_factory or new_request_id)
     app.add_exception_handler(RequestValidationError, validation_error_handler)
