@@ -4,7 +4,7 @@ The single status file. A milestone is ticked only when its work is on `main` wi
 
 ## Current Status
 
-M1 to M6 are done: the unified schema, the adapter interface and error taxonomy, the mock provider, the `POST /v1/chat` endpoint with its error mapping, and the non-streaming Claude adapter, chosen with `LLMGATEWAY_PROVIDER`. On 2026-11-03 the repo moved to the autonomous workflow in CLAUDE.md: work happens on `main`, with tester and reviewer subagents, `scripts/check.ps1`, and a `live` test marker. The next milestone is **M7 Gemini adapter**. Open items: the live Claude test has not been run.
+M1 to M6 are done: the unified schema, the adapter interface and error taxonomy, the mock provider, the `POST /v1/chat` endpoint with its error mapping, and the non-streaming Claude adapter, chosen with `LLMGATEWAY_PROVIDER`. On 2026-11-03 the repo moved to the autonomous workflow in CLAUDE.md: work happens on `main`, with tester and reviewer subagents, `scripts/check.ps1`, and a `live` test marker. M7 is done: the non-streaming Gemini adapter, chosen with `LLMGATEWAY_PROVIDER=gemini`. The next milestone is **M8 Model aliases and router selection**. Open items: the live tests (one Claude, two Gemini) have not been run by the owner, and the tester and reviewer subagents do not load by name (session logs, 2026-11-03).
 
 ## Milestones
 
@@ -16,7 +16,7 @@ M1 to M6 are done: the unified schema, the adapter interface and error taxonomy,
 | [x] | M4 Endpoint | Merged in PR #7 (merge commit 3e8414b): `app.py`, `errors.py`, `main.py`, `tests/test_app.py` (D-019 to D-028). Commit 38f50b1 recorded 112 tests. Reproduced 2026-11-03 at 3e8414b: `uv run pytest`: 112 passed (pytest only). |
 | [x] | M5 Endpoint fix-ups | Merged in PR #8 (merge commit 895b47f): dependency age floor (D-029), `model` capped at 128 characters (D-030), scope for done (D-031). Reproduced 2026-11-03 at 895b47f: `uv run pytest`: 114 passed (pytest only). |
 | [x] | M6 Claude adapter | Merged in PR #9 (merge commit 8b833cc): `providers/claude.py`, `tests/test_claude_adapter.py`, provider selection in `main.py` (D-032 to D-037). FLOW.md recorded all five checks passing at 8d618a9 with 204 tests. Reproduced 2026-11-03 at 8b833cc: `uv sync --locked` ok; `uv run pytest`: 204 passed; `ruff check`: all checks passed; `ruff format --check`: 19 files already formatted; `mypy`: no issues in 13 source files. Mutation checks of the error mapping: session log, 2026-11-03. The 7 "DRAFT: owner review required" markers on its error-mapping tests were removed in the reset (c1f844a) under the new mutation-check rule, after those checks. The owner did not review those tests. Live test written, not yet run by the owner. |
-| [ ] | M7 Gemini adapter | |
+| [x] | M7 Gemini adapter | On `main` in 4d274c7, b82a9a7, fcab3b3, caca122 and the commit that carries the M7 session log's final entry: `providers/gemini.py`, `tests/test_gemini_adapter.py`, `tests/test_live_gemini.py`, Gemini rows in FLOW.md section 13 (D-039 to D-043). `.\scripts\check.ps1` PASS on 2026-11-03: `uv sync --locked` ok (31 packages); `uv run pytest`: 487 passed, 3 deselected; `ruff check`: all checks passed; `ruff format --check`: 26 files already formatted; `mypy`: no issues in 18 source files. Mutation checks: 177 mutations in two runs, all non-equivalent ones caught, 15 equivalent (session log). Reviewer: FAIL, then PASS in round 2. Windows 11 Home Single Language 10.0.26300, Python 3.12.12. The two live Gemini tests are written, not yet run by the owner. |
 | [ ] | M8 Model aliases and router selection | |
 | [ ] | M9 Router timeouts and retries | |
 | [ ] | M10 Circuit breaker | |
@@ -427,6 +427,23 @@ Tests added in Mode 2, all in `tests/test_gemini_adapter.py`, all additive: `tes
 | 175 | re-run #50: malformed raised inside except (chained) | gemini.py | test_deeply_nested_body_is_unavailable (53) | yes |
 | 176 | re-run #52: except ValidationError only | gemini.py | test_malformed_success_body_is_unavailable (2) | yes |
 | 177 | re-run #53: except ValueError only | gemini.py | survives: equivalent (pydantic's ValidationError subclasses ValueError (re-run of #53)) | yes |
+
+Round 2: **PASS**, no BLOCKING items. Every round 1 item was checked in code and tests. The reviewer re-ran its probe with `follow_redirects=True` forced on: 30 redirect tests failed, 15 per adapter. It also checked run 2 against `results2.json`.
+
+- SHOULD FIX 1, fixed: D-043 said deep nesting failed at "Python's recursion limit". pydantic's parser has its own, much lower limit. The builder measured it: 201 nested containers parse, 202 do not. D-043 also now records the bodies that `json.loads` accepted and the new parser rejects: a UTF-8 BOM and UTF-16 (both checked by the builder), UTF-32, and lone-surrogate escapes. Two test comments with the same wording were corrected. They are comments only; no assertion changed.
+- Notes:
+  - Needs owner is listed below (note 1).
+  - caca122 is a docs-only commit; the reviewer did not count it as a violation, because it describes test work rather than code (note 2).
+  - No new security issues (note 3).
+
+**Schema changes.** None. `schema.py` changed only in a comment (D-040); the reviewer confirmed this under CLAUDE.md's new schema rule.
+
+**Final checks.** `.\scripts\check.ps1`: PASS. `uv sync --locked` ok (31 packages); pytest 487 passed, 3 deselected; `ruff check` all checks passed; `ruff format --check` 26 files already formatted; mypy no issues in 18 source files. `uv run pytest -m live --collect-only` selects exactly the three live tests. No dependency changed: `pyproject.toml` and `uv.lock` are untouched since a634a93.
+
+**Needs owner.**
+
+- Run `uv run pytest -m live` with `GEMINI_API_KEY` set; the Claude live test also needs `ANTHROPIC_API_KEY`. `test_invalid_gemini_key_is_provider_auth_error` sends a fake key, so it costs nothing. It settles D-041's unverified point: if Gemini answers a bad key with 400 rather than 401 or 403, the test fails and D-041 needs a new entry.
+- The `tester` and `reviewer` agent types do not load in these sessions, although the files are on `main`. The cause is unknown.
 
 ## Agent Mistakes Log
 

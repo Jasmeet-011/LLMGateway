@@ -1030,8 +1030,8 @@ async def test_malformed_candidate_content_is_unavailable(candidate: dict[str, A
 DEPTH = 100_000
 
 
-# Nesting too deep for Python's recursion limit is a malformed body, not a
-# RecursionError that escapes as a 500 (D-043), also inside an ignored field.
+# Very deep nesting is a malformed body, not a RecursionError that escapes as
+# a 500 (D-043), also inside an ignored field.
 @pytest.mark.parametrize(
     "content",
     [

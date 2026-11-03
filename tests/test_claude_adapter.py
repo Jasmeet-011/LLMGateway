@@ -563,8 +563,8 @@ async def test_undecodable_body_is_unavailable(status: int) -> None:
 DEPTH = 100_000
 
 
-# Nesting too deep for Python's recursion limit is a malformed body, not a
-# RecursionError (D-043), also inside a field the adapter ignores.
+# Very deep nesting is a malformed body, not a RecursionError (D-043), also
+# inside a field the adapter ignores.
 @pytest.mark.parametrize(
     "content",
     [
