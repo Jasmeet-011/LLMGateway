@@ -312,3 +312,11 @@ Log of design decisions. Add a new entry after each step; do not rewrite old ent
 - **Alternatives:** Leave starlette transitive (works today, but the dependency is implicit); import only FastAPI's re-exports (not every type used, such as `starlette.types`, is re-exported).
 - **Risk:** The starlette pin must move together with fastapi's; a fastapi upgrade that needs another starlette version fails to resolve until both pins change.
 - **Revisit when:** fastapi is upgraded.
+
+## D-038 Negative `retry_after_seconds` sends `Retry-After: 0`
+
+- **Decision:** Refines D-019. When a `ProviderRateLimited` carries a negative `retry_after_seconds`, the client gets `Retry-After: 0`, which is what `errors.py` already does with `max(0, ceil(...))`. The value is never sent as negative. Pinned by a test row, because the reset-session mutation checks showed that removing the clamp went unnoticed.
+- **Why:** A negative `Retry-After` is invalid HTTP, and the clamp keeps the header valid whatever an adapter passes. Keeping the existing behavior meant this session changed no source.
+- **Alternatives:** Omit the header for a negative value, treating it as unknown. That matches how the Claude adapter already parses a negative `retry-after` (as absent, so the clamp is unreachable from Claude), but it needs a code change. Reject a negative value in `ProviderRateLimited` itself, which moves the rule to construction time.
+- **Risk:** "Retry now" and "no advice" are different signals, and an adapter bug that produces a negative value would tell clients to retry immediately.
+- **Revisit when:** M7 adds a second adapter that can raise `ProviderRateLimited`, or M15 makes the router consume `retry_after_seconds`.

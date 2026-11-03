@@ -8,7 +8,12 @@ from fastapi import FastAPI
 
 from llmgateway.app import create_app
 from llmgateway.errors import ErrorBody
-from llmgateway.providers.base import ProviderRateLimited, ProviderResult
+from llmgateway.providers.base import (
+    ProviderError,
+    ProviderRateLimited,
+    ProviderResult,
+    ProviderTimeout,
+)
 from llmgateway.providers.mock import FailureType, MockProvider
 from llmgateway.schema import ChatRequest, ChatResponse, Provider
 
@@ -25,6 +30,26 @@ class RateLimitedProvider:
 
     async def complete(self, request: ChatRequest) -> ProviderResult:
         raise ProviderRateLimited("limited", retry_after_seconds=7)
+
+
+class RaisingProvider:
+    """Raises a given provider error on every call."""
+
+    name: Provider = "mock"
+
+    def __init__(self, error: ProviderError) -> None:
+        self.error = error
+
+    async def complete(self, request: ChatRequest) -> ProviderResult:
+        raise self.error
+
+
+class SlowTimeout(ProviderTimeout):
+    """A subclass with no mapping of its own; its parent is mapped."""
+
+
+class UnknownProviderError(ProviderError):
+    """A subclass with no mapping of its own and no mapped parent."""
 
 
 class BrokenProvider:
@@ -245,6 +270,40 @@ async def test_provider_rate_limit_sends_retry_after() -> None:
         response = await client.post("/v1/chat", json=_body())
     _assert_error(response, 503, "provider_rate_limited")
     assert response.headers["retry-after"] == "7"
+
+
+# Retry-After takes whole seconds and is rounded up, so a client never retries
+# before the provider said it could (D-019).
+@pytest.mark.parametrize(
+    ("seconds", "header"),
+    # A negative value is clamped to "0", never sent as negative (D-038).
+    [(0, "0"), (0.2, "1"), (1.5, "2"), (2.5, "3"), (7.01, "8"), (-2, "0")],
+)
+@pytest.mark.asyncio
+async def test_provider_retry_after_rounded_up(seconds: float, header: str) -> None:
+    provider = RaisingProvider(ProviderRateLimited("limited", retry_after_seconds=seconds))
+    async with _client(create_app(provider=provider)) as client:
+        response = await client.post("/v1/chat", json=_body())
+    _assert_error(response, 503, "provider_rate_limited")
+    assert response.headers["retry-after"] == header
+
+
+@pytest.mark.asyncio
+async def test_provider_error_subclass_uses_parent_mapping() -> None:
+    provider = RaisingProvider(SlowTimeout("slow"))
+    async with _client(create_app(provider=provider)) as client:
+        response = await client.post("/v1/chat", json=_body())
+    _assert_error(response, 504, "provider_timeout")
+
+
+@pytest.mark.asyncio
+async def test_unmapped_provider_error_is_502_provider_error() -> None:
+    provider = RaisingProvider(UnknownProviderError("unknown-provider-detail"))
+    async with _client(create_app(provider=provider)) as client:
+        response = await client.post("/v1/chat", json=_body())
+    _assert_error(response, 502, "provider_error")
+    assert "unknown-provider-detail" not in response.text
+    assert "retry-after" not in response.headers
 
 
 @pytest.mark.asyncio

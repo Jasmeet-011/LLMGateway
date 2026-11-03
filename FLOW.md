@@ -230,7 +230,7 @@ Every failure an adapter sees becomes one `ProviderError` class (D-014), and `er
 | --- | --- | --- | --- | --- |
 | Request sets `temperature` or `top_p` (rejected before any network call) | `ProviderBadRequest` | no | 400 | `provider_bad_request` |
 | HTTP 401 or 403 | `ProviderAuthError` | no | 502 | `provider_auth_error` |
-| HTTP 429 | `ProviderRateLimited`, `retry_after_seconds` from a numeric, finite, non-negative `retry-after`, else none | yes | 503, with `Retry-After` rounded up to whole seconds when known | `provider_rate_limited` |
+| HTTP 429 | `ProviderRateLimited`, `retry_after_seconds` from a numeric, finite, non-negative `retry-after`, else none | yes | 503, with `Retry-After` rounded up to whole seconds when known, never below 0 (D-038) | `provider_rate_limited` |
 | Any other HTTP 4xx (400, 402, 404, 409, 413, 422, ...) | `ProviderBadRequest` | no | 400 | `provider_bad_request` |
 | HTTP 5xx, including 529 `overloaded_error` | `ProviderUnavailable` | yes | 502 | `provider_unavailable` |
 | Unexpected HTTP 3xx (httpx does not follow redirects) | `ProviderUnavailable` | yes | 502 | `provider_unavailable` |

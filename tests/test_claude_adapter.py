@@ -190,13 +190,28 @@ async def test_empty_stop_is_not_sent() -> None:
     assert "stop_sequences" not in recorder.body
 
 
-# DRAFT: owner review required
 @pytest.mark.parametrize(
     "overrides",
     [{"temperature": 0.5}, {"temperature": 1.0}, {"top_p": 0.9}, {"temperature": 0, "top_p": 1}],
 )
 @pytest.mark.asyncio
 async def test_temperature_or_top_p_rejected_without_network_call(
+    overrides: dict[str, float],
+) -> None:
+    recorder = Recorder()
+    exc = await _failure(recorder, _request(**overrides))
+    assert type(exc) is ProviderBadRequest
+    assert exc.retryable is False
+    assert recorder.requests == []
+
+
+# Zero is a set value, so it is rejected like any other (FLOW.md section 13).
+@pytest.mark.parametrize(
+    "overrides",
+    [{"temperature": 0}, {"temperature": 0.0}, {"top_p": 0}, {"top_p": 0.0}],
+)
+@pytest.mark.asyncio
+async def test_zero_temperature_or_top_p_rejected_without_network_call(
     overrides: dict[str, float],
 ) -> None:
     recorder = Recorder()
@@ -307,7 +322,6 @@ async def test_client_reused_across_calls() -> None:
 # Error mapping
 
 
-# DRAFT: owner review required
 @pytest.mark.parametrize(
     ("status", "error_type"),
     [
@@ -340,7 +354,18 @@ async def test_http_status_mapping(status: int, error_type: type[ProviderError])
     assert len(recorder.requests) == 1
 
 
-# DRAFT: owner review required
+# Every 4xx other than 401, 403 and 429 is a bad request, above 429 too.
+@pytest.mark.parametrize("status", [430, 431, 451, 499])
+@pytest.mark.asyncio
+async def test_upper_4xx_statuses_map_to_bad_request(status: int) -> None:
+    recorder = Recorder(_error_response(status))
+    exc = await _failure(recorder)
+    assert type(exc) is ProviderBadRequest
+    assert exc.retryable is False
+    _assert_clean(exc)
+    assert len(recorder.requests) == 1
+
+
 @pytest.mark.parametrize(
     ("header", "expected"),
     [
@@ -363,7 +388,6 @@ async def test_rate_limit_retry_after(header: str | None, expected: float | None
     assert exc.retry_after_seconds == expected
 
 
-# DRAFT: owner review required
 @pytest.mark.parametrize(
     "error", [httpx.ConnectTimeout, httpx.ReadTimeout, httpx.WriteTimeout, httpx.PoolTimeout]
 )
@@ -380,7 +404,6 @@ async def test_timeouts_map_to_provider_timeout(error: type[httpx.TransportError
     _assert_clean(exc)
 
 
-# DRAFT: owner review required
 @pytest.mark.parametrize(
     "error", [httpx.ConnectError, httpx.ReadError, httpx.WriteError, httpx.RemoteProtocolError]
 )
@@ -395,7 +418,6 @@ async def test_connection_errors_map_to_unavailable(error: type[httpx.TransportE
     _assert_clean(exc)
 
 
-# DRAFT: owner review required
 @pytest.mark.parametrize(
     "content",
     [
@@ -443,6 +465,34 @@ async def test_malformed_success_body_is_unavailable(content: bytes) -> None:
     assert exc.__context__ is None
 
 
+# Both usage counts must be non-negative JSON integers, not strings, booleans or
+# floats (FLOW.md section 13, D-035).
+@pytest.mark.parametrize(
+    "usage",
+    [
+        {"input_tokens": 1, "output_tokens": -1},
+        {"input_tokens": 1, "output_tokens": "1"},
+        {"input_tokens": 1, "output_tokens": True},
+        {"input_tokens": 1, "output_tokens": 1.0},
+        {"input_tokens": 1.0, "output_tokens": 1},
+    ],
+    ids=[
+        "negative_output_tokens",
+        "string_output_tokens",
+        "bool_output_tokens",
+        "float_output_tokens",
+        "float_input_tokens",
+    ],
+)
+@pytest.mark.asyncio
+async def test_malformed_usage_is_unavailable(usage: dict[str, Any]) -> None:
+    content = json.dumps(_ok(usage=usage)).encode()
+    exc = await _failure(Recorder(httpx.Response(200, content=content)))
+    assert type(exc) is ProviderUnavailable
+    assert exc.message == "claude: malformed response body"
+    assert exc.__context__ is None
+
+
 # Through the app
 
 
@@ -480,7 +530,6 @@ async def test_app_with_claude_adapter(caplog: pytest.LogCaptureFixture) -> None
     assert "Hi!" not in caplog.text
 
 
-# DRAFT: owner review required
 @pytest.mark.asyncio
 async def test_app_maps_claude_rate_limit_to_503_with_retry_after(
     caplog: pytest.LogCaptureFixture,
