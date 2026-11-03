@@ -2,7 +2,7 @@
 
 LLMGateway is a FastAPI service that sits in front of Anthropic Claude and Google Gemini and is being built to add a reliability and cost-control layer: API-key authentication, per-key rate limits, a response cache, timeouts and retries, provider fallback, and per-key cost tracking. Per-key spend caps and Prometheus metrics are stretch goals. The goal is for clients to call one unified API while the gateway handles provider differences, failures, and accounting. It is a personal systems project for learning and demonstrating backend reliability engineering, not a product.
 
-**Status: in progress.** The unified schema, provider error types, adapter interface, mock provider, a first HTTP endpoint (POST /v1/chat, on the mock provider by default), and the Claude adapter (non-streaming, chosen with `LLMGATEWAY_PROVIDER=claude`) are implemented and tested. The Gemini adapter is not built yet. Auth, rate limiting, caching, streaming, and resilience are not built yet. See [PLAN.md](PLAN.md) for scope and [PROGRESS.md](PROGRESS.md) for what is done and verified.
+**Status:** in progress; [PROGRESS.md](PROGRESS.md) lists what is built and verified.
 
 ## Planned architecture
 
@@ -80,5 +80,5 @@ None yet. Any performance figures will be added only from measured runs recorded
 - [PLAN.md](PLAN.md): scope and schedule
 - [PROGRESS.md](PROGRESS.md): milestone checklist
 - [DECISIONS.md](DECISIONS.md): design decision log
-- [FLOW.md](FLOW.md): architecture flow and component status
+- [FLOW.md](FLOW.md): request flow and error mapping spec
 - [CLAUDE.md](CLAUDE.md): rules for AI-assisted work in this repo

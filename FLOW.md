@@ -2,39 +2,13 @@
 
 ## 1. About this file
 
-**Last updated:** 2026-11-01
-**Status table reflects commit:** `8d618a9` (branch `step-6-claude-adapter`)
+How a request moves through LLMGateway, in plain English, and how failures map to client responses.
 
-How a request moves through LLMGateway, in plain English.
-
-**Honesty rule:** the diagrams show the **target design**. The status table says what **exists**. If this file and [PROGRESS.md](PROGRESS.md) disagree, PROGRESS.md wins.
+**This file is the spec.** The diagrams show the **target design**, and the error mapping in section 13 is the contract the code must meet. Code must match this file; when a decision changes the design, the D-entry and this file change together. It does not track what is built.
 
 ## 2. Status
 
-A component is **Built** only when its code is on `main` and the five checks in [CLAUDE.md](CLAUDE.md) pass (`uv sync`, `uv run pytest`, `uv run ruff check`, `uv run ruff format --check`, `uv run mypy`). At `8d618a9` all five pass (204 tests).
-
-| Component | Status | Evidence |
-| --- | --- | --- |
-| Unified schema | Built | `src/llmgateway/schema.py`, `tests/test_schema.py` (D-006 to D-009, D-013) |
-| Provider errors | Built | `src/llmgateway/providers/base.py`; exercised by the failure-injection tests in `tests/test_mock_provider.py` (D-014) |
-| Adapter interface | Built | `src/llmgateway/providers/base.py`; `test_mock_satisfies_adapter_protocol` in `tests/test_mock_provider.py`, checked by mypy (D-015) |
-| Mock provider | Built | `src/llmgateway/providers/mock.py`, `tests/test_mock_provider.py` (D-001, D-016). Not yet ticked in PROGRESS.md |
-| FastAPI endpoint | Built | `src/llmgateway/app.py`, `src/llmgateway/errors.py`, `src/llmgateway/main.py`, `tests/test_app.py` (D-019, D-022 to D-027). Provider chosen at startup by `LLMGATEWAY_PROVIDER` (D-036) |
-| Response IDs | Built | `new_request_id` and the request middleware in `src/llmgateway/app.py`; `provider_response_id` in `schema.py`; `tests/test_app.py` (D-011, D-020) |
-| Auth: hashed API keys | Planned | none yet |
-| Rate limiter | Planned | none yet (D-002) |
-| Cache | Planned | none yet (D-003, D-012) |
-| Coalescing | Stretch (D-031) | none yet |
-| Spend caps | Stretch (D-031) | none yet |
-| Router: timeouts, retries, circuit breaker, fallback | Planned | none yet (D-010) |
-| Claude adapter | Built | `src/llmgateway/providers/claude.py`, `tests/test_claude_adapter.py`; startup selection in `src/llmgateway/main.py` (D-032 to D-037). Non-streaming only. The error-mapping tests are drafts awaiting owner review. Not yet ticked in PROGRESS.md |
-| Gemini adapter | Planned | none yet |
-| SSE streaming | Planned | none yet. Stream event models exist in `schema.py`, but nothing produces or sends them |
-| Cost accounting | Planned | none yet (D-012) |
-| Prometheus metrics | Stretch (D-031) | none yet |
-| Docker Compose | Planned | none yet |
-| CI | Planned | none yet |
-| Load tests | Planned | none yet |
+What is built and verified is tracked only in [PROGRESS.md](PROGRESS.md).
 
 ## 3. Big picture
 
@@ -58,7 +32,7 @@ Where spend caps, coalescing state, and usage records live is not decided yet (s
 
 ## 4. Order of checks per request
 
-Decided in D-018. Body validation is built (422, D-019); the rest is not.
+Decided in D-018. Body validation rejects with 422 (D-019). Which checks exist today is in [PROGRESS.md](PROGRESS.md).
 
 ```mermaid
 flowchart TD
@@ -176,44 +150,42 @@ sequenceDiagram
 
 ## 8. Module map
 
-What exists under `src/llmgateway` at `8d618a9`, plus planned modules. Planned names may change.
+The target layout of `src/llmgateway` and what each module owns. Names of modules not written yet may change; which modules exist is in [PROGRESS.md](PROGRESS.md).
 
 ```
 src/llmgateway/
-├── __init__.py          Built: package docstring only
-├── schema.py            Built: ChatRequest, ChatResponse, Usage, stream event models
+├── __init__.py          package docstring only
+├── schema.py            ChatRequest, ChatResponse, Usage, stream event models
 ├── providers/
-│   ├── __init__.py      Built: package docstring only
-│   ├── base.py          Built: ProviderResult, ProviderAdapter, ProviderError classes
-│   ├── mock.py          Built: MockProvider
-│   ├── claude.py        Built: ClaudeAdapter, Messages API over httpx
-│   └── gemini.py        planned, name may change
-├── app.py               Built: create_app, request middleware, endpoints
-├── errors.py            Built: error body, status mapping, exception handlers
-├── main.py              Built: module-level app for uvicorn, provider from LLMGATEWAY_PROVIDER
-├── auth                 planned, name may change: API key hashing and lookup
-├── ratelimit            planned, name may change: Redis Lua token bucket
-├── cache                planned, name may change: cache key and storage
-├── coalescing           stretch (D-031), name may change
-├── spend                stretch (D-031), name may change: spend caps
-├── router               planned, name may change: timeouts, retries, breaker, fallback
-├── accounting           planned, name may change: usage and cost records
-└── metrics              stretch (D-031), name may change: Prometheus metrics
+│   ├── __init__.py      package docstring only
+│   ├── base.py          ProviderResult, ProviderAdapter, ProviderError classes
+│   ├── mock.py          MockProvider
+│   ├── claude.py        ClaudeAdapter, Messages API over httpx
+│   └── gemini.py        Gemini adapter
+├── app.py               create_app, request middleware, endpoints
+├── errors.py            error body, status mapping, exception handlers
+├── main.py              module-level app for uvicorn, provider configuration
+├── auth                 API key hashing and lookup
+├── ratelimit            Redis Lua token bucket
+├── cache                cache key and storage
+├── coalescing           stretch (D-031)
+├── spend                stretch (D-031): spend caps
+├── router               timeouts, retries, breaker, fallback
+├── accounting           usage and cost records
+└── metrics              stretch (D-031): Prometheus metrics
 ```
-
-Tests: `tests/test_schema.py`, `tests/test_mock_provider.py`, `tests/test_app.py`, and `tests/test_claude_adapter.py` exist.
 
 ## 9. What lives where (data)
 
-| Where | What | Status |
-| --- | --- | --- |
-| Postgres | Hashed API keys, managed with SQLAlchemy and Alembic | Planned |
-| Redis | Rate limit token buckets, updated by a Lua script using Redis server time (D-002) | Planned |
-| Redis | Cached responses, keyed by a hash of the normalized request, model, params, and caller (D-003) | Planned |
-| To be decided | Usage and cost records; spend cap counters and coalescing state (stretch, D-031) | Not decided |
-| Never stored | Plaintext API keys: only hashes are kept, compared in constant time | Rule in CLAUDE.md |
-| Never logged | Prompts, response content, API keys, secrets | Rule in CLAUDE.md |
-| Never in the repo | Secrets of any kind; the repo is public | Rule in CLAUDE.md |
+| Where | What |
+| --- | --- |
+| Postgres | Hashed API keys, managed with SQLAlchemy and Alembic |
+| Redis | Rate limit token buckets, updated by a Lua script using Redis server time (D-002) |
+| Redis | Cached responses, keyed by a hash of the normalized request, model, params, and caller (D-003) |
+| To be decided | Usage and cost records; spend cap counters and coalescing state (stretch, D-031) |
+| Never stored | Plaintext API keys: only hashes are kept, compared in constant time (CLAUDE.md) |
+| Never logged | Prompts, response content, API keys, secrets (CLAUDE.md) |
+| Never in the repo | Secrets of any kind; the repo is public (CLAUDE.md) |
 
 ## 10. Glossary
 
@@ -244,6 +216,40 @@ Listed, not answered.
 
 ## 12. Keeping this file honest
 
-- Update the status table in the same PR that merges a component, never before.
-- Do not edit the target-design diagrams to match code that does not exist.
-- When a decision changes the flow, link its D-number in the affected section.
+- No status, dates or commit SHAs here; status lives in [PROGRESS.md](PROGRESS.md).
+- Edit the target-design diagrams and the error mapping only when a decision in DECISIONS.md changes the design, and link its D-number in the affected section.
+- When code and this file disagree, either the code is fixed or a new D-entry changes the spec; the spec is never edited silently to match the code.
+
+## 13. Error mapping
+
+Every failure an adapter sees becomes one `ProviderError` class (D-014), and `errors.py` maps that class to the client status and code (D-019). The client always gets the standard error body with a fixed message (D-023): never the provider's error text, the prompt, or the key.
+
+### Claude (`providers/claude.py`, D-033, D-035)
+
+| Provider outcome | Error type | Retryable | Client status | Client code |
+| --- | --- | --- | --- | --- |
+| Request sets `temperature` or `top_p` (rejected before any network call) | `ProviderBadRequest` | no | 400 | `provider_bad_request` |
+| HTTP 401 or 403 | `ProviderAuthError` | no | 502 | `provider_auth_error` |
+| HTTP 429 | `ProviderRateLimited`, `retry_after_seconds` from a numeric, finite, non-negative `retry-after`, else none | yes | 503, with `Retry-After` rounded up to whole seconds when known | `provider_rate_limited` |
+| Any other HTTP 4xx (400, 402, 404, 409, 413, 422, ...) | `ProviderBadRequest` | no | 400 | `provider_bad_request` |
+| HTTP 5xx, including 529 `overloaded_error` | `ProviderUnavailable` | yes | 502 | `provider_unavailable` |
+| Unexpected HTTP 3xx (httpx does not follow redirects) | `ProviderUnavailable` | yes | 502 | `provider_unavailable` |
+| httpx timeout: connect, read, write or pool (D-034) | `ProviderTimeout` | yes | 504 | `provider_timeout` |
+| Any other httpx transport error: connect, read, write, protocol | `ProviderUnavailable` | yes | 502 | `provider_unavailable` |
+| HTTP 2xx whose body is not JSON, or lacks a non-empty `id`, a `content` list of typed blocks (text blocks with `text`), a string `stop_reason`, or non-negative integer `usage.input_tokens` and `usage.output_tokens` | `ProviderUnavailable` | yes | 502 | `provider_unavailable` |
+| HTTP 2xx with a valid body | none | n/a | 200 | n/a |
+
+On success, `stop_reason` maps to `finish_reason`: `end_turn` to `stop`, `max_tokens` to `max_tokens`, `stop_sequence` to `stop_sequence`, and every other value, including ones added later, to `other` (D-035). The adapter never retries (D-032); the error is raised once, without the httpx exception chained to it.
+
+### Gateway errors (`errors.py`, `app.py`)
+
+| Outcome | Client status | Client code |
+| --- | --- | --- |
+| Body fails validation, or is not valid JSON (`details` holds `loc` and `msg` only) | 422 | `validation_error` |
+| Unknown route | 404 | `not_found` |
+| Method not allowed | 405 | `method_not_allowed` |
+| `stream=true` until streaming exists (D-022) | 501 | `streaming_not_implemented` |
+| A `ProviderError` subclass with no mapping of its own and no mapped parent | 502 | `provider_error` |
+| Any other exception | 500 | `internal_error` |
+
+Every response, including errors, carries `x-request-id` (D-020).
