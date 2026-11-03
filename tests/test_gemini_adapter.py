@@ -656,6 +656,51 @@ async def test_redirect_with_success_body_is_unavailable(status: int) -> None:
     assert len(recorder.requests) == 1
 
 
+GEMINI_HOST = "generativelanguage.googleapis.com"
+
+
+class Redirector:
+    """Answers the first request with a 3xx to `location`, and any later one with a 200.
+
+    If the adapter followed the redirect, the second request would be recorded and
+    would succeed, and the key header would go with it to wherever `location` points.
+    """
+
+    def __init__(self, status: int, location: str) -> None:
+        self.status = status
+        self.location = location
+        self.requests: list[httpx.Request] = []
+
+    def __call__(self, request: httpx.Request) -> httpx.Response:
+        self.requests.append(request)
+        if len(self.requests) == 1:
+            return httpx.Response(self.status, headers={"location": self.location}, json=_ok())
+        return httpx.Response(200, json=_ok())
+
+
+# Redirects are never followed (D-043): httpx would resend x-goog-api-key to the
+# host a redirect names, so a 3xx is ProviderUnavailable after one request.
+@pytest.mark.parametrize("status", [301, 302, 303, 307, 308])
+@pytest.mark.parametrize(
+    "location",
+    [
+        "https://evil.example/x",
+        f"{API_BASE}/gemini-3.6-flash:generateContent",
+        "/v1beta/models/gemini-3.6-flash:generateContent",
+    ],
+    ids=["other_host", "same_host", "relative"],
+)
+@pytest.mark.asyncio
+async def test_redirect_is_never_followed(status: int, location: str) -> None:
+    redirector = Redirector(status, location)
+    exc = await _failure(redirector)
+    assert type(exc) is ProviderUnavailable
+    assert exc.retryable is True
+    _assert_clean(exc)
+    assert len(redirector.requests) == 1
+    assert [r.url.host for r in redirector.requests] == [GEMINI_HOST]
+
+
 # Every 4xx other than 401, 403 and 429 is a bad request, above 429 too.
 @pytest.mark.parametrize("status", [430, 431, 451, 499])
 @pytest.mark.asyncio
@@ -744,6 +789,30 @@ async def test_connection_errors_map_to_unavailable(error: type[httpx.TransportE
     assert exc.__cause__ is None
     assert exc.__context__ is None
     _assert_clean(exc)
+
+
+def _undecodable(status: int) -> httpx.Response:
+    # A stream, not content=, because httpx.Response decodes content= at once.
+    body = b"not gzip " + PROVIDER_TEXT.encode()
+    return httpx.Response(
+        status, headers={"content-encoding": "gzip"}, stream=httpx.ByteStream(body)
+    )
+
+
+# A body whose content-encoding cannot be decoded is ProviderUnavailable on any
+# status (D-043). httpx.DecodingError is not a TransportError, so it needs its own
+# handling; the httpx error is not chained.
+@pytest.mark.parametrize("status", [200, 401, 429, 500])
+@pytest.mark.asyncio
+async def test_undecodable_body_is_unavailable(status: int) -> None:
+    recorder = Recorder(_undecodable(status))
+    exc = await _failure(recorder)
+    assert type(exc) is ProviderUnavailable
+    assert exc.retryable is True
+    _assert_clean(exc)
+    assert exc.__cause__ is None
+    assert exc.__context__ is None
+    assert len(recorder.requests) == 1
 
 
 # A blocked prompt has no output, and sending it again is blocked again (D-041).
@@ -902,6 +971,90 @@ async def test_malformed_token_count_is_unavailable(field: str, value: Any) -> N
     assert exc.__context__ is None
 
 
+# JSON null (D-041): where the adapter only checks for a value, null is absent.
+@pytest.mark.parametrize(
+    ("candidate", "content"),
+    [
+        (_candidate(content=None), ""),
+        (_candidate(content={"role": "model", "parts": [{"text": None}, {"text": "Hi"}]}), "Hi"),
+        (
+            _candidate(content={"role": "model", "parts": [{"text": None, "thought": True}]}),
+            "",
+        ),
+    ],
+    ids=["content_null", "text_null", "thought_part_text_null"],
+)
+@pytest.mark.asyncio
+async def test_null_content_or_text_read_as_absent(candidate: dict[str, Any], content: str) -> None:
+    result = await _success(_ok(candidates=[candidate]))
+    assert result.content == content
+    assert result.finish_reason == "stop"
+
+
+# Where the adapter computes with the value, null is malformed (D-041), and so is
+# a content that is not an object or a thought that is not a JSON boolean.
+@pytest.mark.parametrize(
+    "candidate",
+    [
+        _candidate(content={"role": "model", "parts": None}),
+        _candidate(content="Hi!"),
+        _candidate(content=["Hi!"]),
+        _candidate(content=5),
+        _candidate(content={"role": "model", "parts": [{"text": "Hi", "thought": None}]}),
+        _candidate(content={"role": "model", "parts": [{"text": "Hi", "thought": "true"}]}),
+        _candidate(content={"role": "model", "parts": [{"text": "Hi", "thought": "false"}]}),
+        _candidate(content={"role": "model", "parts": [{"text": "Hi", "thought": 1}]}),
+        _candidate(content={"role": "model", "parts": [{"text": "Hi", "thought": 0}]}),
+    ],
+    ids=[
+        "parts_null",
+        "content_string",
+        "content_list",
+        "content_number",
+        "thought_null",
+        "thought_string_true",
+        "thought_string_false",
+        "thought_one",
+        "thought_zero",
+    ],
+)
+@pytest.mark.asyncio
+async def test_malformed_candidate_content_is_unavailable(candidate: dict[str, Any]) -> None:
+    recorder = Recorder(httpx.Response(200, json=_ok(candidates=[candidate])))
+    exc = await _failure(recorder)
+    assert type(exc) is ProviderUnavailable
+    _assert_clean(exc)
+    assert exc.__context__ is None
+
+
+DEPTH = 100_000
+
+
+# Nesting too deep for Python's recursion limit is a malformed body, not a
+# RecursionError that escapes as a 500 (D-043), also inside an ignored field.
+@pytest.mark.parametrize(
+    "content",
+    [
+        b"[" * DEPTH + b"]" * DEPTH,
+        b'{"a":' * DEPTH + b"1" + b"}" * DEPTH,
+        json.dumps(_ok()).encode()[:-1]
+        + b', "ignoredField": '
+        + b"[" * DEPTH
+        + b"]" * DEPTH
+        + b"}",
+    ],
+    ids=["nested_arrays", "nested_objects", "nested_in_ignored_field"],
+)
+@pytest.mark.asyncio
+async def test_deeply_nested_body_is_unavailable(content: bytes) -> None:
+    recorder = Recorder(httpx.Response(200, content=content))
+    exc = await _failure(recorder)
+    assert type(exc) is ProviderUnavailable
+    _assert_clean(exc)
+    assert exc.__cause__ is None
+    assert exc.__context__ is None
+
+
 # Through the app
 
 
@@ -991,6 +1144,16 @@ async def test_app_rejects_invalid_gemini_model_without_network_call() -> None:
     assert response.status_code == 400
     assert ErrorBody.model_validate(response.json()).error.code == "provider_bad_request"
     assert recorder.requests == []
+
+
+@pytest.mark.asyncio
+async def test_app_maps_undecodable_gemini_body_to_502() -> None:
+    recorder = Recorder(_undecodable(200))
+    async with _gemini(recorder) as adapter, _client(adapter) as client:
+        response = await client.post("/v1/chat", json=_chat_body())
+    assert response.status_code == 502
+    assert ErrorBody.model_validate(response.json()).error.code == "provider_unavailable"
+    assert PROVIDER_TEXT not in response.text
 
 
 @pytest.mark.asyncio

@@ -22,7 +22,8 @@ Key design choices:
 - Error mapping (D-014, D-035): 401 and 403 are auth errors; 429 is a rate limit
   with `retry-after` when numeric; 5xx (including 529 overloaded) and connection
   errors are unavailable; timeouts are timeouts; other 4xx are bad requests. A 2xx
-  body that is not the expected JSON is unavailable.
+  body that is not the expected JSON is unavailable, and so is a body whose
+  content-encoding cannot be decoded. Redirects are never followed (D-043).
 - Error messages are fixed strings. They never contain the provider's error text,
   the prompt, or the API key. Provider errors are raised outside the `except`
   block, so the httpx exception, whose request carries the key header, is not
@@ -150,6 +151,9 @@ class ClaudeAdapter:
             # Tests inject an httpx.MockTransport; production never retries.
             transport=transport if transport is not None else httpx.AsyncHTTPTransport(retries=0),
             timeout=timeout,
+            # Explicit, not httpx's default: on a cross-host redirect httpx drops
+            # only Authorization, so a followed redirect would forward the key (D-043).
+            follow_redirects=False,
             headers={"x-api-key": api_key, "anthropic-version": ANTHROPIC_VERSION},
         )
 
@@ -170,6 +174,9 @@ class ClaudeAdapter:
             failure = ProviderTimeout("claude: request timed out")
         except httpx.TransportError:
             failure = ProviderUnavailable("claude: connection failed")
+        except httpx.DecodingError:
+            # Not a TransportError: the body's content-encoding could not be decoded.
+            failure = ProviderUnavailable("claude: undecodable response body")
         # Raised here, not inside the except blocks, so the httpx exception is not
         # chained onto the provider error.
         if failure is not None:

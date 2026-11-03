@@ -79,7 +79,7 @@ $env:GEMINI_API_KEY = Read-Host "Gemini API key" -MaskInput
 uv run uvicorn llmgateway.main:app --host 127.0.0.1 --port 8000
 ```
 
-Terminal 2: the same requests as for Claude, with a Gemini model ID such as `gemini-3.5-flash-lite`. Until model aliases exist, `model` goes into the request path, so the adapter rejects any ID with characters other than letters, digits, `.`, `_` and `-` with 400 `provider_bad_request`, before calling Gemini (D-042).
+Terminal 2: the same requests as for Claude, with a Gemini model ID such as `gemini-3.5-flash-lite`. Until model aliases exist, `model` goes into the request path, so the adapter rejects any ID that does not start with a letter or digit, or that has characters other than letters, digits, `.`, `_` and `-`, with 400 `provider_bad_request`, before calling Gemini (D-042).
 
 ```powershell
 $body = @{ model = "gemini-3.5-flash-lite"; max_tokens = 32; messages = @(@{ role = "user"; content = "Say hello in five words." }) } | ConvertTo-Json -Depth 5

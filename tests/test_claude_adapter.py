@@ -493,6 +493,100 @@ async def test_malformed_usage_is_unavailable(usage: dict[str, Any]) -> None:
     assert exc.__context__ is None
 
 
+CLAUDE_HOST = "api.anthropic.com"
+
+
+class Redirector:
+    """Answers the first request with a 3xx to `location`, and any later one with a 200.
+
+    If the adapter followed the redirect, the second request would be recorded and
+    would succeed, and the x-api-key header would go with it to wherever
+    `location` points.
+    """
+
+    def __init__(self, status: int, location: str) -> None:
+        self.status = status
+        self.location = location
+        self.requests: list[httpx.Request] = []
+
+    def __call__(self, request: httpx.Request) -> httpx.Response:
+        self.requests.append(request)
+        if len(self.requests) == 1:
+            return httpx.Response(self.status, headers={"location": self.location}, json=_ok())
+        return httpx.Response(200, json=_ok())
+
+
+# Redirects are never followed (D-043): httpx strips only Authorization on a
+# cross-origin redirect, so following one would send x-api-key to that host.
+@pytest.mark.parametrize("status", [301, 302, 303, 307, 308])
+@pytest.mark.parametrize(
+    "location",
+    ["https://evil.example/x", "https://api.anthropic.com/v1/other", "/v1/other"],
+    ids=["other_host", "same_host", "relative"],
+)
+@pytest.mark.asyncio
+async def test_redirect_is_never_followed(status: int, location: str) -> None:
+    redirector = Redirector(status, location)
+    exc = await _failure(redirector)
+    assert type(exc) is ProviderUnavailable
+    assert exc.retryable is True
+    assert exc.message.startswith("claude: ")
+    _assert_clean(exc)
+    assert len(redirector.requests) == 1
+    assert [r.url.host for r in redirector.requests] == [CLAUDE_HOST]
+
+
+def _undecodable(status: int) -> httpx.Response:
+    # A stream, not content=, because httpx.Response decodes content= at once.
+    body = b"not gzip " + PROVIDER_TEXT.encode()
+    return httpx.Response(
+        status, headers={"content-encoding": "gzip"}, stream=httpx.ByteStream(body)
+    )
+
+
+# A body whose content-encoding cannot be decoded is ProviderUnavailable on any
+# status (D-043), not an httpx.DecodingError that reaches the client as a 500.
+@pytest.mark.parametrize("status", [200, 401, 429, 500])
+@pytest.mark.asyncio
+async def test_undecodable_body_is_unavailable(status: int) -> None:
+    recorder = Recorder(_undecodable(status))
+    exc = await _failure(recorder)
+    assert type(exc) is ProviderUnavailable
+    assert exc.retryable is True
+    assert exc.message.startswith("claude: ")
+    _assert_clean(exc)
+    assert exc.__cause__ is None
+    assert exc.__context__ is None
+    assert len(recorder.requests) == 1
+
+
+DEPTH = 100_000
+
+
+# Nesting too deep for Python's recursion limit is a malformed body, not a
+# RecursionError (D-043), also inside a field the adapter ignores.
+@pytest.mark.parametrize(
+    "content",
+    [
+        b"[" * DEPTH + b"]" * DEPTH,
+        b'{"a":' * DEPTH + b"1" + b"}" * DEPTH,
+        json.dumps(_ok()).encode()[:-1]
+        + b', "ignored_field": '
+        + b"[" * DEPTH
+        + b"]" * DEPTH
+        + b"}",
+    ],
+    ids=["nested_arrays", "nested_objects", "nested_in_ignored_field"],
+)
+@pytest.mark.asyncio
+async def test_deeply_nested_body_is_unavailable(content: bytes) -> None:
+    exc = await _failure(Recorder(httpx.Response(200, content=content)))
+    assert type(exc) is ProviderUnavailable
+    assert exc.message == "claude: malformed response body"
+    assert exc.__cause__ is None
+    assert exc.__context__ is None
+
+
 # Through the app
 
 
@@ -552,6 +646,23 @@ async def test_app_maps_claude_rate_limit_to_503_with_retry_after(
     assert API_KEY not in response.text
     assert PROVIDER_TEXT not in caplog.text
     assert API_KEY not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_app_maps_undecodable_claude_body_to_502() -> None:
+    recorder = Recorder(_undecodable(200))
+    async with _claude(recorder) as adapter, _client(adapter) as client:
+        response = await client.post(
+            "/v1/chat",
+            json={
+                "model": "claude-haiku-5-5",
+                "messages": [{"role": "user", "content": "hi"}],
+                "max_tokens": 32,
+            },
+        )
+    assert response.status_code == 502
+    assert ErrorBody.model_validate(response.json()).error.code == "provider_unavailable"
+    assert PROVIDER_TEXT not in response.text
 
 
 @pytest.mark.asyncio

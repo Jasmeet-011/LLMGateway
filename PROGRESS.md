@@ -373,6 +373,22 @@ One `docs:` commit with three owner instructions.
 
 Tests added in Mode 2, all in `tests/test_gemini_adapter.py`, all additive: `test_default_transport_does_not_retry`, `test_query_character_in_model_rejected_without_network_call`, `test_redirect_with_success_body_is_unavailable`, `test_null_block_reason_is_not_blocked`, `test_empty_string_block_reason_is_blocked`, `test_non_object_prompt_feedback_is_not_a_block`. The last three pinned behavior the spec only implied ("`blockReason` set"). The builder made it explicit in D-041 and FLOW.md: present and not null, any value; a `promptFeedback` that is not an object is ignored.
 
+**Review.** Round 1: **FAIL**.
+
+- BLOCKING 1: nothing pinned "httpx does not follow redirects". Every 3xx test response had no `Location`, so all Gemini tests still passed with `follow_redirects=True`. A reviewer probe showed that httpx then follows a 302 to another host with `x-goog-api-key` attached, because on a cross-origin redirect it strips only `Authorization`. Claude had the same gap. Fixed: both adapters pass `follow_redirects=False` explicitly (D-043), and the tester added cross-host `Location` tests for both (below).
+- SHOULD FIX, all handled:
+  - S1: `httpx.DecodingError` (not a `TransportError`) escaped both adapters as a 500, and `json.loads` could raise `RecursionError` on deep nesting. Both are now `ProviderUnavailable`: the adapters catch `DecodingError`, and Gemini parses with pydantic's `TypeAdapter`, whose parser reports deep nesting as a `ValidationError`. The builder probed this on pydantic 2.14.1, and Claude's `model_validate_json` already behaves the same way (D-043). This closes the `DecodingError` item that PLAN.md listed under M9; M9 now lists HTTP 408 instead (reviewer note 12).
+  - S2: no M7 rows in the Agent Mistakes Log. Added below.
+  - S3: D-038's revisit condition fired. Recorded in D-041: Gemini uses the shared `parse_retry_after`, and D-038 stands.
+  - S4: D-041's null handling was inconsistent, and "as proto3 JSON writes it" was inaccurate. D-041 now states the rule. Null is absent where the adapter only checks for a value, and malformed where it computes with the value. A null count is not a zero, because proto3 JSON printers omit zeros rather than writing null. `thought` is now `StrictBool`, so `"true"` or `1` is malformed, as the spec says.
+  - S5: the Gemini malformed-body row in FLOW.md now ends with a catch-all that points to D-041's list.
+  - S6: D-039 now says the reference pages checked document `generateContent` only under `v1beta`. It no longer claims that no other path exists.
+- Notes handled: README now states the first-character rule (note 9).
+- Notes left as notes:
+  - The table's "Test that failed" column names the first failing test alphabetically, which is not always the most relevant one (note 5).
+  - Two tests create adapters without closing them (note 11).
+  - The reviewer recalls, unverified, that Gemini answers a bad key with 400 `API_KEY_INVALID` (note 7). The live invalid-key test checks this; it is under Needs owner.
+
 ## Agent Mistakes Log
 
 Rows are taken only from what the git history and DECISIONS.md record. Where the history does not say who found a problem, the row says so.
@@ -386,3 +402,7 @@ Rows are taken only from what the git history and DECISIONS.md record. Where the
 | 2026-11-03 | The tester subagent marked its six new failure-path tests "DRAFT: owner review required". It was following the rule this session had just removed from CLAUDE.md, not its own instructions. | The builder read the diff and found 13 markers with `git grep`, where 7 were expected. | All markers removed in c1f844a. The next tester prompt says explicitly not to add them. |
 | 2026-11-03 | The builder's first mutation scope covered only the provider rows of the `errors.py` mapping. The gateway's own error codes (422, 404, 405, 501, 500) had no mutation checks, and 405 had no test. | Reviewer round 1: BLOCKING 1, verdict FAIL. | Tester run 2: two new tests (405, `http_error` fallback) and mutations 10a to 10o, all caught. |
 | 2026-11-03 | The run 1 mutation summary said 61 caught and 8 survivors. The table shows 57 and 9, so 61 + 8 + 3 = 72, not 69. The tester's report had the wrong counts, and the builder copied them without adding them up. | Reviewer round 2, SHOULD FIX 1. | Recounted from the table and corrected in the session log. |
+| 2026-11-03 | M7: the Gemini adapter, and before it the Claude adapter, relied on httpx's default of not following redirects to keep the API key from going to another host. No test pinned it, because every 3xx test response had no `Location` header. | Reviewer round 1, BLOCKING 1, with a probe that showed the key forwarded on a cross-host 302. | `follow_redirects=False` set explicitly in both adapters (D-043), and cross-host `Location` tests added. |
+| 2026-11-03 | M7: PLAN.md already listed `httpx.DecodingError` escaping the Claude adapter as a 500, and the builder copied the same `except` blocks into the Gemini adapter without closing the gap. `json.loads` added a second escape route (`RecursionError`). | Reviewer round 1, SHOULD FIX 1. | Both adapters map `DecodingError` to `ProviderUnavailable`; Gemini parses with pydantic (D-043). |
+| 2026-11-03 | M7: the tester's first mutation run used `-rN`, which suppressed the failing-test names, so its results were unusable. Stopping it partway left mutation #46 applied in `gemini.py`. | The tester noticed the missing names, then found the leftover mutation by checking `git diff -- src/` before re-running. | Reverted with `git checkout`, `src/` confirmed clean, and all 145 mutations re-run. |
+| 2026-11-03 | M7: the tester and reviewer could not be started by name again ("Agent type 'tester' not found"), although the reset session expected them to load from the next session on. That expectation was wrong. | The Agent tool's error on the first call. | Ran both as general-purpose agents with their agent files' text verbatim. The cause is not known; listed under Needs owner. |

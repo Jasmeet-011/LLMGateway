@@ -24,7 +24,8 @@ Key design choices:
 - Error mapping by HTTP status only, as for Claude (D-041): 401 and 403 are auth
   errors; 429 is a rate limit with `retry-after` when numeric; 5xx (including 504
   `deadline_exceeded`) and connection errors are unavailable; timeouts are
-  timeouts; other 4xx are bad requests. The error body is never read.
+  timeouts; other 4xx are bad requests. The error body is never read. Redirects
+  are never followed, and an undecodable body is unavailable (D-043).
 - On a 2xx (D-041): a blocked prompt is a bad request; otherwise the first
   candidate's non-thought text parts are the content, and thought tokens are
   counted as output tokens because Google bills them as output. A body that is
@@ -33,12 +34,20 @@ Key design choices:
   the prompt, or the API key, and httpx exceptions are not chained onto them.
 """
 
-import json
 import re
 from typing import Annotated, Any, Final
 
 import httpx
-from pydantic import BaseModel, ConfigDict, Field, StrictInt, StrictStr, ValidationError
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StrictBool,
+    StrictInt,
+    StrictStr,
+    TypeAdapter,
+    ValidationError,
+)
 
 from llmgateway.providers.base import (
     ProviderAuthError,
@@ -66,6 +75,10 @@ _FINISH_REASONS: Final[dict[str, FinishReason]] = {
     "MAX_TOKENS": "max_tokens",
 }
 
+# pydantic's parser, not json.loads: it rejects a body that is not a JSON object,
+# and it turns very deep nesting into a ValidationError instead of a RecursionError.
+_BODY: Final = TypeAdapter(dict[str, Any])
+
 # Proto3 JSON leaves out fields whose value is 0, so an absent count means 0.
 _Count = Annotated[StrictInt, Field(ge=0)]
 
@@ -74,7 +87,7 @@ class _Part(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     text: StrictStr | None = None
-    thought: bool = False
+    thought: StrictBool = False
 
 
 class _Content(BaseModel):
@@ -185,6 +198,9 @@ class GeminiAdapter:
             # Tests inject an httpx.MockTransport; production never retries.
             transport=transport if transport is not None else httpx.AsyncHTTPTransport(retries=0),
             timeout=timeout,
+            # Explicit, not httpx's default: on a cross-host redirect httpx drops
+            # only Authorization, so a followed redirect would forward the key (D-043).
+            follow_redirects=False,
             headers={"x-goog-api-key": api_key},
         )
 
@@ -210,6 +226,9 @@ class GeminiAdapter:
             failure = ProviderTimeout("gemini: request timed out")
         except httpx.TransportError:
             failure = ProviderUnavailable("gemini: connection failed")
+        except httpx.DecodingError:
+            # Not a TransportError: the body's content-encoding could not be decoded.
+            failure = ProviderUnavailable("gemini: undecodable response body")
         # Raised here, not inside the except blocks, so the httpx exception is not
         # chained onto the provider error.
         if failure is not None:
@@ -219,9 +238,7 @@ class GeminiAdapter:
             raise _status_error(response)
 
         try:
-            body = json.loads(response.content)
-            if not isinstance(body, dict):
-                raise ValueError("body is not a JSON object")
+            body = _BODY.validate_json(response.content)
             if _is_blocked(body):
                 failure = ProviderBadRequest("gemini: prompt blocked")
             else:
