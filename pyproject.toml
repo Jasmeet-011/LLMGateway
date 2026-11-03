@@ -51,6 +51,10 @@ warn_required_dynamic_aliases = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-ra --strict-markers --strict-config"
+# Live tests call real provider APIs; only the owner runs them, with `pytest -m live`.
+addopts = "-ra --strict-markers --strict-config -m 'not live'"
+markers = [
+    "live: calls a real provider API; needs a key and costs money; excluded by default",
+]
 asyncio_mode = "strict"
 asyncio_default_fixture_loop_scope = "function"
