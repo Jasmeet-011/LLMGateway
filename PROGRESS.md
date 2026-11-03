@@ -211,6 +211,168 @@ One `docs:` commit with three owner instructions.
 
 **Plan.** Settle the M7 open issues from Google's official docs; record the decisions (D-039 to D-042) and the Gemini rows of FLOW.md section 13 before any code; tester Mode 1 writes the tests from that spec; implement `providers/gemini.py` and `LLMGATEWAY_PROVIDER=gemini`; tester Mode 2 runs mutation checks on every Gemini failure path; reviewer; push. No new dependencies.
 
+**Spec.** D-039 to D-042 and the Gemini rows of FLOW.md section 13 were written before any code, from Google's docs as read on 2026-11-03 at aistudio.google.com (ai.google.dev redirects there): the API reference (base URL, `x-goog-api-key`, the `v1beta` `generateContent` path, `GenerationConfig`, `FinishReason`, `BlockReason`, `UsageMetadata`), the API errors page (written for the Interactions API), the migration guide (`store=true` default), the models page, and the pricing page (output includes thinking tokens). The Interactions API reference returned 404. Open issues settled: sampling (D-040), the temperature range "[0.0, 2.0]" and the limit of 5 stop sequences (closing D-006's unverified note), endpoint, auth header and version (D-039). A trailing model turn (D-008) and an empty stop list (D-013) cannot reach the adapter, because the schema rejects the first and normalizes the second, so neither was verified against Gemini.
+
+**Agent definitions not loaded, again.** The Agent tool rejected `tester` ("Agent type 'tester' not found"); this session lists only the built-in agent types, although `.claude/agents/tester.md` and `reviewer.md` are on `main`. As in the reset session, the tester and reviewer ran as general-purpose agents whose instructions were the agent file's body, copied verbatim, with the task appended.
+
+**Tests (tester, Mode 1).** `tests/test_gemini_adapter.py` (186 tests at first, all derived from the spec) and `tests/test_live_gemini.py` (two live tests: a real request with `gemini-3.5-flash-lite`, and one with a fixed fake key that checks D-041's unverified claim that a bad key is a 401 or 403). The implementation existed by the time the tester first ran them, so these tests were never seen failing before the mutation checks. In `tests/test_claude_adapter.py`, D-039 changed two expected messages, which are now exact matches of the new message, and the unknown-provider parameter `"gemini"`, now a valid value, was replaced by `"openai"`, with `"Gemini"` added. The builder asked for both changes; no other assertion changed.
+
+**Implementation.** `providers/gemini.py`; `parse_retry_after` moved from `claude.py` to `base.py` so both adapters share it; `LLMGATEWAY_PROVIDER=gemini` with `GEMINI_API_KEY` in `main.py`; the stale sampling comment in `schema.py`; `.env.example` and README. Committed locally before the mutation checks (4d274c7), because the checks revert with `git checkout -- <file>`.
+
+**Mutation checks (tester, Mode 2).** Run at 4d274c7 with a clean tree by a scratchpad harness: one exact-string mutation at a time, the relevant test files run, then `git checkout -- <file>` and `git diff --quiet -- src/`. Mutations of `gemini.py` ran `tests/test_gemini_adapter.py`; those of `base.py` and `main.py` also ran `tests/test_claude_adapter.py` and `tests/test_app.py`. A first run was stopped because a flag mistake (`-rN`) dropped the test names; it left mutation #46 in place, which was reverted and checked before all 145 were re-run. The builder checked the table against the harness's raw results file and logs: the 14 first-pass survivors are the 6 and 8 below, and every row is reverted.
+
+145 mutations: 131 caught on the first pass, 6 caught only after a new test (8, 37, 55, 56, 57, 122), and 8 equivalent (51, 53, 64, 66, 75, 78, 103, 123). 131 + 6 + 8 = 145. The builder checked two of the equivalence claims in the installed packages: httpx 0.28.1's `AsyncHTTPTransport` defaults `retries` to 0, and pydantic's `ValidationError` is a `ValueError`. Equivalent #123 means a change to that httpx default would go unnoticed if the explicit `retries=0` were also removed. #75 and #78 are equivalent only because `schema.Usage` re-checks the input count. In the table, "(n)" is the number of tests that failed; for added tests it is from the re-run.
+
+| # | Mutation | File | Test that failed (n) | Reverted |
+| --- | --- | --- | --- | --- |
+| 1 | model pattern: first char class dropped | gemini.py | test_invalid_model_rejected_without_network_call (3) | yes |
+| 2 | model pattern: first char allows '.' | gemini.py | test_invalid_model_rejected_without_network_call (1) | yes |
+| 3 | model pattern: first char allows '-' | gemini.py | test_invalid_model_rejected_without_network_call (1) | yes |
+| 4 | model pattern: first char allows '_' | gemini.py | test_invalid_model_rejected_without_network_call (1) | yes |
+| 5 | model pattern: allows '/' | gemini.py | test_app_rejects_invalid_gemini_model_without_network_call (5) | yes |
+| 6 | model pattern: allows ':' | gemini.py | test_invalid_model_rejected_without_network_call (2) | yes |
+| 7 | model pattern: allows '%' | gemini.py | test_invalid_model_rejected_without_network_call (1) | yes |
+| 8 | model pattern: allows '?' | gemini.py | survived; added test_query_character_in_model_rejected_without_network_call (3) | yes |
+| 9 | model pattern: allows '#' | gemini.py | test_invalid_model_rejected_without_network_call (1) | yes |
+| 10 | model pattern: allows space | gemini.py | test_invalid_model_rejected_without_network_call (1) | yes |
+| 11 | model pattern: \w instead of ASCII classes | gemini.py | test_invalid_model_rejected_without_network_call (1) | yes |
+| 12 | model pattern: '.' dropped from body | gemini.py | test_504_deadline_exceeded_is_unavailable_not_timeout (144) | yes |
+| 13 | model pattern: '_' dropped from body | gemini.py | test_valid_model_ids_accepted (1) | yes |
+| 14 | model pattern: '-' dropped from body | gemini.py | test_504_deadline_exceeded_is_unavailable_not_timeout (143) | yes |
+| 15 | model pattern: uppercase dropped | gemini.py | test_valid_model_ids_accepted (1) | yes |
+| 16 | fullmatch -> match | gemini.py | test_app_rejects_invalid_gemini_model_without_network_call (15) | yes |
+| 17 | fullmatch -> search | gemini.py | test_app_rejects_invalid_gemini_model_without_network_call (18) | yes |
+| 18 | fullmatch -> match with '$' | gemini.py | test_invalid_model_rejected_without_network_call (1) | yes |
+| 19 | model check inverted (is None -> is not None) | gemini.py | test_504_deadline_exceeded_is_unavailable_not_timeout (164) | yes |
+| 20 | model check skipped | gemini.py | test_app_rejects_invalid_gemini_model_without_network_call (18) | yes |
+| 21 | model check moved after the network call | gemini.py | test_app_rejects_invalid_gemini_model_without_network_call (17) | yes |
+| 22 | stop limit 5 -> 6 | gemini.py | test_six_stop_sequences_rejected_without_network_call (1) | yes |
+| 23 | stop limit 5 -> 4 | gemini.py | test_five_stop_sequences_sent (1) | yes |
+| 24 | stop limit > -> >= | gemini.py | test_five_stop_sequences_sent (1) | yes |
+| 25 | stop check skipped | gemini.py | test_six_stop_sequences_rejected_without_network_call (1) | yes |
+| 26 | stop check moved after the network call | gemini.py | test_six_stop_sequences_rejected_without_network_call (1) | yes |
+| 27 | auth: 403 dropped | gemini.py | test_app_maps_gemini_errors (2) | yes |
+| 28 | auth: 401 dropped | gemini.py | test_app_maps_gemini_errors (3) | yes |
+| 29 | rate limit: 429 -> 428 | gemini.py | test_app_maps_gemini_rate_limit_to_503_with_retry_after (12) | yes |
+| 30 | 4xx lower bound 400 -> 401 exclusive | gemini.py | test_app_maps_gemini_errors (3) | yes |
+| 31 | 4xx upper bound < 500 -> <= 500 | gemini.py | test_app_maps_gemini_errors (2) | yes |
+| 32 | 4xx upper bound < 500 -> < 499 | gemini.py | test_upper_4xx_statuses_map_to_bad_request (1) | yes |
+| 33 | 4xx upper bound < 500 -> < 430 | gemini.py | test_upper_4xx_statuses_map_to_bad_request (4) | yes |
+| 34 | 4xx lower bound 400 -> 300 (3xx as bad request) | gemini.py | test_http_status_mapping (2) | yes |
+| 35 | 4xx range -> any non-5xx | gemini.py | test_http_status_mapping (2) | yes |
+| 36 | fallthrough -> ProviderBadRequest | gemini.py | test_504_deadline_exceeded_is_unavailable_not_timeout (10) | yes |
+| 37 | is_success -> status >= 400 (3xx parsed as body) | gemini.py | survived; added test_redirect_with_success_body_is_unavailable (5) | yes |
+| 38 | retry-after not passed | gemini.py | test_app_maps_gemini_rate_limit_to_503_with_retry_after (4) | yes |
+| 39 | retry-after wrong header name | gemini.py | test_app_maps_gemini_rate_limit_to_503_with_retry_after (4) | yes |
+| 40 | rate limit -> ProviderUnavailable | gemini.py | test_app_maps_gemini_rate_limit_to_503_with_retry_after (12) | yes |
+| 41 | auth -> ProviderBadRequest | gemini.py | test_app_maps_gemini_errors (5) | yes |
+| 42 | except order swapped | gemini.py | test_timeouts_map_to_provider_timeout (4) | yes |
+| 43 | TimeoutException -> ReadTimeout | gemini.py | test_timeouts_map_to_provider_timeout (3) | yes |
+| 44 | TransportError -> NetworkError | gemini.py | test_connection_errors_map_to_unavailable (1) | yes |
+| 45 | timeout mapped to ProviderUnavailable | gemini.py | test_timeouts_map_to_provider_timeout (4) | yes |
+| 46 | transport error mapped to ProviderTimeout | gemini.py | test_connection_errors_map_to_unavailable (4) | yes |
+| 47 | timeout raised inside except (chained) | gemini.py | test_timeouts_map_to_provider_timeout (4) | yes |
+| 48 | transport error raised inside except (chained) | gemini.py | test_connection_errors_map_to_unavailable (4) | yes |
+| 49 | transport error raised with from exc | gemini.py | test_connection_errors_map_to_unavailable (4) | yes |
+| 50 | malformed raised inside except (chained) | gemini.py | test_malformed_success_body_is_unavailable (41) | yes |
+| 51 | blocked raised inside try, not via failure | gemini.py | survives: equivalent (raising there is not inside an except, and ProviderError is not caught by the except) | yes |
+| 52 | except catches ValidationError only | gemini.py | test_malformed_success_body_is_unavailable (8) | yes |
+| 53 | except catches ValueError only | gemini.py | survives: equivalent (pydantic's ValidationError subclasses ValueError (checked)) | yes |
+| 54 | not-a-dict check skipped | gemini.py | test_malformed_success_body_is_unavailable (4) | yes |
+| 55 | blockReason: is not None -> truthiness | gemini.py | survived; added test_empty_string_block_reason_is_blocked (1) | yes |
+| 56 | blockReason: is not None -> key presence | gemini.py | survived; added test_null_block_reason_is_not_blocked (1) | yes |
+| 57 | blockReason: isinstance guard dropped | gemini.py | survived; added test_non_object_prompt_feedback_is_not_a_block (4) | yes |
+| 58 | blockReason: check skipped | gemini.py | test_blocked_prompt_is_bad_request (4) | yes |
+| 59 | blockReason: checked after candidate/usage validation | gemini.py | test_blocked_prompt_is_bad_request (3) | yes |
+| 60 | blocked -> ProviderUnavailable | gemini.py | test_blocked_prompt_is_bad_request (4) | yes |
+| 61 | no-candidates check skipped | gemini.py | test_malformed_success_body_is_unavailable (2) | yes |
+| 62 | last candidate used | gemini.py | test_only_first_candidate_used (1) | yes |
+| 63 | finishReason optional | gemini.py | test_malformed_success_body_is_unavailable (1) | yes |
+| 64 | finishReason StrictStr -> str | gemini.py | survives: equivalent (lax str rejects every non-str value json.loads yields) | yes |
+| 65 | finishReason StrictStr -> Any | gemini.py | test_malformed_success_body_is_unavailable (2) | yes |
+| 66 | text StrictStr -> str | gemini.py | survives: equivalent (lax str rejects every non-str value json.loads yields) | yes |
+| 67 | text StrictStr -> Any | gemini.py | test_malformed_success_body_is_unavailable (3) | yes |
+| 68 | thought exclusion dropped | gemini.py | test_only_thought_parts_gives_empty_content (2) | yes |
+| 69 | thought exclusion inverted | gemini.py | test_app_with_gemini_adapter (6) | yes |
+| 70 | parts list -> Any | gemini.py | test_absent_token_counts_are_zero (56) | yes |
+| 71 | candidate content None -> empty treated as malformed | gemini.py | test_candidate_without_content_or_parts_gives_empty_content (1) | yes |
+| 72 | candidates list[Any] -> Any | gemini.py | test_malformed_success_body_is_unavailable (1) | yes |
+| 73 | usageMetadata optional | gemini.py | test_malformed_success_body_is_unavailable (1) | yes |
+| 74 | promptTokenCount: StrictInt -> int (ge=0 kept) | gemini.py | test_malformed_token_count_is_unavailable (3) | yes |
+| 75 | promptTokenCount: ge=0 dropped | gemini.py | survives: equivalent (schema.Usage rejects a negative input count in the same try) | yes |
+| 76 | promptTokenCount: default 0 -> required | gemini.py | test_absent_token_counts_are_zero (3) | yes |
+| 77 | promptTokenCount: default 0 -> 1 | gemini.py | test_absent_token_counts_are_zero (3) | yes |
+| 78 | promptTokenCount: allows None | gemini.py | survives: equivalent (schema.Usage rejects None in the same try) | yes |
+| 79 | candidatesTokenCount: StrictInt -> int (ge=0 kept) | gemini.py | test_malformed_token_count_is_unavailable (3) | yes |
+| 80 | candidatesTokenCount: ge=0 dropped | gemini.py | test_malformed_token_count_is_unavailable (1) | yes |
+| 81 | candidatesTokenCount: default 0 -> required | gemini.py | test_absent_token_counts_are_zero (3) | yes |
+| 82 | candidatesTokenCount: default 0 -> 1 | gemini.py | test_absent_token_counts_are_zero (3) | yes |
+| 83 | candidatesTokenCount: allows None | gemini.py | test_malformed_token_count_is_unavailable (1) | yes |
+| 84 | thoughtsTokenCount: StrictInt -> int (ge=0 kept) | gemini.py | test_malformed_token_count_is_unavailable (3) | yes |
+| 85 | thoughtsTokenCount: ge=0 dropped | gemini.py | test_malformed_token_count_is_unavailable (1) | yes |
+| 86 | thoughtsTokenCount: default 0 -> required | gemini.py | test_absent_token_counts_are_zero (52) | yes |
+| 87 | thoughtsTokenCount: default 0 -> 1 | gemini.py | test_absent_token_counts_are_zero (5) | yes |
+| 88 | thoughtsTokenCount: allows None | gemini.py | test_malformed_token_count_is_unavailable (1) | yes |
+| 89 | output_tokens: thoughts not added | gemini.py | test_absent_token_counts_are_zero (2) | yes |
+| 90 | output_tokens: candidates not added | gemini.py | test_absent_token_counts_are_zero (4) | yes |
+| 91 | input_tokens from candidates count | gemini.py | test_absent_token_counts_are_zero (5) | yes |
+| 92 | finish: STOP mapping dropped | gemini.py | test_app_with_gemini_adapter (6) | yes |
+| 93 | finish: MAX_TOKENS mapping dropped | gemini.py | test_finish_reason_mapping (2) | yes |
+| 94 | finish: STOP -> stop_sequence | gemini.py | test_app_with_gemini_adapter (6) | yes |
+| 95 | finish: unknown default other -> stop | gemini.py | test_candidate_without_content_or_parts_gives_empty_content (14) | yes |
+| 96 | finish: SAFETY mapped to stop | gemini.py | test_candidate_without_content_or_parts_gives_empty_content (5) | yes |
+| 97 | responseId: empty check dropped | gemini.py | test_provider_response_id (1) | yes |
+| 98 | responseId: isinstance check dropped | gemini.py | test_provider_response_id (1) | yes |
+| 99 | responseId: always None | gemini.py | test_app_with_gemini_adapter (3) | yes |
+| 100 | role: assistant sent as assistant | gemini.py | test_assistant_role_sent_as_model (1) | yes |
+| 101 | role: user sent as model | gemini.py | test_assistant_role_sent_as_model (3) | yes |
+| 102 | maxOutputTokens key renamed | gemini.py | test_minimal_request_translation (3) | yes |
+| 103 | stop: is not None -> truthiness | gemini.py | survives: equivalent (the schema normalizes an empty stop to None (D-013)) | yes |
+| 104 | stop: always sent | gemini.py | test_empty_stop_is_not_sent (3) | yes |
+| 105 | stop: never sent | gemini.py | test_five_stop_sequences_sent (2) | yes |
+| 106 | stop: key renamed | gemini.py | test_five_stop_sequences_sent (2) | yes |
+| 107 | stop: only first 5 sent (truncated) | gemini.py | test_five_stop_sequences_sent (1) | yes |
+| 108 | temperature: is not None -> truthiness | gemini.py | test_zero_temperature_or_top_p_is_sent (2) | yes |
+| 109 | temperature: always sent | gemini.py | test_minimal_request_translation (2) | yes |
+| 110 | temperature: never sent | gemini.py | test_stop_temperature_and_top_p_sent_when_set (4) | yes |
+| 111 | top_p: is not None -> truthiness | gemini.py | test_zero_temperature_or_top_p_is_sent (2) | yes |
+| 112 | top_p: always sent | gemini.py | test_minimal_request_translation (2) | yes |
+| 113 | top_p: key renamed | gemini.py | test_stop_temperature_and_top_p_sent_when_set (4) | yes |
+| 114 | top_p: sent as temperature | gemini.py | test_stop_temperature_and_top_p_sent_when_set (3) | yes |
+| 115 | system: always sent | gemini.py | test_minimal_request_translation (1) | yes |
+| 116 | system: never sent | gemini.py | test_system_instruction_translation (1) | yes |
+| 117 | system: shape without parts | gemini.py | test_system_instruction_translation (1) | yes |
+| 118 | header renamed | gemini.py | test_url_method_and_key_header (1) | yes |
+| 119 | key also sent in URL | gemini.py | test_app_maps_gemini_rate_limit_to_503_with_retry_after (9) | yes |
+| 120 | URL: streamGenerateContent | gemini.py | test_url_method_and_key_header (7) | yes |
+| 121 | URL: v1 instead of v1beta | gemini.py | test_api_base_is_v1beta_models (2) | yes |
+| 122 | transport retries=0 -> retries=2 | gemini.py | survived; added test_default_transport_does_not_retry (1) | yes |
+| 123 | transport retries=0 dropped (default) | gemini.py | survives: equivalent (httpx 0.28.1 defaults retries to 0 (checked)) | yes |
+| 124 | timeout not passed to client | gemini.py | test_default_timeouts_sent_with_request (2) | yes |
+| 125 | timeout override ignored | gemini.py | test_timeouts_overridable (1) | yes |
+| 126 | blank key: strip dropped | gemini.py | test_empty_api_key_rejected (2) | yes |
+| 127 | repr includes key | gemini.py | test_api_key_not_in_repr (1) | yes |
+| 128 | aclose does nothing | gemini.py | test_client_reused_across_calls (2) | yes |
+| 129 | error message without gemini prefix | gemini.py | test_malformed_success_body_is_unavailable (41) | yes |
+| 130 | parse_retry_after: None check dropped | base.py | test_http_status_mapping (5) | yes |
+| 131 | parse_retry_after: ValueError -> 0.0 | base.py | test_rate_limit_retry_after (4) | yes |
+| 132 | parse_retry_after: isfinite dropped | base.py | test_rate_limit_retry_after (4) | yes |
+| 133 | parse_retry_after: negative check dropped | base.py | test_rate_limit_retry_after (2) | yes |
+| 134 | parse_retry_after: < 0 -> <= 0 | base.py | test_rate_limit_retry_after (2) | yes |
+| 135 | parse_retry_after: negative clamped to 0 | base.py | test_rate_limit_retry_after (2) | yes |
+| 136 | parse_retry_after: rounded up | base.py | test_rate_limit_retry_after (2) | yes |
+| 137 | main: gemini branch name changed | main.py | test_gemini_provider_from_env (8) | yes |
+| 138 | main: gemini reads ANTHROPIC_API_KEY | main.py | test_gemini_provider_from_env (3) | yes |
+| 139 | main: gemini key strip dropped | main.py | test_gemini_without_key_fails (1) | yes |
+| 140 | main: gemini key check dropped | main.py | test_gemini_startup_without_key_fails_cleanly (4) | yes |
+| 141 | main: gemini key message changed | main.py | test_gemini_startup_without_key_fails_cleanly (5) | yes |
+| 142 | main: gemini returns ClaudeAdapter | main.py | test_gemini_provider_from_env (1) | yes |
+| 143 | main: unknown message reverted to old | main.py | test_startup_fails_cleanly (11) | yes |
+| 144 | main: unknown message echoes value | main.py | test_startup_fails_cleanly (11) | yes |
+| 145 | main: gemini case-insensitive | main.py | test_unknown_provider_fails_without_echo (4) | yes |
+
+Tests added in Mode 2, all in `tests/test_gemini_adapter.py`, all additive: `test_default_transport_does_not_retry`, `test_query_character_in_model_rejected_without_network_call`, `test_redirect_with_success_body_is_unavailable`, `test_null_block_reason_is_not_blocked`, `test_empty_string_block_reason_is_blocked`, `test_non_object_prompt_feedback_is_not_a_block`. The last three pinned behavior the spec only implied ("`blockReason` set"). The builder made it explicit in D-041 and FLOW.md: present and not null, any value; a `promptFeedback` that is not an object is ignored.
+
 ## Agent Mistakes Log
 
 Rows are taken only from what the git history and DECISIONS.md record. Where the history does not say who found a problem, the row says so.

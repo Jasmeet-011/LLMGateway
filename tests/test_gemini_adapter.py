@@ -1,4 +1,5 @@
 import importlib
+import inspect
 import json
 import logging
 import os
@@ -346,6 +347,27 @@ async def test_client_reused_across_calls() -> None:
     assert len(recorder.requests) == 2
 
 
+# The adapter never retries (D-032): the production transport it builds when none
+# is injected must not retry connections either.
+@pytest.mark.asyncio
+async def test_default_transport_does_not_retry(monkeypatch: pytest.MonkeyPatch) -> None:
+    created: list[inspect.BoundArguments] = []
+    signature = inspect.signature(httpx.AsyncHTTPTransport.__init__)
+
+    class SpyTransport(httpx.AsyncHTTPTransport):
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            bound = signature.bind(self, *args, **kwargs)
+            bound.apply_defaults()
+            created.append(bound)
+            super().__init__(*args, **kwargs)
+
+    monkeypatch.setattr(httpx, "AsyncHTTPTransport", SpyTransport)
+    adapter = GeminiAdapter(API_KEY)
+    await adapter.aclose()
+    assert len(created) == 1
+    assert created[0].arguments["retries"] == 0
+
+
 # Checks before any network call (D-042)
 
 
@@ -387,6 +409,17 @@ async def test_invalid_model_message_does_not_echo_model() -> None:
     assert type(exc) is ProviderBadRequest
     assert "model-id-marker" not in exc.message
     assert "model-id-marker" not in str(exc)
+
+
+# "?" alone, with no other character outside the pattern, so the query character
+# itself is what must be rejected (D-042).
+@pytest.mark.parametrize("model", ["a?b", "gemini-3.5-flash?", "gemini?alt"])
+@pytest.mark.asyncio
+async def test_query_character_in_model_rejected_without_network_call(model: str) -> None:
+    recorder = Recorder()
+    exc = await _failure(recorder, _request(model=model))
+    assert type(exc) is ProviderBadRequest
+    assert recorder.requests == []
 
 
 @pytest.mark.parametrize(
@@ -611,6 +644,18 @@ async def test_http_status_mapping(status: int, error_type: type[ProviderError])
     assert len(recorder.requests) == 1
 
 
+# An unexpected 3xx is ProviderUnavailable whatever its body: even a body that
+# would be a valid answer on a 2xx is not read as one (FLOW.md section 13).
+@pytest.mark.parametrize("status", [301, 302, 304, 307, 308])
+@pytest.mark.asyncio
+async def test_redirect_with_success_body_is_unavailable(status: int) -> None:
+    recorder = Recorder(httpx.Response(status, json=_ok()))
+    exc = await _failure(recorder)
+    assert type(exc) is ProviderUnavailable
+    _assert_clean(exc)
+    assert len(recorder.requests) == 1
+
+
 # Every 4xx other than 401, 403 and 429 is a bad request, above 429 too.
 @pytest.mark.parametrize("status", [430, 431, 451, 499])
 @pytest.mark.asyncio
@@ -727,6 +772,36 @@ async def test_blocked_prompt_is_bad_request(body: dict[str, Any]) -> None:
     _assert_clean(exc)
     assert "A_FUTURE_BLOCK_REASON_MARKER" not in exc.message
     assert len(recorder.requests) == 1
+
+
+# "Set" means present and not null: JSON null is how proto3 JSON writes an unset
+# field, so a null blockReason is no block and the answer is read as usual.
+@pytest.mark.asyncio
+async def test_null_block_reason_is_not_blocked() -> None:
+    result = await _success(_ok(promptFeedback={"blockReason": None}))
+    assert result.content == "Hi!"
+    assert result.finish_reason == "stop"
+
+
+# Any non-null blockReason blocks, even an empty string, which no documented enum
+# value is; the adapter does not judge the value (builder's M7 note).
+@pytest.mark.asyncio
+async def test_empty_string_block_reason_is_blocked() -> None:
+    exc = await _failure(
+        Recorder(httpx.Response(200, json=_ok(promptFeedback={"blockReason": ""})))
+    )
+    assert type(exc) is ProviderBadRequest
+    _assert_clean(exc)
+
+
+# A promptFeedback that is not an object has no blockReason, so the prompt is not
+# blocked and the candidate is read; it must not escape as a non-ProviderError.
+@pytest.mark.parametrize("feedback", ["SAFETY", ["SAFETY"], 5, True])
+@pytest.mark.asyncio
+async def test_non_object_prompt_feedback_is_not_a_block(feedback: Any) -> None:
+    result = await _success(_ok(promptFeedback=feedback))
+    assert result.content == "Hi!"
+    assert result.finish_reason == "stop"
 
 
 def _usage(**counts: Any) -> dict[str, Any]:

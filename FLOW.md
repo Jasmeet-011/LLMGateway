@@ -256,7 +256,7 @@ Request (D-039, D-040): `POST https://generativelanguage.googleapis.com/v1beta/m
 | Unexpected HTTP 3xx (httpx does not follow redirects) | `ProviderUnavailable` | yes | 502 | `provider_unavailable` |
 | httpx timeout: connect, read, write or pool (D-034 values) | `ProviderTimeout` | yes | 504 | `provider_timeout` |
 | Any other httpx transport error: connect, read, write, protocol | `ProviderUnavailable` | yes | 502 | `provider_unavailable` |
-| HTTP 2xx with `promptFeedback.blockReason` set, with or without candidates | `ProviderBadRequest` | no | 400 | `provider_bad_request` |
+| HTTP 2xx with `promptFeedback.blockReason` present and not null (any value), with or without candidates; a `promptFeedback` that is not an object is ignored | `ProviderBadRequest` | no | 400 | `provider_bad_request` |
 | HTTP 2xx whose body is not a JSON object, or has no candidates (and no block reason), or whose first candidate lacks a string `finishReason`, or has a part whose `text` is not a string, or lacks `usageMetadata`, or has a token count that is present but not a non-negative integer | `ProviderUnavailable` | yes | 502 | `provider_unavailable` |
 | HTTP 2xx with a valid body | none | n/a | 200 | n/a |
 
