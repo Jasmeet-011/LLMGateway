@@ -245,7 +245,7 @@ On success, `stop_reason` maps to `finish_reason`: `end_turn` to `stop`, `max_to
 
 | Outcome | Client status | Client code |
 | --- | --- | --- |
-| Body fails validation, or is not valid JSON (`details` holds `loc` and `msg` only) | 422 | `validation_error` |
+| Body fails validation, or is not valid JSON (`details` holds `loc` and `msg` only); a body that is not valid UTF-8 gets 400 `http_error` instead (row below) | 422 | `validation_error` |
 | Unknown route | 404 | `not_found` |
 | Method not allowed | 405 | `method_not_allowed` |
 | Any other HTTP exception raised by the framework (message is the standard phrase, never its detail) | its own status | `http_error` |
