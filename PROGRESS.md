@@ -4,7 +4,7 @@ The single status file. A milestone is ticked only when its work is on `main` wi
 
 ## Current Status
 
-M1 to M6 are done: the unified schema, the adapter interface and error taxonomy, the mock provider, the `POST /v1/chat` endpoint with its error mapping, and the non-streaming Claude adapter, chosen with `LLMGATEWAY_PROVIDER`. On 2026-11-03 the repo moved to the autonomous workflow in CLAUDE.md: work happens on `main`, with tester and reviewer subagents, `scripts/check.ps1`, and a `live` test marker. The next milestone is **M7 Gemini adapter**. Open items: the owner's resume bullets are not yet in PLAN.md's definition of done, and the live Claude test has not been run.
+M1 to M6 are done: the unified schema, the adapter interface and error taxonomy, the mock provider, the `POST /v1/chat` endpoint with its error mapping, and the non-streaming Claude adapter, chosen with `LLMGATEWAY_PROVIDER`. On 2026-11-03 the repo moved to the autonomous workflow in CLAUDE.md: work happens on `main`, with tester and reviewer subagents, `scripts/check.ps1`, and a `live` test marker. The next milestone is **M7 Gemini adapter**. Open items: the live Claude test has not been run.
 
 ## Milestones
 
@@ -18,15 +18,15 @@ M1 to M6 are done: the unified schema, the adapter interface and error taxonomy,
 | [x] | M6 Claude adapter | Merged in PR #9 (merge commit 8b833cc): `providers/claude.py`, `tests/test_claude_adapter.py`, provider selection in `main.py` (D-032 to D-037). FLOW.md recorded all five checks passing at 8d618a9 with 204 tests. Reproduced 2026-11-03 at 8b833cc: `uv sync --locked` ok; `uv run pytest`: 204 passed; `ruff check`: all checks passed; `ruff format --check`: 19 files already formatted; `mypy`: no issues in 13 source files. Mutation checks of the error mapping: session log, 2026-11-03. The 7 "DRAFT: owner review required" markers on its error-mapping tests were removed in the reset (c1f844a) under the new mutation-check rule, after those checks. The owner did not review those tests. Live test written, not yet run by the owner. |
 | [ ] | M7 Gemini adapter | |
 | [ ] | M8 Model aliases and router selection | |
-| [ ] | M9 Normalized SSE streaming | |
-| [ ] | M10 Docker Compose and CI | |
-| [ ] | M11 Hashed API keys in Postgres | |
-| [ ] | M12 Token and cost accounting | |
-| [ ] | M13 Redis Lua token-bucket rate limiter | |
-| [ ] | M14 Tenant-scoped response cache | |
-| [ ] | M15 Router timeouts and retries | |
-| [ ] | M16 Circuit breaker | |
-| [ ] | M17 Pre-first-byte fallback and fault injection | |
+| [ ] | M9 Router timeouts and retries | |
+| [ ] | M10 Circuit breaker | |
+| [ ] | M11 Provider fallback and fault injection | |
+| [ ] | M12 Normalized SSE streaming | |
+| [ ] | M13 Docker Compose and CI | |
+| [ ] | M14 Hashed API keys in Postgres | |
+| [ ] | M15 Token and cost accounting | |
+| [ ] | M16 Redis Lua token-bucket rate limiter | |
+| [ ] | M17 Tenant-scoped response cache | |
 | [ ] | M18 Load tests and results | |
 
 Stretch (not required for done, D-031):
@@ -175,7 +175,7 @@ The tester judged no existing test to be wrong. After both runs, `git diff --sta
 - Notes, handled:
   - FLOW.md section 13 gained the `http_error` fallback row.
   - `check.ps1` now also fails when a command cannot start at all, such as uv missing; `$?` was checked, and exit 1 is printed with FAIL.
-  - PLAN.md M15 now lists httpx `DecodingError`, which is not a `TransportError` (checked with the installed httpx), so it reaches the client as a 500.
+  - PLAN.md M15 (now M9) now lists httpx `DecodingError`, which is not a `TransportError` (checked with the installed httpx), so it reaches the client as a 500.
 
 Round 2: **PASS**, no BLOCKING items.
 
@@ -187,7 +187,7 @@ Round 2: **PASS**, no BLOCKING items.
   - FLOW.md's 422 row now says that a body that is not valid UTF-8 gets 400 `http_error`.
 - Left as notes:
   - `tests/conftest.py` matches "live" as a substring, so a future marker such as `deliver` would turn the guard off.
-  - The Claude table has no explicit `DecodingError` row; it is an open issue under M15.
+  - The Claude table has no explicit `DecodingError` row; it is an open issue under M15 (now M9).
   - The fixed messages for 422 and 501 are not asserted.
 - The reviewer's own attempt to run the conftest guard was denied by its permission classifier. It checked the guard by reading the code; the builder's scratchpad run is the evidence that it works.
 
@@ -198,6 +198,14 @@ Round 2: **PASS**, no BLOCKING items.
 - `llmgateway-reset-prompt.md` was not actually in `.git/info/exclude`: git listed it as untracked. It was added there; it is local only and never committed.
 - No test covered the 405 `method_not_allowed` mapping in `errors.py`; tester run 2 added one.
 - The tester's second report said `ruff format --check` failed on `tests/test_app.py`. The builder's next `check.ps1` run showed "23 files already formatted", so that part of the report was out of date.
+
+### 2026-11-03: owner instructions before M7
+
+One `docs:` commit with three owner instructions.
+
+- The owner's two resume bullets are now in PLAN.md's definition of done and in CLAUDE.md, verbatim. Their bracketed numbers stay as placeholders until `docs/RESULTS.md` has measured values.
+- Schema rule in CLAUDE.md: a schema change is not a stop condition, but it needs a D-entry, the reviewer must check it, and the session report must list it. This settles the reviewer's open SHOULD FIX from the reset session.
+- Milestones reordered in PLAN.md and in the table above. Old to new numbers: M7 and M8 unchanged, M15 to M9 (timeouts and retries), M16 to M10 (circuit breaker), M17 to M11 (fallback and fault injection), M9 to M12 (streaming), M10 to M13 (Docker and CI), M11 to M14 (API keys), M12 to M15 (accounting), M13 to M16 (rate limiter), M14 to M17 (cache), M18 unchanged (k6). Scope and proof are unchanged except as the owner listed: M11 covers fallback for non-streaming requests and M12 adds the pre-first-byte rule for streams, so M11 is renamed "Provider fallback and fault injection"; the M18 proof adds an outage demo and a Known limitations section. Milestone numbers in the reset session's entry above and in D-038's "Revisit when" refer to the old numbering, with the new number added.
 
 ## Agent Mistakes Log
 

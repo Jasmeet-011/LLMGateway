@@ -319,4 +319,4 @@ Log of design decisions. Add a new entry after each step; do not rewrite old ent
 - **Why:** A negative `Retry-After` is invalid HTTP, and the clamp keeps the header valid whatever an adapter passes. Keeping the existing behavior meant this session changed no source.
 - **Alternatives:** Omit the header for a negative value, treating it as unknown. That matches how the Claude adapter already parses a negative `retry-after` (as absent, so the clamp is unreachable from Claude), but it needs a code change. Reject a negative value in `ProviderRateLimited` itself, which moves the rule to construction time.
 - **Risk:** "Retry now" and "no advice" are different signals, and an adapter bug that produces a negative value would tell clients to retry immediately.
-- **Revisit when:** M7 adds a second adapter that can raise `ProviderRateLimited`, or M15 makes the router consume `retry_after_seconds`.
+- **Revisit when:** M7 adds a second adapter that can raise `ProviderRateLimited`, or M9 (M15 before the 2026-11-03 reorder) makes the router consume `retry_after_seconds`.

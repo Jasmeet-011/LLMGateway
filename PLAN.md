@@ -6,11 +6,12 @@ A FastAPI gateway in front of Claude and Gemini that adds reliability and cost c
 
 ## Definition of done
 
-The two resume bullets define done (D-031). Their text is not yet recorded in the repo; the owner pastes them here verbatim:
+The two resume bullets define done (D-031). The owner's text, verbatim:
 
-> (owner: resume bullet 1)
->
-> (owner: resume bullet 2)
+> - Built a FastAPI gateway over the Claude and Gemini APIs that normalizes SSE streaming across providers, with hashed per-key auth in Postgres, an atomic Redis Lua token-bucket rate limiter, and a tenant-scoped response cache.
+> - Added timeouts, retries with jittered backoff, a circuit breaker, and pre-first-byte provider fallback; under k6 load with [X]% injected provider failures, raised successful responses from [A]% to [B]% at [N] req/s, with [Y] ms p95 gateway overhead.
+
+The bracketed numbers stay as placeholders until `docs/RESULTS.md` has measured values.
 
 D-031, verbatim: "The project is done when everything the two resume bullets need is merged: Claude and Gemini adapters, normalized SSE streaming, hashed API keys in Postgres, the Redis Lua rate limiter, the tenant-scoped response cache, timeouts and retries with jittered backoff, the circuit breaker, pre-first-byte provider fallback, and a k6 load test with failure injection whose results are in `docs/RESULTS.md`. Also required: token and cost accounting, Docker Compose, CI, and the README."
 
@@ -36,78 +37,78 @@ Worked in order. Status and evidence are in [PROGRESS.md](PROGRESS.md); this fil
 
 ### M8 Model aliases and router selection
 
-- **Scope:** config maps each alias to an ordered list of (provider, model) pairs (D-010), validated at startup. The router picks the first entry; fallback down the list comes in M17. Replaces env-var provider selection (D-036) and the `model` echo (D-027).
+- **Scope:** config maps each alias to an ordered list of (provider, model) pairs (D-010), validated at startup. The router picks the first entry; fallback down the list comes in M11. Replaces env-var provider selection (D-036) and the `model` echo (D-027).
 - **Proof:** the same request routed to each provider by alias; unknown alias rejected; invalid config stops startup.
 - **Dependencies allowed:** none.
 - **Open issues to settle:** which pairs go in each alias list (PLAN question (a)); config format and where it lives; what `ChatResponse.model` reports (alias or provider model); how alias length relates to the 128-character cap (D-030).
 
-### M9 Normalized SSE streaming
-
-- **Scope:** streaming for both providers through one event shape: `delta` events, then one final event with usage and provider. `stream=true` stops returning 501 (D-022). Streaming joins the adapter interface (D-015).
-- **Proof:** tests asserting identical event shapes from the Claude, Gemini and mock streams; tests for mid-stream failure; live-marked streaming tests for both providers.
-- **Dependencies allowed:** none.
-- **Open issues to settle:** mid-stream provider failure behavior (how the stream ends, what the client sees, what is recorded); what the read timeout means for streams (D-034); whether the final event's shape changes `StreamEnd` in `schema.py`.
-
-### M10 Docker Compose and CI
-
-- **Scope:** Docker Compose with the api, Postgres and Redis. GitHub Actions CI running the five checks plus integration tests against service containers.
-- **Proof:** `docker compose up` works from a clean clone; a green CI run.
-- **Dependencies allowed:** none.
-- **Open issues to settle:** image versions and how they are pinned; how CI pins third-party actions; how integration tests are marked and selected; how CI runs `uv sync --locked` under the age floor (D-029).
-
-### M11 Hashed API keys in Postgres
-
-- **Scope:** API keys stored only as hashes in Postgres, created by a migration, compared in constant time. Revocation.
-- **Proof:** valid key 200, invalid key 401, revoked key 401; the table holds only hashes.
-- **Dependencies allowed:** an async Postgres driver and Alembic, with SQLAlchemy, which Alembic requires (pick and record a D-entry; declare SQLAlchemy directly if the code imports it, as D-037 did for starlette).
-- **Open issues to settle:** the D-018 order question: a key format check in middleware before the body is read, plus a body size cap (D-025); the hash scheme; the key format; the status code for a missing key (D-019 left it open).
-
-### M12 Token and cost accounting
-
-- **Scope:** usage and cost recorded per request, per key and tenant.
-- **Proof:** usage rows for success and failure paths.
-- **Dependencies allowed:** none new.
-- **Open issues to settle:** where usage rows live (FLOW.md section 9); where prices come from and their units; whether failed attempts are costed (D-035); how mock word counts are labeled (D-016).
-
-### M13 Redis Lua token-bucket rate limiter
-
-- **Scope:** per-key token bucket as a Redis Lua script using Redis server time (D-002), checked after the key and before the cache (D-018).
-- **Proof:** a concurrency test against real Redis: fire N+50 requests with the clock frozen or the refill at zero, and exactly N pass; rejected requests get 429 with `Retry-After`.
-- **Dependencies allowed:** redis (asyncio client).
-- **Open issues to settle:** whether cache hits count against the limit (FLOW.md section 11); bucket size and refill configuration; behavior when Redis is down (fail open or closed).
-
-### M14 Tenant-scoped response cache
-
-- **Scope:** cache for cacheable, non-streaming requests, keyed by a canonical JSON hash including the tenant (D-003, CLAUDE.md), with the `x-gateway-cache` header (D-021).
-- **Proof:** a second identical call returns `x-gateway-cache: hit` with lower latency; another tenant misses; hits are recorded billed zero (D-012).
-- **Dependencies allowed:** none new.
-- **Open issues to settle:** what "cacheable" means given D-033 (temperature cannot signal determinism on Claude), for example explicit client opt-in; supersede D-003 with a new entry; TTL; the header value for requests that are not cacheable (D-021).
-
-### M15 Router timeouts and retries
+### M9 Router timeouts and retries
 
 - **Scope:** per-attempt and total timeouts; retries with jittered backoff for retryable errors only (D-014), honoring `retry-after`.
 - **Proof:** tests with an injectable clock and sleeper covering backoff growth, jitter bounds, `retry-after`, the total deadline, and no retry on non-retryable errors.
 - **Dependencies allowed:** none.
 - **Open issues to settle:** retry counts, timeouts and backoff values (FLOW.md section 11); a cap on `retry-after`; retrying after a malformed 2xx repeats a billed generation (D-035); httpx errors outside `TransportError`, such as `DecodingError`, are not caught by the Claude adapter and reach the client as 500 `internal_error`.
 
-### M16 Circuit breaker
+### M10 Circuit breaker
 
 - **Scope:** a breaker per provider with closed, open and half-open states (FLOW.md section 6).
 - **Proof:** tests for every transition.
 - **Dependencies allowed:** none.
 - **Open issues to settle:** where breaker state lives (record it); thresholds and cooldown; whether provider rate limits count as failures (D-014); whether one breaker covers a provider or a (provider, model) pair.
 
-### M17 Pre-first-byte fallback and fault injection
+### M11 Provider fallback and fault injection
 
-- **Scope:** fallback down the alias list (D-010) before the first streamed byte; per-provider fault injection switched by an environment variable, off by default.
+- **Scope:** fallback down the alias list (D-010) for non-streaming requests; streams get the pre-first-byte rule in M12. Per-provider fault injection switched by an environment variable, off by default.
 - **Proof:** inject failures on one provider and the other serves; the response says which provider served.
 - **Dependencies allowed:** none.
 - **Open issues to settle:** whether non-retryable errors fall back (FLOW.md section 5, D-033); the fault-injection variables and how they are kept out of production.
 
+### M12 Normalized SSE streaming
+
+- **Scope:** streaming for both providers through one event shape: `delta` events, then one final event with usage and provider. `stream=true` stops returning 501 (D-022). Streaming joins the adapter interface (D-015). Fallback (M11) extends to streams with the pre-first-byte rule: a stream falls back only before its first byte reaches the client (CLAUDE.md).
+- **Proof:** tests asserting identical event shapes from the Claude, Gemini and mock streams; tests for mid-stream failure; live-marked streaming tests for both providers.
+- **Dependencies allowed:** none.
+- **Open issues to settle:** mid-stream provider failure behavior (how the stream ends, what the client sees, what is recorded); what the read timeout means for streams (D-034); whether the final event's shape changes `StreamEnd` in `schema.py`.
+
+### M13 Docker Compose and CI
+
+- **Scope:** Docker Compose with the api, Postgres and Redis. GitHub Actions CI running the five checks plus integration tests against service containers.
+- **Proof:** `docker compose up` works from a clean clone; a green CI run.
+- **Dependencies allowed:** none.
+- **Open issues to settle:** image versions and how they are pinned; how CI pins third-party actions; how integration tests are marked and selected; how CI runs `uv sync --locked` under the age floor (D-029).
+
+### M14 Hashed API keys in Postgres
+
+- **Scope:** API keys stored only as hashes in Postgres, created by a migration, compared in constant time. Revocation.
+- **Proof:** valid key 200, invalid key 401, revoked key 401; the table holds only hashes.
+- **Dependencies allowed:** an async Postgres driver and Alembic, with SQLAlchemy, which Alembic requires (pick and record a D-entry; declare SQLAlchemy directly if the code imports it, as D-037 did for starlette).
+- **Open issues to settle:** the D-018 order question: a key format check in middleware before the body is read, plus a body size cap (D-025); the hash scheme; the key format; the status code for a missing key (D-019 left it open).
+
+### M15 Token and cost accounting
+
+- **Scope:** usage and cost recorded per request, per key and tenant.
+- **Proof:** usage rows for success and failure paths.
+- **Dependencies allowed:** none new.
+- **Open issues to settle:** where usage rows live (FLOW.md section 9); where prices come from and their units; whether failed attempts are costed (D-035); how mock word counts are labeled (D-016).
+
+### M16 Redis Lua token-bucket rate limiter
+
+- **Scope:** per-key token bucket as a Redis Lua script using Redis server time (D-002), checked after the key and before the cache (D-018).
+- **Proof:** a concurrency test against real Redis: fire N+50 requests with the clock frozen or the refill at zero, and exactly N pass; rejected requests get 429 with `Retry-After`.
+- **Dependencies allowed:** redis (asyncio client).
+- **Open issues to settle:** whether cache hits count against the limit (FLOW.md section 11); bucket size and refill configuration; behavior when Redis is down (fail open or closed).
+
+### M17 Tenant-scoped response cache
+
+- **Scope:** cache for cacheable, non-streaming requests, keyed by a canonical JSON hash including the tenant (D-003, CLAUDE.md), with the `x-gateway-cache` header (D-021).
+- **Proof:** a second identical call returns `x-gateway-cache: hit` with lower latency; another tenant misses; hits are recorded billed zero (D-012).
+- **Dependencies allowed:** none new.
+- **Open issues to settle:** what "cacheable" means given D-033 (temperature cannot signal determinism on Claude), for example explicit client opt-in; supersede D-003 with a new entry; TTL; the header value for requests that are not cacheable (D-021).
+
 ### M18 Load tests and results
 
 - **Scope:** k6 scripts (steady, burst, injected outage, with and without fallback), `docs/RESULTS.md`, and a README with the request lifecycle and results. Measured against the mock, stated openly.
-- **Proof:** RESULTS.md numbers from real runs, with the conditions listed under Measurements.
+- **Proof:** RESULTS.md numbers from real runs, with the conditions listed under Measurements; an outage demo, with one provider fully down while the gateway keeps serving, recorded in RESULTS.md; a Known limitations section in RESULTS.md.
 - **Dependencies allowed:** none (k6 is a binary).
 - **Open issues to settle:** the k6 version; how gateway overhead is measured against the mock directly (measurement 1); measurements 6 and 7 are shown as not run unless their stretch items are built (D-031).
 

@@ -8,9 +8,10 @@ LLMGateway is a FastAPI service in front of Claude and Gemini that adds a reliab
 
 **Definition of done** (from PLAN.md, "Definition of done"):
 
-> The two resume bullets: not yet recorded in the repo. The owner pastes them into PLAN.md verbatim, and this block is updated to match.
+> - Built a FastAPI gateway over the Claude and Gemini APIs that normalizes SSE streaming across providers, with hashed per-key auth in Postgres, an atomic Redis Lua token-bucket rate limiter, and a tenant-scoped response cache.
+> - Added timeouts, retries with jittered backoff, a circuit breaker, and pre-first-byte provider fallback; under k6 load with [X]% injected provider failures, raised successful responses from [A]% to [B]% at [N] req/s, with [Y] ms p95 gateway overhead.
 
-Until then, done is D-031's list, quoted in PLAN.md: everything the two resume bullets need is merged (Claude and Gemini adapters, normalized SSE streaming, hashed API keys in Postgres, the Redis Lua rate limiter, the tenant-scoped response cache, timeouts and retries with jittered backoff, the circuit breaker, pre-first-byte provider fallback, and a k6 load test with failure injection whose results are in `docs/RESULTS.md`), plus token and cost accounting, Docker Compose, CI, and the README.
+The bracketed numbers stay as placeholders until `docs/RESULTS.md` has measured values. Concretely, done is D-031's list, quoted in PLAN.md: everything the two resume bullets need is merged (Claude and Gemini adapters, normalized SSE streaming, hashed API keys in Postgres, the Redis Lua rate limiter, the tenant-scoped response cache, timeouts and retries with jittered backoff, the circuit breaker, pre-first-byte provider fallback, and a k6 load test with failure injection whose results are in `docs/RESULTS.md`), plus token and cost accounting, Docker Compose, CI, and the README.
 
 ## Start of every session
 
@@ -94,7 +95,7 @@ Work through milestones in PLAN.md order, starting from the current one in PROGR
 6. For any decision with a real alternative an interviewer could ask about, make the call, record a D-entry, and keep going. Do not stop to ask. Naming and formatting choices need no entry.
 7. Dependencies: only those listed for the milestone in PLAN.md, and only versions inside the `exclude-newer` age floor (D-029).
 8. Finish: `check.ps1` passes; PROGRESS.md updated (tick with evidence, session log, mistakes log); FLOW.md and README.md updated if behavior changed. Small commits on `main` with conventional messages (`feat:`, `fix:`, `test:`, `docs:`, `chore:`, `refactor:`); docs change in the same commit as the code they describe. `git push origin main`. Never force-push; if a push fails, stop. Push each milestone before starting the next.
-9. End the session with a report of at most 15 lines: done, checks summary, reviewer verdict, mutation checks (count passed), decisions made (D-numbers), mistakes logged, "Needs owner" (live tests to run, questions), and one interview question for the milestone with a five-point answer key.
+9. End the session with a report of at most 15 lines: done, checks summary, reviewer verdict, mutation checks (count passed), decisions made (D-numbers), schema changes (with their D-numbers), mistakes logged, "Needs owner" (live tests to run, questions), and one interview question for the milestone with a five-point answer key.
 
 ## Stop conditions
 
@@ -106,6 +107,8 @@ Stop, report, and wait when any of these happens:
 - A failing check you cannot fix without weakening a test.
 - Reviewer FAIL after two rounds.
 - A destructive git operation.
+
+A schema change (the API models in `schema.py`, or the database schema once M14 adds one) is not a stop condition, but it needs a D-entry, the reviewer must check it, and the session report must list it.
 
 ## Agent Mistakes Log
 
