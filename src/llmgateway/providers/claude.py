@@ -8,8 +8,8 @@ Key design choices:
 
 - Raw async httpx, not the Anthropic SDK (D-032). The SDK retries by default,
   which would stack with the router's retries, and it hides the status codes and
-  timeouts this adapter needs to control. The Gemini adapter will follow the same
-  pattern.
+  timeouts this adapter needs to control. The Gemini adapter follows the same
+  pattern (D-039).
 - No retries anywhere in here. The transport is built with `retries=0`, and every
   failure is raised once as a `ProviderError`; retrying is the router's job.
 - One `httpx.AsyncClient` per adapter, reused for every call so connections are
@@ -31,7 +31,6 @@ Key design choices:
   of the adapter, and `repr()` does not show it.
 """
 
-import math
 from typing import Annotated, Any, Final
 
 import httpx
@@ -45,6 +44,7 @@ from llmgateway.providers.base import (
     ProviderResult,
     ProviderTimeout,
     ProviderUnavailable,
+    parse_retry_after,
 )
 from llmgateway.schema import ChatRequest, FinishReason, Provider, Usage
 
@@ -84,20 +84,6 @@ class _Message(BaseModel):
     usage: _Usage
 
 
-def _retry_after_seconds(value: str | None) -> float | None:
-    # Anthropic sends whole seconds. Anything else (an HTTP date, garbage, a
-    # negative or non-finite number) is treated as absent.
-    if value is None:
-        return None
-    try:
-        seconds = float(value)
-    except ValueError:
-        return None
-    if not math.isfinite(seconds) or seconds < 0:
-        return None
-    return seconds
-
-
 def _status_error(response: httpx.Response) -> ProviderError:
     status = response.status_code
     if status in (401, 403):
@@ -105,7 +91,8 @@ def _status_error(response: httpx.Response) -> ProviderError:
     if status == 429:
         return ProviderRateLimited(
             "claude: rate limited",
-            retry_after_seconds=_retry_after_seconds(response.headers.get("retry-after")),
+            # Anthropic sends whole seconds.
+            retry_after_seconds=parse_retry_after(response.headers.get("retry-after")),
         )
     if 400 <= status < 500:
         return ProviderBadRequest(f"claude: request rejected with HTTP {status}")

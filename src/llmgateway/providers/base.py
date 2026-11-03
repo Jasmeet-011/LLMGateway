@@ -13,8 +13,11 @@ Key design choices:
 - Every error carries a `retryable` flag so callers classify failures without
   knowing which provider raised them. Error messages must never contain prompt
   text, API keys or secrets, because they end up in logs.
+- `parse_retry_after` is shared by the HTTP adapters, so a provider's
+  `retry-after` header is read the same way for every provider.
 """
 
+import math
 from typing import Annotated, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -53,6 +56,21 @@ class ProviderError(Exception):
 class ProviderTimeout(ProviderError):
     def __init__(self, message: str) -> None:
         super().__init__(message, retryable=True)
+
+
+def parse_retry_after(value: str | None) -> float | None:
+    """Seconds from a `retry-after` header, or None when it is not usable."""
+    # Only a number of seconds is accepted. Anything else (an HTTP date, garbage,
+    # a negative or non-finite number) is treated as absent.
+    if value is None:
+        return None
+    try:
+        seconds = float(value)
+    except ValueError:
+        return None
+    if not math.isfinite(seconds) or seconds < 0:
+        return None
+    return seconds
 
 
 class ProviderRateLimited(ProviderError):

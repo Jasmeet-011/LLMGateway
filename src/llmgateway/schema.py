@@ -31,8 +31,9 @@ class ChatRequest(_Model):
     messages: tuple[Message, ...]
     system: Annotated[str, Field(min_length=1)] | None = None
     max_tokens: Annotated[int, Field(ge=1)]
-    # Claude documents 0-1 for both (newer Claude models reject non-default values;
-    # the adapter handles that). Gemini's range is unverified; 0-1 is assumed to fit.
+    # Kept at 0-1 (D-040). The Claude adapter rejects both, because current Claude
+    # models return a 400 for them (D-033). Gemini documents temperature as 0-2 and
+    # gets both passed through, though Gemini 3.6 Flash and newer ignore them.
     temperature: Annotated[float, Field(ge=0.0, le=1.0)] | None = None
     top_p: Annotated[float, Field(ge=0.0, le=1.0)] | None = None
     stop: tuple[Annotated[str, Field(min_length=1)], ...] | None = None

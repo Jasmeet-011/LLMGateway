@@ -207,6 +207,10 @@ One `docs:` commit with three owner instructions.
 - Schema rule in CLAUDE.md: a schema change is not a stop condition, but it needs a D-entry, the reviewer must check it, and the session report must list it. This settles the reviewer's open SHOULD FIX from the reset session.
 - Milestones reordered in PLAN.md and in the table above. Old to new numbers: M7 and M8 unchanged, M15 to M9 (timeouts and retries), M16 to M10 (circuit breaker), M17 to M11 (fallback and fault injection), M9 to M12 (streaming), M10 to M13 (Docker and CI), M11 to M14 (API keys), M12 to M15 (accounting), M13 to M16 (rate limiter), M14 to M17 (cache), M18 unchanged (k6). Scope and proof are unchanged except as the owner listed: M11 covers fallback for non-streaming requests and M12 adds the pre-first-byte rule for streams, so M11 is renamed "Provider fallback and fault injection"; the M18 proof adds an outage demo and a Known limitations section. Milestone numbers in the reset session's entry above and in D-038's "Revisit when" refer to the old numbering, with the new number added.
 
+### 2026-11-03: M7 Gemini adapter
+
+**Plan.** Settle the M7 open issues from Google's official docs; record the decisions (D-039 to D-042) and the Gemini rows of FLOW.md section 13 before any code; tester Mode 1 writes the tests from that spec; implement `providers/gemini.py` and `LLMGATEWAY_PROVIDER=gemini`; tester Mode 2 runs mutation checks on every Gemini failure path; reviewer; push. No new dependencies.
+
 ## Agent Mistakes Log
 
 Rows are taken only from what the git history and DECISIONS.md record. Where the history does not say who found a problem, the row says so.

@@ -10,7 +10,8 @@ Key design choices:
   uvicorn configures only its own loggers and the request log lines (D-026) would
   otherwise be dropped.
 - Temporary, until model aliases (D-010): `LLMGATEWAY_PROVIDER` picks the one
-  provider, `mock` (the default) or `claude`. `claude` needs `ANTHROPIC_API_KEY`.
+  provider, `mock` (the default), `claude` or `gemini` (D-036, D-039). `claude`
+  needs `ANTHROPIC_API_KEY`; `gemini` needs `GEMINI_API_KEY`.
 - Bad configuration stops the process at import, before uvicorn serves anything,
   with a `SystemExit` message and no traceback. The messages never echo the
   values that were set, so a key pasted into the wrong variable is not printed.
@@ -24,6 +25,7 @@ from collections.abc import Mapping
 from llmgateway.app import create_app
 from llmgateway.providers.base import ProviderAdapter
 from llmgateway.providers.claude import ClaudeAdapter
+from llmgateway.providers.gemini import GeminiAdapter
 from llmgateway.providers.mock import MockProvider
 
 
@@ -42,7 +44,14 @@ def provider_from_env(environ: Mapping[str, str]) -> ProviderAdapter:
                 "ANTHROPIC_API_KEY is not set; it is required when LLMGATEWAY_PROVIDER=claude"
             )
         return ClaudeAdapter(api_key)
-    raise ConfigError("LLMGATEWAY_PROVIDER must be 'mock' or 'claude'")
+    if name == "gemini":
+        api_key = environ.get("GEMINI_API_KEY", "")
+        if not api_key.strip():
+            raise ConfigError(
+                "GEMINI_API_KEY is not set; it is required when LLMGATEWAY_PROVIDER=gemini"
+            )
+        return GeminiAdapter(api_key)
+    raise ConfigError("LLMGATEWAY_PROVIDER must be 'mock', 'claude' or 'gemini'")
 
 
 _logger = logging.getLogger("llmgateway")

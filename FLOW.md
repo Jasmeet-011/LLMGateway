@@ -161,7 +161,7 @@ src/llmgateway/
 │   ├── base.py          ProviderResult, ProviderAdapter, ProviderError classes
 │   ├── mock.py          MockProvider
 │   ├── claude.py        ClaudeAdapter, Messages API over httpx
-│   └── gemini.py        Gemini adapter
+│   └── gemini.py        GeminiAdapter, generateContent over httpx
 ├── app.py               create_app, request middleware, endpoints
 ├── errors.py            error body, status mapping, exception handlers
 ├── main.py              module-level app for uvicorn, provider configuration
@@ -240,6 +240,27 @@ Every failure an adapter sees becomes one `ProviderError` class (D-014), and `er
 | HTTP 2xx with a valid body | none | n/a | 200 | n/a |
 
 On success, `stop_reason` maps to `finish_reason`: `end_turn` to `stop`, `max_tokens` to `max_tokens`, `stop_sequence` to `stop_sequence`, and every other value, including ones added later, to `other` (D-035). The adapter never retries (D-032); the error is raised once, without the httpx exception chained to it.
+
+### Gemini (`providers/gemini.py`, D-039 to D-042)
+
+Request (D-039, D-040): `POST https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent` with the `x-goog-api-key` header. The body has `contents`, one `{"role", "parts": [{"text"}]}` entry per message with `assistant` sent as `model`; `systemInstruction: {"parts": [{"text"}]}` only when `system` is set; and `generationConfig` with `maxOutputTokens`, plus `stopSequences`, `temperature` and `topP` only when set.
+
+| Provider outcome | Error type | Retryable | Client status | Client code |
+| --- | --- | --- | --- | --- |
+| `model` does not fully match `[A-Za-z0-9][A-Za-z0-9._-]*` (rejected before any network call, D-042) | `ProviderBadRequest` | no | 400 | `provider_bad_request` |
+| More than 5 stop sequences (rejected before any network call, D-042) | `ProviderBadRequest` | no | 400 | `provider_bad_request` |
+| HTTP 401 or 403 | `ProviderAuthError` | no | 502 | `provider_auth_error` |
+| HTTP 429 | `ProviderRateLimited`, `retry_after_seconds` from a numeric, finite, non-negative `retry-after`, else none | yes | 503, with `Retry-After` rounded up to whole seconds when known, never below 0 (D-038) | `provider_rate_limited` |
+| Any other HTTP 4xx (400, 402, 404, 409, 413, 416, ...) | `ProviderBadRequest` | no | 400 | `provider_bad_request` |
+| HTTP 5xx, including 503 and 504 `deadline_exceeded` | `ProviderUnavailable` | yes | 502 | `provider_unavailable` |
+| Unexpected HTTP 3xx (httpx does not follow redirects) | `ProviderUnavailable` | yes | 502 | `provider_unavailable` |
+| httpx timeout: connect, read, write or pool (D-034 values) | `ProviderTimeout` | yes | 504 | `provider_timeout` |
+| Any other httpx transport error: connect, read, write, protocol | `ProviderUnavailable` | yes | 502 | `provider_unavailable` |
+| HTTP 2xx with `promptFeedback.blockReason` set, with or without candidates | `ProviderBadRequest` | no | 400 | `provider_bad_request` |
+| HTTP 2xx whose body is not a JSON object, or has no candidates (and no block reason), or whose first candidate lacks a string `finishReason`, or has a part whose `text` is not a string, or lacks `usageMetadata`, or has a token count that is present but not a non-negative integer | `ProviderUnavailable` | yes | 502 | `provider_unavailable` |
+| HTTP 2xx with a valid body | none | n/a | 200 | n/a |
+
+On success (D-041): the first candidate's text is the concatenation of the `text` of its parts that are not marked `"thought": true`; parts without `text` are skipped, and a candidate with no `content` or `parts` gives empty text. `finishReason` `STOP` maps to `stop`, `MAX_TOKENS` to `max_tokens`, and every other value (`SAFETY`, `RECITATION`, ..., and ones added later) to `other`; Gemini never produces `stop_sequence`. `input_tokens` is `promptTokenCount`, `output_tokens` is `candidatesTokenCount + thoughtsTokenCount`, and an absent count is 0. A non-empty `responseId` becomes `provider_response_id`. `temperature` and `top_p` are sent as `generationConfig.temperature` and `topP` when set (D-040). The adapter never retries (D-032); the error is raised once, without the httpx exception chained to it.
 
 ### Gateway errors (`errors.py`, `app.py`)
 

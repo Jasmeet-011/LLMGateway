@@ -71,6 +71,24 @@ $r.Content
 
 When done, stop uvicorn (Ctrl+C) and, in terminal 1, `Remove-Item Env:ANTHROPIC_API_KEY, Env:LLMGATEWAY_PROVIDER`.
 
+Gemini (real API calls, which cost money) works the same way. Terminal 1:
+
+```powershell
+$env:LLMGATEWAY_PROVIDER = "gemini"
+$env:GEMINI_API_KEY = Read-Host "Gemini API key" -MaskInput
+uv run uvicorn llmgateway.main:app --host 127.0.0.1 --port 8000
+```
+
+Terminal 2: the same requests as for Claude, with a Gemini model ID such as `gemini-3.5-flash-lite`. Until model aliases exist, `model` goes into the request path, so the adapter rejects any ID with characters other than letters, digits, `.`, `_` and `-` with 400 `provider_bad_request`, before calling Gemini (D-042).
+
+```powershell
+$body = @{ model = "gemini-3.5-flash-lite"; max_tokens = 32; messages = @(@{ role = "user"; content = "Say hello in five words." }) } | ConvertTo-Json -Depth 5
+$r = Invoke-WebRequest -Method Post -Uri http://127.0.0.1:8000/v1/chat -ContentType "application/json" -Body $body -SkipHttpErrorCheck
+"status=$($r.StatusCode) provider=$(($r.Content | ConvertFrom-Json).provider)"
+```
+
+When done, stop uvicorn and run `Remove-Item Env:GEMINI_API_KEY, Env:LLMGATEWAY_PROVIDER`.
+
 ## Results
 
 None yet. Any performance figures will be added only from measured runs recorded in `docs/RESULTS.md` together with the test conditions.

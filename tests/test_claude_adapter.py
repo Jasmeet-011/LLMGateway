@@ -616,13 +616,15 @@ def test_claude_without_key_fails(
         provider_from_env(environ)
 
 
-@pytest.mark.parametrize("value", ["", "gemini", "Claude", API_KEY])
+@pytest.mark.parametrize("value", ["", "openai", "Claude", "Gemini", API_KEY])
 def test_unknown_provider_fails_without_echo(
     provider_from_env: ProviderFromEnv, value: str
 ) -> None:
     from llmgateway.main import ConfigError
 
-    with pytest.raises(ConfigError, match="must be 'mock' or 'claude'") as info:
+    with pytest.raises(
+        ConfigError, match=r"^LLMGATEWAY_PROVIDER must be 'mock', 'claude' or 'gemini'$"
+    ) as info:
         provider_from_env({"LLMGATEWAY_PROVIDER": value, "ANTHROPIC_API_KEY": API_KEY})
     if value:
         assert value not in str(info.value)
@@ -632,7 +634,10 @@ def test_unknown_provider_fails_without_echo(
     ("overrides", "message"),
     [
         ({"LLMGATEWAY_PROVIDER": "claude"}, "ANTHROPIC_API_KEY is not set"),
-        ({"LLMGATEWAY_PROVIDER": API_KEY}, "LLMGATEWAY_PROVIDER must be 'mock' or 'claude'"),
+        (
+            {"LLMGATEWAY_PROVIDER": API_KEY},
+            "LLMGATEWAY_PROVIDER must be 'mock', 'claude' or 'gemini'",
+        ),
     ],
     ids=["claude_without_key", "unknown_provider"],
 )
