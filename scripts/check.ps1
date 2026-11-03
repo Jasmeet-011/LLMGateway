@@ -16,9 +16,12 @@ try {
         $command = $step -join ' '
         Write-Host "==> $command"
         & $step[0] $step[1..($step.Count - 1)]
-        if ($LASTEXITCODE -ne 0) {
-            Write-Host "FAIL: $command (exit code $LASTEXITCODE)"
-            exit $LASTEXITCODE
+        # $? also catches a command that could not start (uv missing), where
+        # $LASTEXITCODE is not set.
+        if (-not $? -or $LASTEXITCODE -ne 0) {
+            $code = if ($LASTEXITCODE) { $LASTEXITCODE } else { 1 }
+            Write-Host "FAIL: $command (exit code $code)"
+            exit $code
         }
     }
 }

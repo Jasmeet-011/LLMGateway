@@ -88,7 +88,7 @@ Worked in order. Status and evidence are in [PROGRESS.md](PROGRESS.md); this fil
 - **Scope:** per-attempt and total timeouts; retries with jittered backoff for retryable errors only (D-014), honoring `retry-after`.
 - **Proof:** tests with an injectable clock and sleeper covering backoff growth, jitter bounds, `retry-after`, the total deadline, and no retry on non-retryable errors.
 - **Dependencies allowed:** none.
-- **Open issues to settle:** retry counts, timeouts and backoff values (FLOW.md section 11); a cap on `retry-after`; retrying after a malformed 2xx repeats a billed generation (D-035).
+- **Open issues to settle:** retry counts, timeouts and backoff values (FLOW.md section 11); a cap on `retry-after`; retrying after a malformed 2xx repeats a billed generation (D-035); httpx errors outside `TransportError`, such as `DecodingError`, are not caught by the Claude adapter and reach the client as 500 `internal_error`.
 
 ### M16 Circuit breaker
 

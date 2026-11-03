@@ -240,6 +240,37 @@ async def test_unknown_route_uses_error_body() -> None:
     _assert_error(response, 404, "not_found")
 
 
+@pytest.mark.asyncio
+async def test_wrong_method_is_405_method_not_allowed() -> None:
+    provider = MockProvider(sleep=FakeSleep())
+    async with _client(create_app(provider=provider)) as client:
+        response = await client.get("/v1/chat")
+    error = _assert_error(response, 405, "method_not_allowed")
+    assert error.error.message == "Method Not Allowed"
+    assert error.error.details is None
+    # HTTP requires a 405 to say which methods the route accepts.
+    assert response.headers["allow"] == "POST"
+    assert provider.call_count == 0
+
+
+@pytest.mark.asyncio
+async def test_other_http_error_uses_fallback_code_and_standard_phrase() -> None:
+    # A JSON body that is not valid UTF-8 makes FastAPI raise a 400 HTTPException
+    # whose detail is its own text; the client gets the standard phrase instead.
+    provider = MockProvider(sleep=FakeSleep())
+    async with _client(create_app(provider=provider)) as client:
+        response = await client.post(
+            "/v1/chat",
+            content=b'{"model": "\xff"}',
+            headers={"content-type": "application/json"},
+        )
+    error = _assert_error(response, 400, "http_error")
+    assert error.error.message == "Bad Request"
+    assert error.error.details is None
+    assert "parsing" not in response.text
+    assert provider.call_count == 0
+
+
 @pytest.mark.parametrize(
     ("failure_type", "status", "code"),
     [

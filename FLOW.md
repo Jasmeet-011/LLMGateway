@@ -248,6 +248,7 @@ On success, `stop_reason` maps to `finish_reason`: `end_turn` to `stop`, `max_to
 | Body fails validation, or is not valid JSON (`details` holds `loc` and `msg` only) | 422 | `validation_error` |
 | Unknown route | 404 | `not_found` |
 | Method not allowed | 405 | `method_not_allowed` |
+| Any other HTTP exception raised by the framework (message is the standard phrase, never its detail) | its own status | `http_error` |
 | `stream=true` until streaming exists (D-022) | 501 | `streaming_not_implemented` |
 | A `ProviderError` subclass with no mapping of its own and no mapped parent | 502 | `provider_error` |
 | Any other exception | 500 | `internal_error` |
