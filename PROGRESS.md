@@ -389,6 +389,45 @@ Tests added in Mode 2, all in `tests/test_gemini_adapter.py`, all additive: `tes
   - Two tests create adapters without closing them (note 11).
   - The reviewer recalls, unverified, that Gemini answers a bad key with 400 `API_KEY_INVALID` (note 7). The live invalid-key test checks this; it is under Needs owner.
 
+**Fixes after round 1 (tester).** Tests added, all additive, with no existing assertion changed: `test_redirect_is_never_followed` (both adapters; 301, 302, 303, 307 and 308, with a `Location` on another host, the same host, or a relative path, and a valid answer body: exactly one request, all to the provider's host), `test_undecodable_body_is_unavailable` (both; 200, 401, 429 and 500 with a broken gzip body), `test_deeply_nested_body_is_unavailable` (both), `test_app_maps_undecodable_gemini_body_to_502`, `test_app_maps_undecodable_claude_body_to_502`, `test_null_content_or_text_read_as_absent` and `test_malformed_candidate_content_is_unavailable` (Gemini). Before the fixes were committed, the tester showed that these tests fail when a fix is reverted, using a mutated copy of `src/` on `PYTHONPATH`. With `follow_redirects=True`, 15 tests failed in each adapter.
+
+**Mutation checks, run 2 (tester, Mode 2).** At fcab3b3 with a clean tree, on the code changed since run 1, numbered on from run 1. 32 mutations: 25 caught, 0 needing a new test, 7 equivalent; 25 + 0 + 7 = 32. The builder checked the table against `results2.json`. Run 1's #54 (the not-an-object check) no longer applies, because that check now lives in the `TypeAdapter`; #164 to #166 replace it. #175 to #177 re-run #50, #52 and #53 on the changed `except`. Equivalents #147 and #156 mean the explicit `follow_redirects=False` is guarded by behavior tests, which would catch a changed httpx default, but not by a test of the argument itself while the default is False.
+
+| # | Mutation | File | Test that failed (n) | Reverted |
+| --- | --- | --- | --- | --- |
+| 146 | claude: follow_redirects=False -> True | claude.py | test_redirect_is_never_followed (15) | yes |
+| 147 | claude: follow_redirects argument dropped | claude.py | survives: equivalent (httpx 0.28.1 defaults follow_redirects to False (checked)) | yes |
+| 148 | claude: except DecodingError dropped | claude.py | test_app_maps_undecodable_claude_body_to_502 (5) | yes |
+| 149 | claude: DecodingError -> ProviderTimeout | claude.py | test_app_maps_undecodable_claude_body_to_502 (5) | yes |
+| 150 | claude: DecodingError -> ProviderBadRequest | claude.py | test_app_maps_undecodable_claude_body_to_502 (5) | yes |
+| 151 | claude: DecodingError raised inside except (chained) | claude.py | test_undecodable_body_is_unavailable (4) | yes |
+| 152 | claude: DecodingError except moved ahead of TransportError | claude.py | survives: equivalent (DecodingError and TransportError are disjoint classes) | yes |
+| 153 | claude: DecodingError except moved ahead of TimeoutException | claude.py | survives: equivalent (DecodingError and TimeoutException are disjoint classes) | yes |
+| 154 | claude: undecodable message without 'claude: ' prefix | claude.py | test_undecodable_body_is_unavailable (4) | yes |
+| 155 | gemini: follow_redirects=False -> True | gemini.py | test_redirect_is_never_followed (15) | yes |
+| 156 | gemini: follow_redirects argument dropped | gemini.py | survives: equivalent (httpx 0.28.1 defaults follow_redirects to False (checked)) | yes |
+| 157 | gemini: except DecodingError dropped | gemini.py | test_app_maps_undecodable_gemini_body_to_502 (5) | yes |
+| 158 | gemini: DecodingError -> ProviderTimeout | gemini.py | test_app_maps_undecodable_gemini_body_to_502 (5) | yes |
+| 159 | gemini: DecodingError -> ProviderBadRequest | gemini.py | test_app_maps_undecodable_gemini_body_to_502 (5) | yes |
+| 160 | gemini: DecodingError raised inside except (chained) | gemini.py | test_undecodable_body_is_unavailable (4) | yes |
+| 161 | gemini: DecodingError except moved ahead of TransportError | gemini.py | survives: equivalent (DecodingError and TransportError are disjoint classes) | yes |
+| 162 | gemini: DecodingError except moved ahead of TimeoutException | gemini.py | survives: equivalent (DecodingError and TimeoutException are disjoint classes) | yes |
+| 163 | gemini: undecodable message without 'gemini: ' prefix | gemini.py | test_undecodable_body_is_unavailable (4) | yes |
+| 164 | gemini: parser -> json.loads, no object check | gemini.py | test_deeply_nested_body_is_unavailable (7) | yes |
+| 165 | gemini: parser -> json.loads + object check (run-1 code) | gemini.py | test_deeply_nested_body_is_unavailable (3) | yes |
+| 166 | gemini: TypeAdapter(dict[str, Any]) -> TypeAdapter(Any) | gemini.py | test_malformed_success_body_is_unavailable (4) | yes |
+| 167 | gemini: TypeAdapter(dict[str, Any]) -> TypeAdapter(list[Any]) | gemini.py | test_absent_token_counts_are_zero (69) | yes |
+| 168 | gemini: thought StrictBool -> bool | gemini.py | test_malformed_candidate_content_is_unavailable (4) | yes |
+| 169 | gemini: thought allows None | gemini.py | test_malformed_candidate_content_is_unavailable (1) | yes |
+| 170 | gemini: thought default False -> True | gemini.py | test_app_with_gemini_adapter (11) | yes |
+| 171 | gemini: parts allows None | gemini.py | test_malformed_candidate_content_is_unavailable (1) | yes |
+| 172 | gemini: content null -> malformed (not Optional) | gemini.py | test_null_content_or_text_read_as_absent (1) | yes |
+| 173 | gemini: content required | gemini.py | test_candidate_without_content_or_parts_gives_empty_content (1) | yes |
+| 174 | gemini: content None check dropped | gemini.py | test_candidate_without_content_or_parts_gives_empty_content (2) | yes |
+| 175 | re-run #50: malformed raised inside except (chained) | gemini.py | test_deeply_nested_body_is_unavailable (53) | yes |
+| 176 | re-run #52: except ValidationError only | gemini.py | test_malformed_success_body_is_unavailable (2) | yes |
+| 177 | re-run #53: except ValueError only | gemini.py | survives: equivalent (pydantic's ValidationError subclasses ValueError (re-run of #53)) | yes |
+
 ## Agent Mistakes Log
 
 Rows are taken only from what the git history and DECISIONS.md record. Where the history does not say who found a problem, the row says so.
