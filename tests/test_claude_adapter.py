@@ -48,6 +48,22 @@ class Recorder:
         return body
 
 
+class FreshResponses:
+    """A MockTransport handler that records requests and answers each with a new response.
+
+    A stream response can be read only once, so a request the router may retry
+    (D-050) needs a new response object per attempt.
+    """
+
+    def __init__(self, make: Callable[[], httpx.Response]) -> None:
+        self.make = make
+        self.requests: list[httpx.Request] = []
+
+    def __call__(self, request: httpx.Request) -> httpx.Response:
+        self.requests.append(request)
+        return self.make()
+
+
 class Raiser:
     """A MockTransport handler that raises an httpx transport error."""
 
@@ -661,13 +677,170 @@ async def test_deeply_nested_body_is_unavailable(content: bytes) -> None:
     assert exc.__context__ is None
 
 
+# Status and reason on every error row (D-053, D-054, FLOW.md section 13)
+
+
+@pytest.mark.parametrize(
+    "overrides", [{"temperature": 0.5}, {"top_p": 0.9}, {"temperature": 0, "top_p": 1}]
+)
+@pytest.mark.asyncio
+async def test_local_check_has_no_status_and_reason_local_check(
+    overrides: dict[str, float],
+) -> None:
+    recorder = Recorder()
+    exc = await _failure(recorder, _request(**overrides))
+    assert type(exc) is ProviderBadRequest
+    assert (exc.status, exc.reason) == (None, "local_check")
+    assert recorder.requests == []
+
+
+_STATUS_ROWS: list[tuple[int, type[ProviderError], str]] = [
+    (401, ProviderAuthError, "auth"),
+    (403, ProviderAuthError, "auth"),
+    (402, ProviderAuthError, "billing"),
+    (408, ProviderUnavailable, "http_status"),
+    (429, ProviderRateLimited, "rate_limited"),
+    (400, ProviderBadRequest, "http_status"),
+    (404, ProviderBadRequest, "http_status"),
+    (409, ProviderBadRequest, "http_status"),
+    (413, ProviderBadRequest, "http_status"),
+    (422, ProviderBadRequest, "http_status"),
+    (430, ProviderBadRequest, "http_status"),
+    (499, ProviderBadRequest, "http_status"),
+    (500, ProviderUnavailable, "http_status"),
+    (502, ProviderUnavailable, "http_status"),
+    (503, ProviderUnavailable, "http_status"),
+    (504, ProviderUnavailable, "http_status"),
+    (529, ProviderUnavailable, "http_status"),
+    (599, ProviderUnavailable, "http_status"),
+    (301, ProviderUnavailable, "http_status"),
+    (302, ProviderUnavailable, "http_status"),
+    (303, ProviderUnavailable, "http_status"),
+    (307, ProviderUnavailable, "http_status"),
+    (308, ProviderUnavailable, "http_status"),
+]
+
+
+@pytest.mark.parametrize(
+    ("status", "error_type", "reason"), _STATUS_ROWS, ids=[str(s) for s, _, _ in _STATUS_ROWS]
+)
+@pytest.mark.asyncio
+async def test_http_status_rows_carry_the_status_and_reason(
+    status: int, error_type: type[ProviderError], reason: str
+) -> None:
+    recorder = Recorder(_error_response(status))
+    exc = await _failure(recorder)
+    assert type(exc) is error_type
+    assert exc.status == status
+    assert exc.reason == reason
+    _assert_clean(exc)
+    assert len(recorder.requests) == 1
+
+
+@pytest.mark.asyncio
+async def test_408_is_retryable_unavailable_not_bad_request() -> None:
+    # D-053: RFC 9110 lets a client repeat a request after 408; it was ProviderBadRequest.
+    recorder = Recorder(_error_response(408))
+    exc = await _failure(recorder)
+    assert type(exc) is ProviderUnavailable
+    assert exc.retryable is True
+    assert (exc.status, exc.reason) == (408, "http_status")
+    assert exc.message.startswith("claude: ")
+    _assert_clean(exc)
+    assert len(recorder.requests) == 1
+
+
+@pytest.mark.asyncio
+async def test_408_ignores_its_body() -> None:
+    exc = await _failure(Recorder(httpx.Response(408, content=PROVIDER_TEXT.encode())))
+    assert type(exc) is ProviderUnavailable
+    assert (exc.status, exc.reason) == (408, "http_status")
+    _assert_clean(exc)
+
+
+@pytest.mark.parametrize("header", ["3", None])
+@pytest.mark.asyncio
+async def test_rate_limit_carries_429_and_rate_limited_with_its_retry_after(
+    header: str | None,
+) -> None:
+    headers = {"retry-after": header} if header is not None else None
+    exc = await _failure(Recorder(_error_response(429, headers)))
+    assert isinstance(exc, ProviderRateLimited)
+    assert (exc.status, exc.reason) == (429, "rate_limited")
+    assert exc.retry_after_seconds == (3.0 if header is not None else None)
+
+
+@pytest.mark.asyncio
+async def test_400_with_gemini_invalid_key_body_has_reason_http_status() -> None:
+    # API_KEY_INVALID is a Gemini reason; Claude never reads a 400 body.
+    exc = await _failure(Recorder(httpx.Response(400, json=GEMINI_INVALID_KEY_BODY)))
+    assert (exc.status, exc.reason) == (400, "http_status")
+
+
+@pytest.mark.parametrize(
+    "error", [httpx.ConnectTimeout, httpx.ReadTimeout, httpx.WriteTimeout, httpx.PoolTimeout]
+)
+@pytest.mark.asyncio
+async def test_timeouts_have_no_status_and_reason_timeout(
+    error: type[httpx.TransportError],
+) -> None:
+    exc = await _failure(Raiser(error))
+    assert type(exc) is ProviderTimeout
+    assert (exc.status, exc.reason) == (None, "timeout")
+
+
+@pytest.mark.parametrize(
+    "error", [httpx.ConnectError, httpx.ReadError, httpx.WriteError, httpx.RemoteProtocolError]
+)
+@pytest.mark.asyncio
+async def test_transport_errors_have_no_status_and_reason_connection(
+    error: type[httpx.TransportError],
+) -> None:
+    exc = await _failure(Raiser(error))
+    assert type(exc) is ProviderUnavailable
+    assert (exc.status, exc.reason) == (None, "connection")
+
+
+@pytest.mark.parametrize("status", [200, 401, 408, 429, 500])
+@pytest.mark.asyncio
+async def test_undecodable_body_has_no_status_and_reason_undecodable_body(status: int) -> None:
+    # httpx fails to decode before the adapter sees the status (D-043, D-052).
+    exc = await _failure(Recorder(_undecodable(status)))
+    assert type(exc) is ProviderUnavailable
+    assert (exc.status, exc.reason) == (None, "undecodable_body")
+
+
+@pytest.mark.parametrize("status", [200, 201])
+@pytest.mark.parametrize(
+    "content",
+    [b"not json", json.dumps(_ok(id="")).encode(), b"[" * DEPTH + b"]" * DEPTH],
+    ids=["not_json", "id_empty", "too_deep"],
+)
+@pytest.mark.asyncio
+async def test_malformed_2xx_carries_its_2xx_status_and_reason_malformed_body(
+    status: int, content: bytes
+) -> None:
+    exc = await _failure(Recorder(httpx.Response(status, content=content)))
+    assert type(exc) is ProviderUnavailable
+    assert exc.retryable is True
+    assert (exc.status, exc.reason) == (status, "malformed_body")
+
+
 # Through the app, via a Router with an alias (D-045)
 
 ALIAS = "fast"
 
 
+async def _no_sleep(seconds: float) -> None:
+    # The router's backoff (D-050) is not waited for in these tests.
+    return None
+
+
 def _client(adapter: ProviderAdapter) -> httpx.AsyncClient:
-    router = Router({ALIAS: [Route(provider="claude", model="claude-haiku-5-5", adapter=adapter)]})
+    router = Router(
+        {ALIAS: [Route(provider="claude", model="claude-haiku-5-5", adapter=adapter)]},
+        sleep=_no_sleep,
+    )
     return httpx.AsyncClient(
         transport=httpx.ASGITransport(app=create_app(router=router)), base_url="http://test"
     )
@@ -758,7 +931,8 @@ async def test_app_maps_claude_402_to_502_auth_error(caplog: pytest.LogCaptureFi
 
 @pytest.mark.asyncio
 async def test_app_maps_undecodable_claude_body_to_502() -> None:
-    recorder = Recorder(_undecodable(200))
+    # A new response per attempt: the router retries an undecodable body (D-052).
+    recorder = FreshResponses(lambda: _undecodable(200))
     async with _claude(recorder) as adapter, _client(adapter) as client:
         response = await client.post(
             "/v1/chat",
@@ -771,6 +945,27 @@ async def test_app_maps_undecodable_claude_body_to_502() -> None:
     assert response.status_code == 502
     assert ErrorBody.model_validate(response.json()).error.code == "provider_unavailable"
     assert PROVIDER_TEXT not in response.text
+
+
+@pytest.mark.asyncio
+async def test_app_maps_claude_408_to_502_provider_unavailable_after_retries() -> None:
+    # D-053: 408 is retryable, so the router tries three times (D-050) before the
+    # client gets 502 provider_unavailable, not 400 provider_bad_request.
+    recorder = Recorder(_error_response(408))
+    async with _claude(recorder) as adapter, _client(adapter) as client:
+        response = await client.post(
+            "/v1/chat",
+            json={
+                "model": ALIAS,
+                "messages": [{"role": "user", "content": "hi"}],
+                "max_tokens": 32,
+            },
+        )
+    assert response.status_code == 502
+    assert ErrorBody.model_validate(response.json()).error.code == "provider_unavailable"
+    assert len(recorder.requests) == 3
+    assert PROVIDER_TEXT not in response.text
+    assert "http_status" not in response.text
 
 
 @pytest.mark.asyncio

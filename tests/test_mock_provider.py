@@ -207,6 +207,29 @@ async def test_failure_type_maps_to_error(
     assert "hello" not in exc_info.value.message
 
 
+@pytest.mark.parametrize(
+    ("failure_type", "error_class"),
+    [
+        ("timeout", ProviderTimeout),
+        ("rate_limited", ProviderRateLimited),
+        ("unavailable", ProviderUnavailable),
+        ("bad_request", ProviderBadRequest),
+        ("auth", ProviderAuthError),
+    ],
+)
+@pytest.mark.asyncio
+async def test_injected_failure_has_no_status_and_reason_injected(
+    failure_type: FailureType, error_class: type[ProviderError]
+) -> None:
+    # FLOW.md section 13, D-054: no response arrived, so there is no status.
+    provider = MockProvider(failure_rate=1.0, failure_type=failure_type, sleep=FakeSleep())
+    with pytest.raises(error_class) as exc_info:
+        await provider.complete(_request())
+    assert type(exc_info.value) is error_class
+    assert exc_info.value.status is None
+    assert exc_info.value.reason == "injected"
+
+
 @pytest.mark.asyncio
 async def test_failed_call_still_waits_latency() -> None:
     sleep = FakeSleep()

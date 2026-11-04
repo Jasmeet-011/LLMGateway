@@ -121,7 +121,10 @@ class ProviderServer:
 def _router(
     adapter: ProviderAdapter, *, alias: str = "mock", instance: str = "mock", model: str = "mock-1"
 ) -> Router:
-    return Router({alias: [Route(provider=instance, model=model, adapter=adapter)]})
+    # Retryable failures are retried (D-050); the fake sleep skips the real backoff.
+    return Router(
+        {alias: [Route(provider=instance, model=model, adapter=adapter)]}, sleep=FakeSleep()
+    )
 
 
 def _app(adapter: ProviderAdapter, **kwargs: str) -> FastAPI:

@@ -25,7 +25,7 @@ from llmgateway.providers.base import (
     ProviderUnavailable,
 )
 from llmgateway.providers.mock import FailureType, MockProvider
-from llmgateway.router import Route, Router, UnknownAlias, build_router
+from llmgateway.router import RetryPolicy, Route, Router, UnknownAlias, build_router
 from llmgateway.schema import ChatRequest, Provider, Usage
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -628,6 +628,13 @@ def _two_mocks(primary: str, secondary: str) -> str:
     )
 
 
+# The tests below are about the M8 behavior of two mock instances (independent
+# latency, failure and seed settings), not about retries. One attempt per call
+# keeps each router outcome equal to one mock call; D-050 retries are tested in
+# test_retries.py.
+ONE_ATTEMPT = RetryPolicy(max_attempts=1)
+
+
 ERROR_CLASSES: dict[FailureType, type[ProviderError]] = {
     "timeout": ProviderTimeout,
     "rate_limited": ProviderRateLimited,
@@ -647,7 +654,7 @@ async def test_failing_mock_raises_its_failure_type_while_the_other_succeeds(
         "latency_ms = 40\nfailure_rate = 0.0\nseed = 2",
     )
     sleep = RecordingSleep()
-    router = build_router(parse_config(text), {}, sleep=sleep)
+    router = build_router(parse_config(text), {}, sleep=sleep, policy=ONE_ATTEMPT)
     primary, secondary = router.routes("mock-fallback")
     assert (primary.provider, primary.model) == ("mock-primary", "mock-a")
     assert (secondary.provider, secondary.model) == ("mock-secondary", "mock-b")
@@ -686,7 +693,7 @@ async def test_each_mock_instance_waits_its_own_latency() -> None:
 @pytest.mark.asyncio
 async def test_each_mock_instance_has_its_own_seeded_sequence() -> None:
     text = _two_mocks("failure_rate = 0.5\nseed = 1", "failure_rate = 0.5\nseed = 2")
-    router = build_router(parse_config(text), {}, sleep=RecordingSleep())
+    router = build_router(parse_config(text), {}, sleep=RecordingSleep(), policy=ONE_ATTEMPT)
     primary, secondary = router.routes("mock-fallback")
     # Interleaved calls: each instance's sequence must not depend on the other's.
     seen_primary: list[bool] = []
@@ -710,7 +717,7 @@ async def test_each_mock_instance_has_its_own_seeded_sequence() -> None:
 async def test_committed_mock_fallback_config_runs_without_keys() -> None:
     sleep = RecordingSleep()
     config = load_config({"LLMGATEWAY_CONFIG": str(MOCK_FALLBACK_TOML)})
-    router = build_router(config, {}, sleep=sleep)
+    router = build_router(config, {}, sleep=sleep, policy=ONE_ATTEMPT)
     primary, secondary = router.routes("mock-fallback")
     assert router.select("mock-fallback") is primary
 

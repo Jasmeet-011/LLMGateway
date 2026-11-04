@@ -383,19 +383,23 @@ def _probe(env: dict[str, str], *aliases: str) -> list[list[object]]:
     return out
 
 
-FALLBACK_FAIL = ["mock-fallback", 502, None, "provider_unavailable"]
 FALLBACK_OK = ["mock-fallback", 200, "mock-a", None]
 
 
 @pytest.mark.asyncio
 async def test_startup_with_mock_fallback_config_serves_its_aliases() -> None:
     # mock-primary (failure_rate 0.3, seed 1) serves every request until M11. Its
-    # seeded sequence is fixed (D-016): the first call fails, the next two succeed,
-    # the fourth fails. Checked against a MockProvider built directly with the
-    # file's settings, so both the 502 and the 200 path are exercised here.
+    # seeded sequence is fixed (D-016): fail, succeed, succeed, fail, succeed,
+    # succeed. Checked against a MockProvider built directly with the file's settings.
+    # Since M9 the router retries the injected (retryable) failures with the default
+    # policy (D-050), so through the real startup path request 1 is calls 1-2
+    # (fail, then 200), request 2 is call 3, request 3 is calls 4-5 (fail, then 200)
+    # and request 4 is call 6: all four requests get 200. Before M9, requests 1 and
+    # 4 got 502. The 502 path is covered in test_app.py and test_retries.py, where
+    # the backoff is injected; here it is real but short (two waits under 0.2 s).
     direct = MockProvider(failure_rate=0.3, failure_type="unavailable", seed=1)
     direct_ok: list[bool] = []
-    for _ in range(4):
+    for _ in range(6):
         try:
             await direct.complete(
                 ChatRequest.model_validate(
@@ -410,7 +414,7 @@ async def test_startup_with_mock_fallback_config_serves_its_aliases() -> None:
             direct_ok.append(False)
         else:
             direct_ok.append(True)
-    assert direct_ok == [False, True, True, False]
+    assert direct_ok == [False, True, True, False, True, True]
 
     out = _probe(
         _env(LLMGATEWAY_CONFIG=str(MOCK_FALLBACK_TOML)),
@@ -421,10 +425,10 @@ async def test_startup_with_mock_fallback_config_serves_its_aliases() -> None:
         "mock",
     )
     assert out == [
-        FALLBACK_FAIL,
         FALLBACK_OK,
         FALLBACK_OK,
-        FALLBACK_FAIL,
+        FALLBACK_OK,
+        FALLBACK_OK,
         # The built-in default alias is not configured when a file is used.
         ["mock", 400, None, "unknown_model"],
     ]
