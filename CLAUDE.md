@@ -53,6 +53,7 @@ Tests:
 
 - Every failure-path test gets a mutation check by the tester subagent: temporarily break the code it guards, confirm the test fails, revert. Never delete, skip, or loosen a test to get green; if a test looks wrong, stop and say so.
 - Tests never call real APIs. Real calls live only in tests marked `live`, which the owner runs.
+- Live tests use only the cheapest models (claude-haiku-5-5, gemini-3.5-flash-lite) with small max_tokens. Never Opus or the smart alias, unless the owner asks.
 
 Dependencies:
 
