@@ -306,6 +306,8 @@ for _field in _NON_NEGATIVE_FIELDS:
         ({_field: math.inf}, f"{_field}_inf"),
         ({_field: -math.inf}, f"{_field}_minus_inf"),
         ({_field: math.nan}, f"{_field}_nan"),
+        ({_field: "1.0"}, f"{_field}_string"),
+        ({_field: None}, f"{_field}_none"),
     ]
 for _field in _POSITIVE_FIELDS:
     _BAD_POLICIES += [
@@ -315,6 +317,8 @@ for _field in _POSITIVE_FIELDS:
         ({_field: math.inf}, f"{_field}_inf"),
         ({_field: -math.inf}, f"{_field}_minus_inf"),
         ({_field: math.nan}, f"{_field}_nan"),
+        ({_field: "1.0"}, f"{_field}_string"),
+        ({_field: None}, f"{_field}_none"),
     ]
 
 
@@ -336,6 +340,20 @@ def test_retry_policy_accepts_the_boundary_values() -> None:
     )
     assert policy.max_attempts == 1
     assert policy.total_timeout == 1e-9
+
+
+def test_retry_policy_accepts_whole_numbers_of_seconds() -> None:
+    # D-050 asks for finite values, not floats, so an int is a valid number of seconds.
+    policy = RetryPolicy(
+        base_delay=1, max_delay=2, max_retry_after=3, attempt_timeout=4, total_timeout=5
+    )
+    assert (
+        policy.base_delay,
+        policy.max_delay,
+        policy.max_retry_after,
+        policy.attempt_timeout,
+        policy.total_timeout,
+    ) == (1, 2, 3, 4, 5)
 
 
 # Public signatures (D-050, D-054)
@@ -729,6 +747,50 @@ async def test_retry_after_only_sets_the_wait_after_its_own_failure() -> None:
     assert sleep.calls == [1.0, 0.25]
 
 
+@pytest.mark.asyncio
+async def test_backoff_bound_keeps_doubling_while_it_is_under_max_delay() -> None:
+    # The formula has no limit of its own: only max_delay stops the doubling.
+    attempts = 14
+    policy = RetryPolicy(max_attempts=attempts, base_delay=0.25, max_delay=1e6, total_timeout=1e6)
+    adapter = ScriptedAdapter(_unavailable())
+    router, route, sleep = _setup(adapter, policy, random=SequenceRandom(0.5))
+    with pytest.raises(ProviderUnavailable):
+        await router.complete(route, _request())
+    assert sleep.calls == [0.5 * 0.25 * 2.0 ** (n - 1) for n in range(1, attempts)]
+
+
+@pytest.mark.asyncio
+async def test_more_attempts_than_a_float_exponent_can_hold_still_gives_the_capped_wait() -> None:
+    # D-050 sets no upper limit on max_attempts, and the wait is at most max_delay
+    # however large n gets. 2.0 ** 1024 overflows, so this runs past attempt 1025.
+    attempts = 1030
+    error = _unavailable()
+    policy = RetryPolicy(max_attempts=attempts, base_delay=0.25, max_delay=4.0, total_timeout=1e9)
+    adapter = ScriptedAdapter(error)
+    router, route, sleep = _setup(adapter, policy, random=SequenceRandom(0.5))
+    with pytest.raises(ProviderUnavailable) as info:
+        await router.complete(route, _request())
+    assert info.value is error
+    assert len(adapter.requests) == attempts
+    assert len(sleep.calls) == attempts - 1
+    assert sleep.calls[-1] == 2.0
+
+
+@pytest.mark.asyncio
+async def test_retry_after_is_honoured_only_on_a_rate_limit_error() -> None:
+    # D-051 applies to a ProviderRateLimited. Another class that happens to carry the
+    # same attribute is not over any cap: it is retried with the plain backoff.
+    class UnavailableWithRetryAfter(ProviderUnavailable):
+        retry_after_seconds = 100.0
+
+    error = UnavailableWithRetryAfter(ADAPTER_MESSAGE, status=503, reason="http_status")
+    adapter = ScriptedAdapter(error, error, RESULT)
+    router, route, sleep = _setup(adapter, random=SequenceRandom(0.5))
+    assert await router.complete(route, _request()) == RESULT
+    assert len(adapter.requests) == 3
+    assert sleep.calls == [0.125, 0.25]
+
+
 # No retry after a billed 2xx (D-052)
 
 
@@ -973,6 +1035,21 @@ async def test_an_attempt_that_answers_in_time_is_not_timed_out() -> None:
     assert await router.complete(route, _request()) is RESULT
 
 
+@pytest.mark.asyncio
+async def test_time_left_for_an_attempt_is_read_from_the_injected_clock() -> None:
+    # The fake clock is far ahead of the real monotonic clock, so a time left computed
+    # from the real one would be huge and the hang would run into the guard. D-050
+    # reads the deadline from the injected clock only.
+    policy = RetryPolicy(max_attempts=1, attempt_timeout=30.0, total_timeout=TINY_TIMEOUT)
+    clock = FakeClock(time.monotonic() + 1_000_000.0)
+    adapter = HangingAdapter(hangs=99)
+    router, route, _ = _setup(adapter, policy, clock=clock)
+    async with asyncio.timeout(GUARD_SECONDS):
+        with pytest.raises(ProviderTimeout) as info:
+            await router.complete(route, _request())
+    assert info.value.reason == "attempt_timeout"
+
+
 # The attempt_failed log line (D-054)
 
 
@@ -1200,6 +1277,36 @@ async def test_attempt_lines_never_contain_prompt_message_or_response(
     assert len(_attempt_lines(caplog)) == 2
     for marker in (PROMPT_MARKER, SYSTEM_MARKER, RESPONSE_MARKER, ADAPTER_MESSAGE):
         assert marker not in caplog.text
+
+
+@pytest.mark.parametrize(
+    "error",
+    [RuntimeError("boom"), ValueError("bad"), KeyError("k"), TimeoutError("adapter's own")],
+    ids=["runtime_error", "value_error", "key_error", "timeout_error"],
+)
+@pytest.mark.asyncio
+async def test_exception_that_is_not_a_provider_error_writes_no_router_line(
+    caplog: pytest.LogCaptureFixture, error: Exception
+) -> None:
+    # FLOW.md section 5: any other exception is a bug and propagates with no router line.
+    caplog.set_level(logging.DEBUG)
+    router, route, _ = _setup(ScriptedAdapter(error, RESULT))
+    with pytest.raises(type(error)):
+        await router.complete(route, _request())
+    assert [r for r in caplog.records if r.name == "llmgateway.router"] == []
+
+
+@pytest.mark.asyncio
+async def test_bug_after_a_failed_attempt_logs_only_the_failed_attempt(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.DEBUG)
+    error = RuntimeError("boom")
+    router, route, _ = _setup(ScriptedAdapter(_unavailable(), error, RESULT))
+    with pytest.raises(RuntimeError) as info:
+        await router.complete(route, _request())
+    assert info.value is error
+    assert _attempt_lines(caplog) == [_line(1, 503, "http_status", "ProviderUnavailable", "yes")]
 
 
 # Real adapters behind the router: status and reason reach the line, secrets do not
