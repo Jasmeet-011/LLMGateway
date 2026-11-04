@@ -78,24 +78,33 @@ Why each check sits where it does:
 
 ## 5. Router flow (target design)
 
-The router tries the entries of the requested alias in order (D-010). Each entry is a (provider instance, provider model) pair from the config (D-044). The adapter gets a copy of the request whose `model` is the entry's provider model, and the response reports that provider model and the instance's provider type (D-045). Errors are classified by their `retryable` flag (D-014). Retry counts, timeouts, and backoff values are not chosen yet.
+The router tries the entries of the requested alias in order (D-010). Each entry is a (provider instance, provider model) pair from the config (D-044). The adapter gets a copy of the request whose `model` is the entry's provider model, and the response reports that provider model and the instance's provider type (D-045). Errors are classified by their `retryable` flag (D-014). Until M11 only the first entry is used; the breaker is M10.
 
 ```mermaid
 flowchart TD
     A[Next provider and model in alias list] --> B{Circuit breaker open}
     B -->|yes| N
-    B -->|no| C[Call provider with a timeout]
+    B -->|no| C[Call provider, attempt timeout min 60 s and time left]
     C --> D{Succeeded}
     D -->|yes| OK[Return result]
-    D -->|no| E{Error is retryable}
+    D -->|no| L[Log the failed attempt]
+    L --> E{Retryable and not a billed 2xx}
     E -->|no| X[Non retryable, fallback rule to be decided]
-    E -->|yes| F{Retries left}
-    F -->|yes| G[Wait with backoff and jitter]
+    E -->|yes| F{Attempts left, retry-after at most 5 s, wait ends before the 90 s deadline}
+    F -->|yes| G[Wait: full jitter backoff, at least retry-after]
     G --> C
     F -->|no| N{More entries in alias list}
     N -->|yes| A
     N -->|no| FAIL[Return error to client]
 ```
+
+Retry rules for one entry (D-050 to D-052, `RetryPolicy` defaults):
+
+- At most 3 attempts. Only a `ProviderError` with `retryable` true is retried; anything else is raised after one attempt, and the router raises the adapter's own exception object when it gives up.
+- Not retried: an error whose provider `status` is 2xx, such as a malformed body, because the provider already billed that generation (D-052); a rate limit whose `retry-after` is over 5 s, which goes to the client as 503 with `Retry-After` (D-051).
+- Wait after failed attempt `n`: `random() * min(2.0, 0.2 * 2 ** (n - 1))` seconds (full jitter), or `retry-after` when that is longer. No wait before the first attempt or after the last.
+- Each attempt runs under `min(60 s, time left)`; if that fires, the attempt fails with `ProviderTimeout` reason `attempt_timeout` (retryable). The whole call has a 90 s deadline: a retry whose wait would reach it is not made.
+- Every failed attempt writes one `attempt_failed` line to `llmgateway.router` at WARNING with the request ID, alias, instance, provider model, attempt number, provider status, reason code, error class and whether it retries (D-054). Nothing in it reaches the client.
 
 **Streaming rule:** a streaming request can only fall back **before the first byte is sent** to the client. After that, the client has already received part of one provider's answer, and switching providers would splice two different answers together. A failure mid-stream ends the stream with an error instead.
 
@@ -167,7 +176,7 @@ src/llmgateway/
 ├── app.py               create_app, request middleware, endpoints
 ├── errors.py            error body, status mapping, exception handlers
 ├── config.py            TOML config: provider instances and aliases, validated at startup
-├── router.py            alias selection; later timeouts, retries, breaker, fallback
+├── router.py            alias selection, timeouts and retries; later breaker, fallback
 ├── main.py              module-level app for uvicorn, config from the environment
 ├── auth                 API key hashing and lookup
 ├── ratelimit            Redis Lua token bucket
@@ -211,7 +220,7 @@ Listed, not answered.
 
 - Whether cache hits count against rate limits.
 - The status code returned when a spend cap rejects a request (stretch, D-031).
-- Retry counts, timeouts, and circuit breaker thresholds: to be chosen, then measured.
+- Circuit breaker thresholds: to be chosen (M10). Retry counts and timeouts are chosen (D-050, D-051) but not yet measured.
 - Whether the circuit breaker counts provider rate limits as failures (D-014).
 - How coalesced requests are billed (stretch, D-031).
 - How spend caps stay atomic across a provider call (stretch, D-031).
@@ -227,48 +236,59 @@ Listed, not answered.
 
 Every failure an adapter sees becomes one `ProviderError` class (D-014), and `errors.py` maps that class to the client status and code (D-019). The client always gets the standard error body with a fixed message (D-023): never the provider's error text, the prompt, or the key.
 
-### Claude (`providers/claude.py`, D-033, D-035, D-048)
+Every `ProviderError` also carries `status` (the provider's HTTP status, or none when no response arrived) and `reason`, a fixed code from D-054; both columns below. They are logged for each failed attempt and never sent to the client. Retryable means trying again might work (D-014); the router still does not retry a 2xx row (D-052).
 
-| Provider outcome | Error type | Retryable | Client status | Client code |
-| --- | --- | --- | --- | --- |
-| Request sets `temperature` or `top_p` (rejected before any network call) | `ProviderBadRequest` | no | 400 | `provider_bad_request` |
-| HTTP 401 or 403 | `ProviderAuthError` | no | 502 | `provider_auth_error` |
-| HTTP 402 `billing_error` (D-048) | `ProviderAuthError` | no | 502 | `provider_auth_error` |
-| HTTP 429 | `ProviderRateLimited`, `retry_after_seconds` from a numeric, finite, non-negative `retry-after`, else none | yes | 503, with `Retry-After` rounded up to whole seconds when known, never below 0 (D-038) | `provider_rate_limited` |
-| Any other HTTP 4xx (400, 404, 409, 413, 422, ...) | `ProviderBadRequest` | no | 400 | `provider_bad_request` |
-| HTTP 5xx, including 529 `overloaded_error` | `ProviderUnavailable` | yes | 502 | `provider_unavailable` |
-| Unexpected HTTP 3xx (redirects are never followed, D-043) | `ProviderUnavailable` | yes | 502 | `provider_unavailable` |
-| httpx timeout: connect, read, write or pool (D-034) | `ProviderTimeout` | yes | 504 | `provider_timeout` |
-| Any other httpx transport error: connect, read, write, protocol | `ProviderUnavailable` | yes | 502 | `provider_unavailable` |
-| httpx `DecodingError`: a body whose `content-encoding` cannot be decoded, on any status (D-043) | `ProviderUnavailable` | yes | 502 | `provider_unavailable` |
-| HTTP 2xx whose body is not JSON, or lacks a non-empty `id`, a `content` list of typed blocks (text blocks with `text`), a string `stop_reason`, or non-negative integer `usage.input_tokens` and `usage.output_tokens` | `ProviderUnavailable` | yes | 502 | `provider_unavailable` |
-| HTTP 2xx with a valid body | none | n/a | 200 | n/a |
+### Claude (`providers/claude.py`, D-033, D-035, D-048, D-053, D-054)
+
+| Provider outcome | Error type | Retryable | Status, reason | Client status | Client code |
+| --- | --- | --- | --- | --- | --- |
+| Request sets `temperature` or `top_p` (rejected before any network call) | `ProviderBadRequest` | no | none, `local_check` | 400 | `provider_bad_request` |
+| HTTP 401 or 403 | `ProviderAuthError` | no | the status, `auth` | 502 | `provider_auth_error` |
+| HTTP 402 `billing_error` (D-048) | `ProviderAuthError` | no | 402, `billing` | 502 | `provider_auth_error` |
+| HTTP 408 (D-053) | `ProviderUnavailable` | yes | 408, `http_status` | 502 | `provider_unavailable` |
+| HTTP 429 | `ProviderRateLimited`, `retry_after_seconds` from a numeric, finite, non-negative `retry-after`, else none | yes | 429, `rate_limited` | 503, with `Retry-After` rounded up to whole seconds when known, never below 0 (D-038) | `provider_rate_limited` |
+| Any other HTTP 4xx (400, 404, 409, 413, 422, ...) | `ProviderBadRequest` | no | the status, `http_status` | 400 | `provider_bad_request` |
+| HTTP 5xx, including 529 `overloaded_error` | `ProviderUnavailable` | yes | the status, `http_status` | 502 | `provider_unavailable` |
+| Unexpected HTTP 3xx (redirects are never followed, D-043) | `ProviderUnavailable` | yes | the status, `http_status` | 502 | `provider_unavailable` |
+| httpx timeout: connect, read, write or pool (D-034) | `ProviderTimeout` | yes | none, `timeout` | 504 | `provider_timeout` |
+| Any other httpx transport error: connect, read, write, protocol | `ProviderUnavailable` | yes | none, `connection` | 502 | `provider_unavailable` |
+| httpx `DecodingError`: a body whose `content-encoding` cannot be decoded, on any status (D-043) | `ProviderUnavailable` | yes | none, `undecodable_body` | 502 | `provider_unavailable` |
+| HTTP 2xx whose body is not JSON, or lacks a non-empty `id`, a `content` list of typed blocks (text blocks with `text`), a string `stop_reason`, or non-negative integer `usage.input_tokens` and `usage.output_tokens` | `ProviderUnavailable` (not retried by the router, D-052) | yes | the 2xx status, `malformed_body` | 502 | `provider_unavailable` |
+| HTTP 2xx with a valid body | none | n/a | n/a | 200 | n/a |
 
 On success, `stop_reason` maps to `finish_reason`: `end_turn` to `stop`, `max_tokens` to `max_tokens`, `stop_sequence` to `stop_sequence`, and every other value, including ones added later, to `other` (D-035). The adapter never retries (D-032); the error is raised once, without the httpx exception chained to it.
 
-### Gemini (`providers/gemini.py`, D-039 to D-042, D-048, D-049)
+### Gemini (`providers/gemini.py`, D-039 to D-042, D-048, D-049, D-053, D-054)
 
 Request (D-039, D-040): `POST https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent` with the `x-goog-api-key` header. The body has `contents`, one `{"role", "parts": [{"text"}]}` entry per message with `assistant` sent as `model`; `systemInstruction: {"parts": [{"text"}]}` only when `system` is set; and `generationConfig` with `maxOutputTokens` (the client's `max_tokens`, unchanged) and `thinkingConfig: {"thinkingLevel": "MINIMAL"}` on every request (D-049), plus `stopSequences`, `temperature` and `topP` only when set. `includeThoughts` and `thinkingBudget` are never sent.
 
-| Provider outcome | Error type | Retryable | Client status | Client code |
-| --- | --- | --- | --- | --- |
-| `model` does not fully match `[A-Za-z0-9][A-Za-z0-9._-]*` (rejected before any network call, D-042). Not reachable from a client since aliases: a config with such a Gemini model stops startup (D-046) | `ProviderBadRequest` | no | 400 | `provider_bad_request` |
-| More than 5 stop sequences (rejected before any network call, D-042) | `ProviderBadRequest` | no | 400 | `provider_bad_request` |
-| HTTP 401 or 403 | `ProviderAuthError` | no | 502 | `provider_auth_error` |
-| HTTP 400 whose JSON body has, in the list `error.details`, an object with `@type` `type.googleapis.com/google.rpc.ErrorInfo`, `reason` `API_KEY_INVALID` and `domain` `googleapis.com` (an invalid key; message text is never read, D-048) | `ProviderAuthError` | no | 502 | `provider_auth_error` |
-| HTTP 402, prepay credit depleted (D-048) | `ProviderAuthError` | no | 502 | `provider_auth_error` |
-| HTTP 429 | `ProviderRateLimited`, `retry_after_seconds` from a numeric, finite, non-negative `retry-after`, else none | yes | 503, with `Retry-After` rounded up to whole seconds when known, never below 0 (D-038) | `provider_rate_limited` |
-| Any other HTTP 4xx (any other 400, 404, 409, 413, 416, ...) | `ProviderBadRequest` | no | 400 | `provider_bad_request` |
-| HTTP 5xx, including 503 and 504 `deadline_exceeded` | `ProviderUnavailable` | yes | 502 | `provider_unavailable` |
-| Unexpected HTTP 3xx (redirects are never followed, D-043) | `ProviderUnavailable` | yes | 502 | `provider_unavailable` |
-| httpx timeout: connect, read, write or pool (D-034 values) | `ProviderTimeout` | yes | 504 | `provider_timeout` |
-| Any other httpx transport error: connect, read, write, protocol | `ProviderUnavailable` | yes | 502 | `provider_unavailable` |
-| httpx `DecodingError`: a body whose `content-encoding` cannot be decoded, on any status (D-043) | `ProviderUnavailable` | yes | 502 | `provider_unavailable` |
-| HTTP 2xx with `promptFeedback.blockReason` present and not null (any value), with or without candidates; a `promptFeedback` that is not an object is ignored | `ProviderBadRequest` | no | 400 | `provider_bad_request` |
-| HTTP 2xx whose body is not a JSON object, or has no candidates (and no block reason), or whose first candidate lacks a string `finishReason`, or has a part whose `text` is not a string, or lacks `usageMetadata`, or has a token count that is present but not a non-negative integer, or is malformed in any other way listed in D-041 (including nesting too deep to parse, D-043) | `ProviderUnavailable` | yes | 502 | `provider_unavailable` |
-| HTTP 2xx with a valid body | none | n/a | 200 | n/a |
+| Provider outcome | Error type | Retryable | Status, reason | Client status | Client code |
+| --- | --- | --- | --- | --- | --- |
+| `model` does not fully match `[A-Za-z0-9][A-Za-z0-9._-]*` (rejected before any network call, D-042). Not reachable from a client since aliases: a config with such a Gemini model stops startup (D-046) | `ProviderBadRequest` | no | none, `local_check` | 400 | `provider_bad_request` |
+| More than 5 stop sequences (rejected before any network call, D-042) | `ProviderBadRequest` | no | none, `local_check` | 400 | `provider_bad_request` |
+| HTTP 401 or 403 | `ProviderAuthError` | no | the status, `auth` | 502 | `provider_auth_error` |
+| HTTP 400 whose JSON body has, in the list `error.details`, an object with `@type` `type.googleapis.com/google.rpc.ErrorInfo`, `reason` `API_KEY_INVALID` and `domain` `googleapis.com` (an invalid key; message text is never read, D-048) | `ProviderAuthError` | no | 400, `API_KEY_INVALID` | 502 | `provider_auth_error` |
+| HTTP 402, prepay credit depleted (D-048) | `ProviderAuthError` | no | 402, `billing` | 502 | `provider_auth_error` |
+| HTTP 408 (D-053) | `ProviderUnavailable` | yes | 408, `http_status` | 502 | `provider_unavailable` |
+| HTTP 429 | `ProviderRateLimited`, `retry_after_seconds` from a numeric, finite, non-negative `retry-after`, else none | yes | 429, `rate_limited` | 503, with `Retry-After` rounded up to whole seconds when known, never below 0 (D-038) | `provider_rate_limited` |
+| Any other HTTP 4xx (any other 400, 404, 409, 413, 416, ...) | `ProviderBadRequest` | no | the status, `http_status` | 400 | `provider_bad_request` |
+| HTTP 5xx, including 503 and 504 `deadline_exceeded` | `ProviderUnavailable` | yes | the status, `http_status` | 502 | `provider_unavailable` |
+| Unexpected HTTP 3xx (redirects are never followed, D-043) | `ProviderUnavailable` | yes | the status, `http_status` | 502 | `provider_unavailable` |
+| httpx timeout: connect, read, write or pool (D-034 values) | `ProviderTimeout` | yes | none, `timeout` | 504 | `provider_timeout` |
+| Any other httpx transport error: connect, read, write, protocol | `ProviderUnavailable` | yes | none, `connection` | 502 | `provider_unavailable` |
+| httpx `DecodingError`: a body whose `content-encoding` cannot be decoded, on any status (D-043) | `ProviderUnavailable` | yes | none, `undecodable_body` | 502 | `provider_unavailable` |
+| HTTP 2xx with `promptFeedback.blockReason` present and not null (any value), with or without candidates; a `promptFeedback` that is not an object is ignored | `ProviderBadRequest` | no | the 2xx status, `prompt_blocked` | 400 | `provider_bad_request` |
+| HTTP 2xx whose body is not a JSON object, or has no candidates (and no block reason), or whose first candidate lacks a string `finishReason`, or has a part whose `text` is not a string, or lacks `usageMetadata`, or has a token count that is present but not a non-negative integer, or is malformed in any other way listed in D-041 (including nesting too deep to parse, D-043) | `ProviderUnavailable` (not retried by the router, D-052) | yes | the 2xx status, `malformed_body` | 502 | `provider_unavailable` |
+| HTTP 2xx with a valid body | none | n/a | n/a | 200 | n/a |
 
 On success (D-041): the first candidate's text is the concatenation of the `text` of its parts that are not marked `"thought": true`; parts without `text` are skipped, and a candidate with no `content` or `parts` gives empty text. `finishReason` `STOP` maps to `stop`, `MAX_TOKENS` to `max_tokens`, and every other value (`SAFETY`, `RECITATION`, ..., and ones added later) to `other`; Gemini never produces `stop_sequence`. `input_tokens` is `promptTokenCount`, `output_tokens` is `candidatesTokenCount + thoughtsTokenCount`, and an absent count is 0; `output_tokens` may exceed `max_tokens` and is reported as Google sends it, never capped (D-049). A candidate with empty text and `MAX_TOKENS` (the budget went to thinking) is a success: 200, `content` "", `finish_reason` `max_tokens` (D-049). A non-empty `responseId` becomes `provider_response_id`. `temperature` and `top_p` are sent as `generationConfig.temperature` and `topP` when set (D-040). The adapter never retries (D-032); the error is raised once, without the httpx exception chained to it.
+
+### Mock provider and router (`providers/mock.py`, `router.py`, D-016, D-050, D-054)
+
+| Outcome | Error type | Retryable | Status, reason | Client status | Client code |
+| --- | --- | --- | --- | --- | --- |
+| Mock failure injection, any `failure_type` | the class for that type (D-016) | per class | none, `injected` | per class | per class |
+| The router's per-attempt timeout fires (`min(attempt_timeout, time left)`) | `ProviderTimeout` | yes | none, `attempt_timeout` | 504 | `provider_timeout` |
 
 ### Gateway errors (`errors.py`, `app.py`)
 

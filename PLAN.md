@@ -50,20 +50,21 @@ Worked in order. Status and evidence are in [PROGRESS.md](PROGRESS.md); this fil
 - **Proof:** tests with an injectable clock and sleeper covering backoff growth, jitter bounds, `retry-after`, the total deadline, and no retry on non-retryable errors.
 - **Dependencies allowed:** none.
 - **Open issues to settle:** retry counts, timeouts and backoff values (FLOW.md section 11); a cap on `retry-after`; retrying after a malformed or undecodable 2xx repeats a billed generation (D-035, D-043); HTTP 408 maps to a non-retryable `ProviderBadRequest` in both adapters.
+- **Settled:** D-050 (attempts, backoff, timeouts), D-051 (`retry-after` cap), D-052 (no retry after a billed 2xx), D-053 (408). Added by the owner for M9: a log line per failed attempt with the provider status and a fixed reason (D-054).
 
 ### M10 Circuit breaker
 
 - **Scope:** a breaker per provider with closed, open and half-open states (FLOW.md section 6).
 - **Proof:** tests for every transition.
 - **Dependencies allowed:** none.
-- **Open issues to settle:** where breaker state lives (record it); thresholds and cooldown; whether provider rate limits count as failures (D-014); whether one breaker covers a provider or a (provider, model) pair; with two mock instances in one alias (D-044, D-047), a breaker per provider type would open both together and break measurement 8 and the M11 proof, so per config instance is the candidate; how breaker state changes are made observable for measurement 8 (Prometheus is stretch).
+- **Open issues to settle:** where breaker state lives (record it); thresholds and cooldown; whether provider rate limits count as failures (D-014); whether one breaker covers a provider or a (provider, model) pair; with two mock instances in one alias (D-044, D-047), a breaker per provider type would open both together and break measurement 8 and the M11 proof, so per config instance is the candidate; how breaker state changes are made observable for measurement 8 (Prometheus is stretch); whether the breaker counts each failed attempt or each failed request, now that the router retries (D-050).
 
 ### M11 Provider fallback and fault injection
 
 - **Scope:** fallback down the alias list (D-010) for non-streaming requests; streams get the pre-first-byte rule in M12. Per-provider fault injection switched by an environment variable, off by default.
 - **Proof:** inject failures on one provider and the other serves; the response says which provider served; with one mock at 100% failure, every request is served by the other.
 - **Dependencies allowed:** none.
-- **Open issues to settle:** whether non-retryable errors fall back (FLOW.md section 5, D-033); the fault-injection variables and how they are kept out of production, and whether they are still needed beyond the per-instance mock settings in the config (D-044); how the response says which provider served when two entries share a type, such as two mocks (D-045 reports the provider model and type only); how measurement 8's outage window (100% failure for a fixed time mid-run) is injected, since the mock's failure rate is fixed (D-016); D-049 treats a 200 with empty content and finish reason `max_tokens` as a success that does not fall back, to be confirmed or revisited here; whether auth errors, which now include 402 and a Gemini invalid key (D-048), fall back.
+- **Open issues to settle:** whether non-retryable errors fall back (FLOW.md section 5, D-033); the fault-injection variables and how they are kept out of production, and whether they are still needed beyond the per-instance mock settings in the config (D-044); how the response says which provider served when two entries share a type, such as two mocks (D-045 reports the provider model and type only); how measurement 8's outage window (100% failure for a fixed time mid-run) is injected, since the mock's failure rate is fixed (D-016); D-049 treats a 200 with empty content and finish reason `max_tokens` as a success that does not fall back, to be confirmed or revisited here; whether auth errors, which now include 402 and a Gemini invalid key (D-048), fall back; whether fallback entries share the 90 s deadline and how attempts are numbered across entries (D-050); whether a billed malformed 2xx, which the router does not retry, falls back (D-052).
 
 ### M12 Normalized SSE streaming
 

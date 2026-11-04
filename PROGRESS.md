@@ -12,7 +12,7 @@ M1 to M6 are done: the unified schema, the adapter interface and error taxonomy,
 
 The next milestone is **M9 Router timeouts and retries**.
 
-Open items: the owner ran the five live tests on 2026-11-04 (3 passed, 2 failed). Both failures were fixed that day (D-048, D-049) and need a rerun (2026-11-04 session log, Needs owner). Every checkout is now LF (`.gitattributes`).
+Open items: the owner reran the five live tests on 2026-11-04 after the Gemini fixes (D-048, D-049): 5 passed. Every checkout is now LF (`.gitattributes`).
 
 ## Milestones
 
@@ -863,6 +863,24 @@ Fix 1 pushed as cfff6cc and 4ce37cf.
 **Needs owner.**
 - Rerun `uv run --env-file .env pytest -m live -v`. It should now be 5 passed. The two that failed are `tests/test_live_gemini.py::test_invalid_gemini_key_is_provider_auth_error` (Fix 1, no cost) and `tests/test_live_aliases.py::test_gemini_model_in_providers_toml_answers[smart[1]-gemini-3.6-flash]` (Fix 2; also verifies that `gemini-3.6-flash` accepts `MINIMAL`). `test_real_gemini_request_through_app` and the `fast[0]` alias case now send `thinkingConfig` too, so they should be rerun as well.
 - If `smart[1]` still returns empty content, or fails with 400 `provider_bad_request`, D-049 needs a new entry; do not raise `max_tokens`.
+
+### 2026-11-04: README demo fix, live rerun, M9 Router timeouts and retries
+
+**Plan.** Start checks; the README demo fix in its own commit, pushed; record the owner's live rerun (session log, D-048, D-049). Then M9: spec first (D-050 to D-054, FLOW.md sections 5, 8, 11 and 13, PLAN.md), committed before any test; tester Mode 1 writes the M9 tests from that spec; the builder runs them and records them failing before touching `src/`; implement until check.ps1 passes; tester Mode 2 mutation checks on every M9 failure path; reviewer (at most two rounds); docs; push. No new dependencies (M9 allows none).
+
+**Start checks.** HEAD 0da5882 on `main`, clean tree, `git pull` up to date. `.\scripts\check.ps1`: PASS, 970 passed, 5 deselected. `tester` and `reviewer` are listed as agent types.
+
+**Docs fix (32f0d34, pushed).** README's manual demo sends alias `fast` and the unknown alias; `smart`, whose first entry is `claude-opus-5-5`, is left out. This closes the note the Fix 2 reviewer left for the owner.
+
+**Owner's live rerun** (`uv run --env-file .env pytest -m live -v`, run by the owner after the Gemini fixes): 5 passed, including `test_invalid_gemini_key_is_provider_auth_error` and `smart[1]-gemini-3.6-flash`. Recorded under what was verified in D-048 (the invalid key maps to `provider_auth_error`) and D-049 (`gemini-3.6-flash` accepts `MINIMAL` as sent). Runtime 39.7 s on the run before the fixes, 4.1 s after; both are in D-049, which does not claim how much of the drop comes from thinking alone. The rerun closes the previous session's Needs owner items.
+
+**M9 spec.** Every M9 open issue settled before any test or code:
+- D-050: 3 attempts per entry; full-jitter backoff `random() * min(2.0, 0.2 * 2 ** (n - 1))`; per-attempt timeout `min(60 s, time left)`; 90 s total deadline; `RetryPolicy`, with sleep, clock and random injectable.
+- D-051: wait at least `retry-after`; above 5 s, no retry.
+- D-052: no retry when the provider answered 2xx (malformed body), because it was billed; an undecodable body has no status and is still retried.
+- D-053: 408 is a retryable `ProviderUnavailable` on both adapters (RFC 9110 section 15.5.9, read this session).
+- D-054 (the owner's addition): `ProviderError` gains `status` and a fixed `reason` code; one `attempt_failed` WARNING line per failed attempt on `llmgateway.router`, never sent to the client.
+- Pointer lines in D-034, D-035, D-038, D-041 and D-048.
 
 ## Agent Mistakes Log
 
