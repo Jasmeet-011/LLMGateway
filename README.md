@@ -48,7 +48,9 @@ $body = @{ model = "mock"; max_tokens = 32; messages = @(@{ role = "user"; conte
 Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/v1/chat -ContentType "application/json" -Body $body
 ```
 
-Two mocks in one alias, with no key: `$env:LLMGATEWAY_CONFIG = "config/mock-fallback.toml"`, then send alias `mock-fallback`. Its first instance has 20 ms latency and fails 30% of requests with 502 `provider_unavailable`. Its second instance is not used until fallback exists.
+The router retries retryable failures: up to 3 attempts per request with jittered backoff, a `retry-after` of up to 5 s honored, 60 s per attempt and a 90 s deadline (D-050, D-051). Real calls can therefore be made up to 3 times per request, and each may cost money. Each failed attempt writes one `attempt_failed` log line with the provider status and a fixed reason code, such as `API_KEY_INVALID` or `billing`, so a bad key and a billing failure can be told apart; none of that reaches the client (D-054).
+
+Two mocks in one alias, with no key: `$env:LLMGATEWAY_CONFIG = "config/mock-fallback.toml"`, then send alias `mock-fallback`. Its first instance has 20 ms latency and fails 30% of attempts; a request gets 502 `provider_unavailable` only when all its attempts fail. Its second instance is not used until fallback exists.
 
 Claude and Gemini (real API calls, which cost money). `config/providers.toml` defines alias `fast` (`gemini-3.5-flash-lite`, then `claude-haiku-5-5`) and alias `smart` (`claude-opus-5-5`, then `gemini-3.6-flash`) (D-047). It needs both keys; to use only one provider, write a config with only that provider's instance. Terminal 1; the variables last only for this PowerShell session, and `Read-Host` keeps the keys out of your command history:
 

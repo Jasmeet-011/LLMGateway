@@ -3,7 +3,8 @@
 # Use it with: $env:LLMGATEWAY_CONFIG = "config/mock-fallback.toml"
 #
 # Until M11, only the first entry is used, so mock-primary serves every request
-# and 30% of them fail (measurement 4's injected failure rate).
+# and 30% of its attempts fail (measurement 4's injected failure rate); the router
+# retries them (D-050).
 
 [providers.mock-primary]
 type = "mock"

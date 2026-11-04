@@ -897,7 +897,7 @@ Fix 1 pushed as cfff6cc and 4ce37cf.
   - App-level request IDs, client bodies without reason or status, and the call count per outcome.
 - Adapter tests: status and reason for every Claude and Gemini row of FLOW.md section 13, 408 on both, and mock `injected`.
 - Existing tests changed, decided by the tester on D-050:
-  1. `tests/test_main.py::test_startup_with_mock_fallback_config_serves_its_aliases`: the seeded sequence now covers 6 mock calls (`F,T,T,F,T,T`). The four requests, all expected 502/200/200/502 before, are now all 200, and the unused `FALLBACK_FAIL` constant was removed.
+  1. `tests/test_main.py::test_startup_with_mock_fallback_config_serves_its_aliases`: the seeded sequence now covers 6 mock calls (`F,T,T,F,T,T`). The four requests expected 502, 200, 200, 502 before and all expect 200 now, and the unused `FALLBACK_FAIL` constant was removed.
   2. Three `tests/test_router.py` M8 tests whose subject is not retries (the failing-mock, seeded-sequence and committed mock-fallback tests) now get `RetryPolicy(max_attempts=1)`, with their assertions unchanged.
   3. Test helpers in `tests/test_app.py` and both adapter files inject a no-op sleep. The undecodable-body app tests use a handler that builds a fresh response per call, because re-reading one stream response raises `httpx.StreamConsumed`, which would turn into a 500 once retried.
 
@@ -924,6 +924,285 @@ Fix 1 pushed as cfff6cc and 4ce37cf.
 - Settled while implementing (D-054, D-050, FLOW.md section 5; the tester's report had flagged both as unspecified): a non-`ProviderError` exception writes no router line, and the router calls sleep once per retry even for a wait of 0.
 - `.\scripts\check.ps1`: PASS, 1259 passed, 5 deselected (the first run failed `ruff format --check` on `gemini.py`; reformatted).
 
+**Interrupted mutation run.** The first Mode 2 run stopped seconds after it started: Windows rebooted uncleanly (System log: Kernel-Power event 41 at 15:36:07, and event 6008; the cause is not known). `router.py` was left as 12,401 NUL bytes, `m9_run1.log` was empty, and no results existed. The builder found this on resuming, confirmed no harness was still running, restored the file with `git checkout`, and checked the rest: `git fsck` clean, no other zeroed file, HEAD unchanged, check.ps1 PASS (1259 passed). The tester rewrote the harness to check the tree before each mutation, fsync the mutated source and each result, and resume by ID, then re-ran everything from the start. No result of the lost run is used.
+
+**Mutation checks (tester, Mode 2).** At 8f61c69 with a clean tree: one exact-string mutation at a time, checked to occur exactly once; the relevant test files run with a per-run timeout; `git checkout -- <file>` and a clean-tree check after each. The builder recounted from the raw `m9_results.jsonl`: 278 runs of 262 distinct mutations, none left unreverted.
+
+262 mutations: 247 caught on the first pass, 1 caught only when re-run alone (R10), 9 caught after a new test (R15, R21, R24, R25, R53, R58, R91, R92, R105), and 5 equivalent (R62, R117, G23, G24, C31). 247 + 1 + 9 + 5 = 262. By file: `router.py` 144, `gemini.py` 40, `claude.py` 31, `base.py` 30, `mock.py` 15, `app.py` 2. Two catches need a note:
+- R10 (`max_attempts <= 1`) broke `RetryPolicy(max_attempts=1)` at import in `tests/test_router.py`, so the first run stopped at a collection error with no named test; against `tests/test_retries.py` alone, four tests fail.
+- R82 (attempt limit dropped): 11 tests failed, then the mutant retried forever and the run was killed at 300 s.
+
+The builder reviewed the five equivalence claims and agrees: R62's error is only returned there and raised outside any except block; R117's value is always an int; G23, G24 and C31 reorder branches whose statuses cannot overlap.
+
+Tests added in Mode 2, all additive, all in `tests/test_retries.py`: `test_retry_policy_accepts_whole_numbers_of_seconds`, `test_exception_that_is_not_a_provider_error_writes_no_router_line`, `test_bug_after_a_failed_attempt_logs_only_the_failed_attempt`, `test_time_left_for_an_attempt_is_read_from_the_injected_clock`, `test_more_attempts_than_a_float_exponent_can_hold_still_gives_the_capped_wait`, `test_backoff_bound_keeps_doubling_while_it_is_under_max_delay`, `test_retry_after_is_honoured_only_on_a_rate_limit_error`, and 20 new `_BAD_POLICIES` cases (strings, None, True and False).
+
+R24 (`_is_number` accepts `bool`) survived because D-050 excluded `bool` only for `max_attempts`, so a test would have pinned the implementation, not the spec. The builder decided: D-050 now says a number is an `int` or `float`, never a `bool`, as for mock settings (D-044), and the tester added the cases. `attempt_timeout` and `total_timeout` with `False` do not guard the check, because `False` equals 0 and `> 0` rejects it anyway; their `True` cases do. R62 also showed a `router.py` comment gave the wrong reason nothing is chained; corrected.
+
+| # | Mutation | File | Test that failed (n) | Reverted |
+| --- | --- | --- | --- | --- |
+| A01 | request_id not passed to the router | app.py | test_app_retries_a_retryable_failure_and_returns_200 (3) | yes |
+| A02 | a different request_id passed to the router | app.py | test_app_retries_a_retryable_failure_and_returns_200 (3) | yes |
+| B01 | ProviderError status not stored | base.py | test_status_and_reason_keywords_are_stored[ProviderTimeout] (98) | yes |
+| B02 | ProviderError reason not stored | base.py | test_status_and_reason_keywords_are_stored[ProviderTimeout] (131) | yes |
+| B03 | ProviderError status default None -> 0 | base.py | test_base_class_takes_status_and_reason_with_retryable (1) | yes |
+| B04 | ProviderError reason default None -> 'unknown' | base.py | test_base_class_takes_status_and_reason_with_retryable (1) | yes |
+| B05 | ProviderError retryable default True | base.py | test_base_class_takes_status_and_reason_with_retryable (1) | yes |
+| B06 | Timeout: status not passed | base.py | test_status_and_reason_keywords_are_stored[ProviderTimeout] (2) | yes |
+| B07 | Timeout: reason not passed | base.py | test_status_and_reason_keywords_are_stored[ProviderTimeout] (10) | yes |
+| B08 | Timeout: retryable flipped | base.py | test_status_and_reason_default_to_none[ProviderTimeout] (10) | yes |
+| B09 | Timeout: status default 0 | base.py | test_status_and_reason_default_to_none[ProviderTimeout] (10) | yes |
+| B10 | Timeout: reason default 'x' | base.py | test_status_and_reason_default_to_none[ProviderTimeout] (2) | yes |
+| B11 | Unavailable: status not passed | base.py | test_status_and_reason_keywords_are_stored[ProviderUnavailable] (49) | yes |
+| B12 | Unavailable: reason not passed | base.py | test_status_and_reason_keywords_are_stored[ProviderUnavailable] (68) | yes |
+| B13 | Unavailable: retryable flipped | base.py | test_status_and_reason_default_to_none[ProviderUnavailable] (109) | yes |
+| B14 | Unavailable: status default 0 | base.py | test_status_and_reason_default_to_none[ProviderUnavailable] (21) | yes |
+| B15 | Unavailable: reason default 'x' | base.py | test_status_and_reason_default_to_none[ProviderUnavailable] (2) | yes |
+| B16 | BadRequest: status not passed | base.py | test_status_and_reason_keywords_are_stored[ProviderBadRequest] (26) | yes |
+| B17 | BadRequest: reason not passed | base.py | test_status_and_reason_keywords_are_stored[ProviderBadRequest] (32) | yes |
+| B18 | BadRequest: retryable flipped | base.py | test_status_and_reason_default_to_none[ProviderBadRequest] (95) | yes |
+| B19 | BadRequest: status default 0 | base.py | test_status_and_reason_default_to_none[ProviderBadRequest] (8) | yes |
+| B20 | BadRequest: reason default 'x' | base.py | test_status_and_reason_default_to_none[ProviderBadRequest] (2) | yes |
+| B21 | Auth: status not passed | base.py | test_status_and_reason_keywords_are_stored[ProviderAuthError] (11) | yes |
+| B22 | Auth: reason not passed | base.py | test_status_and_reason_keywords_are_stored[ProviderAuthError] (11) | yes |
+| B23 | Auth: retryable flipped | base.py | test_status_and_reason_default_to_none[ProviderAuthError] (25) | yes |
+| B24 | Auth: status default 0 | base.py | test_status_and_reason_default_to_none[ProviderAuthError] (2) | yes |
+| B25 | Auth: reason default 'x' | base.py | test_status_and_reason_default_to_none[ProviderAuthError] (2) | yes |
+| B26 | RateLimited: status not passed | base.py | test_status_and_reason_keywords_are_stored[ProviderRateLimited] (9) | yes |
+| B27 | RateLimited: reason not passed | base.py | test_status_and_reason_keywords_are_stored[ProviderRateLimited] (9) | yes |
+| B28 | RateLimited: retryable flipped | base.py | test_status_and_reason_default_to_none[ProviderRateLimited] (6) | yes |
+| B29 | RateLimited: status default 0 | base.py | test_status_and_reason_default_to_none[ProviderRateLimited] (2) | yes |
+| B30 | RateLimited: reason default 'x' | base.py | test_status_and_reason_default_to_none[ProviderRateLimited] (2) | yes |
+| C01 | local_check reason dropped | claude.py | test_local_check_has_no_status_and_reason_local_check[overrides0] (3) | yes |
+| C02 | local_check gets status 400 | claude.py | test_local_check_has_no_status_and_reason_local_check[overrides0] (3) | yes |
+| C03 | timeout reason -> connection | claude.py | test_timeouts_have_no_status_and_reason_timeout[ConnectTimeout] (4) | yes |
+| C04 | timeout gets status 504 | claude.py | test_timeouts_have_no_status_and_reason_timeout[ConnectTimeout] (4) | yes |
+| C05 | connection reason -> timeout | claude.py | test_transport_errors_have_no_status_and_reason_connection[ConnectError] (4) | yes |
+| C06 | connection gets status 502 | claude.py | test_transport_errors_have_no_status_and_reason_connection[ConnectError] (4) | yes |
+| C07 | undecodable reason -> malformed_body | claude.py | test_undecodable_body_has_no_status_and_reason_undecodable_body[200] (5) | yes |
+| C08 | undecodable gets status 200 (would stop retries) | claude.py | test_undecodable_body_has_no_status_and_reason_undecodable_body[200] (6) | yes |
+| C09 | 401/403 status dropped | claude.py | test_http_status_rows_carry_the_status_and_reason[401] (3) | yes |
+| C10 | 401/403 reason -> http_status | claude.py | test_http_status_rows_carry_the_status_and_reason[401] (3) | yes |
+| C11 | 402 status dropped | claude.py | test_http_status_rows_carry_the_status_and_reason[402] (2) | yes |
+| C12 | 402 reason -> auth | claude.py | test_http_status_rows_carry_the_status_and_reason[402] (2) | yes |
+| C13 | 408 -> ProviderBadRequest | claude.py | test_http_status_rows_carry_the_status_and_reason[408] (4) | yes |
+| C14 | 408 -> ProviderTimeout | claude.py | test_http_status_rows_carry_the_status_and_reason[408] (4) | yes |
+| C15 | 408 status dropped | claude.py | test_http_status_rows_carry_the_status_and_reason[408] (3) | yes |
+| C16 | 408 reason -> timeout | claude.py | test_http_status_rows_carry_the_status_and_reason[408] (3) | yes |
+| C17 | 408 branch dropped | claude.py | test_http_status_rows_carry_the_status_and_reason[408] (4) | yes |
+| C18 | 408 branch moved after the 4xx catch-all | claude.py | test_http_status_rows_carry_the_status_and_reason[408] (4) | yes |
+| C19 | 408 branch matches 409 instead | claude.py | test_http_status_mapping[409-ProviderBadRequest] (6) | yes |
+| C20 | 408 branch widened to 400 too | claude.py | test_http_status_mapping[400-ProviderBadRequest] (3) | yes |
+| C21 | 408 -> unavailable but not retryable | claude.py | test_408_is_retryable_unavailable_not_bad_request (2) | yes |
+| C22 | 429 status dropped | claude.py | test_http_status_rows_carry_the_status_and_reason[429] (3) | yes |
+| C23 | 429 reason -> http_status | claude.py | test_http_status_rows_carry_the_status_and_reason[429] (3) | yes |
+| C24 | other 4xx status dropped | claude.py | test_http_status_rows_carry_the_status_and_reason[400] (8) | yes |
+| C25 | other 4xx reason -> bad_request | claude.py | test_http_status_rows_carry_the_status_and_reason[400] (8) | yes |
+| C26 | 5xx status dropped | claude.py | test_http_status_rows_carry_the_status_and_reason[500] (12) | yes |
+| C27 | 5xx reason -> unavailable | claude.py | test_http_status_rows_carry_the_status_and_reason[500] (12) | yes |
+| C28 | malformed 2xx status dropped | claude.py | test_malformed_2xx_carries_its_2xx_status_and_reason_malformed_body[not_json-200] (7) | yes |
+| C29 | malformed 2xx status hard-coded 200 | claude.py | test_malformed_2xx_carries_its_2xx_status_and_reason_malformed_body[not_json-201] (3) | yes |
+| C30 | malformed reason -> undecodable_body | claude.py | test_malformed_2xx_carries_its_2xx_status_and_reason_malformed_body[not_json-200] (6) | yes |
+| C31 | 408 branch moved before the 402 branch | claude.py | survives: equivalent (disjoint statuses) | yes |
+| G01 | model local_check reason dropped | gemini.py | test_local_checks_have_no_status_and_reason_local_check[path_model] (2) | yes |
+| G02 | model local_check gets status 400 | gemini.py | test_local_checks_have_no_status_and_reason_local_check[path_model] (2) | yes |
+| G03 | stop-sequences local_check reason dropped | gemini.py | test_local_checks_have_no_status_and_reason_local_check[six_stop_sequences] (1) | yes |
+| G04 | stop-sequences local_check gets status 400 | gemini.py | test_local_checks_have_no_status_and_reason_local_check[six_stop_sequences] (1) | yes |
+| G05 | timeout reason -> connection | gemini.py | test_timeouts_have_no_status_and_reason_timeout[ConnectTimeout] (4) | yes |
+| G06 | timeout gets status 504 | gemini.py | test_timeouts_have_no_status_and_reason_timeout[ConnectTimeout] (4) | yes |
+| G07 | connection reason -> timeout | gemini.py | test_transport_errors_have_no_status_and_reason_connection[ConnectError] (4) | yes |
+| G08 | connection gets status 502 | gemini.py | test_transport_errors_have_no_status_and_reason_connection[ConnectError] (4) | yes |
+| G09 | undecodable reason -> malformed_body | gemini.py | test_undecodable_body_has_no_status_and_reason_undecodable_body[200] (6) | yes |
+| G10 | undecodable gets status 200 | gemini.py | test_undecodable_body_has_no_status_and_reason_undecodable_body[200] (6) | yes |
+| G11 | 401/403 status dropped | gemini.py | test_http_status_rows_carry_the_status_and_reason[401] (2) | yes |
+| G12 | 401/403 reason -> http_status | gemini.py | test_http_status_rows_carry_the_status_and_reason[401] (2) | yes |
+| G13 | invalid-key status dropped | gemini.py | test_captured_invalid_key_400_has_status_400_and_reason_api_key_invalid (3) | yes |
+| G14 | invalid-key reason -> auth | gemini.py | test_captured_invalid_key_400_has_status_400_and_reason_api_key_invalid (3) | yes |
+| G15 | 402 status dropped | gemini.py | test_http_status_rows_carry_the_status_and_reason[402] (4) | yes |
+| G16 | 402 reason -> auth | gemini.py | test_http_status_rows_carry_the_status_and_reason[402] (4) | yes |
+| G17 | 408 -> ProviderBadRequest | gemini.py | test_http_status_rows_carry_the_status_and_reason[408] (4) | yes |
+| G18 | 408 -> ProviderTimeout | gemini.py | test_http_status_rows_carry_the_status_and_reason[408] (4) | yes |
+| G19 | 408 status dropped | gemini.py | test_http_status_rows_carry_the_status_and_reason[408] (3) | yes |
+| G20 | 408 reason -> timeout | gemini.py | test_http_status_rows_carry_the_status_and_reason[408] (3) | yes |
+| G21 | 408 branch dropped | gemini.py | test_http_status_rows_carry_the_status_and_reason[408] (4) | yes |
+| G22 | 408 branch moved after the 4xx catch-all | gemini.py | test_http_status_rows_carry_the_status_and_reason[408] (4) | yes |
+| G23 | 408 branch moved before the invalid-key branch | gemini.py | survives: equivalent (the invalid-key branch needs status 400, so the two cannot both match) | yes |
+| G24 | 408 branch moved before 401/403 | gemini.py | survives: equivalent (disjoint statuses) | yes |
+| G25 | 408 branch matches 409 instead | gemini.py | test_http_status_mapping[409-ProviderBadRequest] (7) | yes |
+| G26 | 408 branch widened to 400 | gemini.py | test_http_status_mapping[400-ProviderBadRequest] (49) | yes |
+| G27 | 408 branch widened to 402 (402 branch moved after) | gemini.py | test_http_status_mapping[402-ProviderAuthError] (9) | yes |
+| G28 | 408 -> unavailable but not retryable | gemini.py | test_408_is_retryable_unavailable_not_bad_request (2) | yes |
+| G29 | 429 status dropped | gemini.py | test_http_status_rows_carry_the_status_and_reason[429] (3) | yes |
+| G30 | 429 reason -> http_status | gemini.py | test_http_status_rows_carry_the_status_and_reason[429] (3) | yes |
+| G31 | other 4xx status dropped | gemini.py | test_http_status_rows_carry_the_status_and_reason[400] (12) | yes |
+| G32 | other 4xx reason -> bad_request | gemini.py | test_http_status_rows_carry_the_status_and_reason[400] (12) | yes |
+| G33 | 5xx status dropped | gemini.py | test_http_status_rows_carry_the_status_and_reason[500] (12) | yes |
+| G34 | 5xx reason -> unavailable | gemini.py | test_http_status_rows_carry_the_status_and_reason[500] (12) | yes |
+| G35 | blocked status dropped | gemini.py | test_blocked_prompt_carries_its_2xx_status_and_reason_prompt_blocked[safety-200] (4) | yes |
+| G36 | blocked status hard-coded 200 | gemini.py | test_blocked_prompt_carries_its_2xx_status_and_reason_prompt_blocked[safety-201] (2) | yes |
+| G37 | blocked reason -> malformed_body | gemini.py | test_blocked_prompt_carries_its_2xx_status_and_reason_prompt_blocked[safety-200] (4) | yes |
+| G38 | malformed 2xx status dropped | gemini.py | test_malformed_2xx_carries_its_2xx_status_and_reason_malformed_body[not_json-200] (12) | yes |
+| G39 | malformed 2xx status hard-coded 200 | gemini.py | test_malformed_2xx_carries_its_2xx_status_and_reason_malformed_body[not_json-201] (6) | yes |
+| G40 | malformed reason -> undecodable_body | gemini.py | test_malformed_2xx_carries_its_2xx_status_and_reason_malformed_body[not_json-200] (12) | yes |
+| M01 | timeout: reason dropped | mock.py | test_injected_failure_has_no_status_and_reason_injected[timeout-ProviderTimeout] (1) | yes |
+| M02 | timeout: reason -> timeout | mock.py | test_injected_failure_has_no_status_and_reason_injected[timeout-ProviderTimeout] (1) | yes |
+| M03 | timeout: status 500 added | mock.py | test_injected_failure_has_no_status_and_reason_injected[timeout-ProviderTimeout] (1) | yes |
+| M04 | rate_limited: reason dropped | mock.py | test_injected_failure_has_no_status_and_reason_injected[rate_limited-ProviderRateLimited] (1) | yes |
+| M05 | rate_limited: reason -> rate_limited | mock.py | test_injected_failure_has_no_status_and_reason_injected[rate_limited-ProviderRateLimited] (1) | yes |
+| M06 | rate_limited: status 500 added | mock.py | test_injected_failure_has_no_status_and_reason_injected[rate_limited-ProviderRateLimited] (1) | yes |
+| M07 | unavailable: reason dropped | mock.py | test_injected_failure_has_no_status_and_reason_injected[unavailable-ProviderUnavailable] (1) | yes |
+| M08 | unavailable: reason -> unavailable | mock.py | test_injected_failure_has_no_status_and_reason_injected[unavailable-ProviderUnavailable] (1) | yes |
+| M09 | unavailable: status 500 added | mock.py | test_injected_failure_has_no_status_and_reason_injected[unavailable-ProviderUnavailable] (1) | yes |
+| M10 | bad_request: reason dropped | mock.py | test_injected_failure_has_no_status_and_reason_injected[bad_request-ProviderBadRequest] (1) | yes |
+| M11 | bad_request: reason -> bad_request | mock.py | test_injected_failure_has_no_status_and_reason_injected[bad_request-ProviderBadRequest] (1) | yes |
+| M12 | bad_request: status 500 added | mock.py | test_injected_failure_has_no_status_and_reason_injected[bad_request-ProviderBadRequest] (1) | yes |
+| M13 | auth: reason dropped | mock.py | test_injected_failure_has_no_status_and_reason_injected[auth-ProviderAuthError] (1) | yes |
+| M14 | auth: reason -> auth | mock.py | test_injected_failure_has_no_status_and_reason_injected[auth-ProviderAuthError] (1) | yes |
+| M15 | auth: status 500 added | mock.py | test_injected_failure_has_no_status_and_reason_injected[auth-ProviderAuthError] (1) | yes |
+| R01 | default max_attempts 3 -> 2 | router.py | test_retry_policy_defaults_are_the_d050_values (7) | yes |
+| R02 | default base_delay 0.2 -> 0.1 | router.py | test_retry_policy_defaults_are_the_d050_values (3) | yes |
+| R03 | default max_delay 2.0 -> 4.0 | router.py | test_retry_policy_defaults_are_the_d050_values (2) | yes |
+| R04 | default max_retry_after 5.0 -> 6.0 | router.py | test_retry_policy_defaults_are_the_d050_values (6) | yes |
+| R05 | default attempt_timeout 60 -> 30 | router.py | test_retry_policy_defaults_are_the_d050_values (1) | yes |
+| R06 | default total_timeout 90 -> 120 | router.py | test_retry_policy_defaults_are_the_d050_values (1) | yes |
+| R07 | max_attempts bool check dropped | router.py | test_retry_policy_rejects_each_bad_value[max_attempts_true] (1) | yes |
+| R08 | max_attempts int check dropped | router.py | test_retry_policy_rejects_each_bad_value[max_attempts_float] (3) | yes |
+| R09 | max_attempts < 1 -> < 0 | router.py | test_retry_policy_rejects_each_bad_value[max_attempts_zero] (1) | yes |
+| R10 | max_attempts < 1 -> <= 1 | router.py | first run stopped at a collection error in tests/test_router.py; alone against tests/test_retries.py: test_retry_policy_accepts_the_boundary_values (4) | yes |
+| R100 | retry-after over cap clamped instead of not retried | router.py | test_retry_after_above_the_5_s_cap_is_not_retried[5.000000000000001] (7) | yes |
+| R101 | retry-after max -> min | router.py | test_retry_after_longer_than_the_backoff_is_waited (6) | yes |
+| R102 | retry-after ignored for the wait | router.py | test_retry_after_longer_than_the_backoff_is_waited (4) | yes |
+| R103 | retry-after replaces the backoff | router.py | test_backoff_longer_than_retry_after_is_waited (2) | yes |
+| R104 | retry-after branch applies to every ProviderError (AttributeError) | router.py | test_retryable_error_is_retried_up_to_max_attempts_then_the_same_object_raised[unavailable] (56) | yes |
+| R105 | retry-after branch via getattr on any class | router.py | survived; added test_retry_after_is_honoured_only_on_a_rate_limit_error (1) | yes |
+| R106 | deadline >= -> > | router.py | test_retry_whose_wait_would_reach_the_deadline_exactly_is_not_made (4) | yes |
+| R107 | deadline check uses real clock | router.py | test_retryable_error_is_retried_up_to_max_attempts_then_the_same_object_raised[unavailable] (48) | yes |
+| R108 | deadline check ignores the wait | router.py | test_retry_whose_wait_would_reach_the_deadline_exactly_is_not_made (5) | yes |
+| R109 | deadline check ignores the clock | router.py | test_retry_whose_wait_would_reach_the_deadline_exactly_is_not_made (5) | yes |
+| R11 | max_attempts ValueError -> TypeError | router.py | test_retry_policy_rejects_each_bad_value[max_attempts_zero] (7) | yes |
+| R110 | deadline check dropped | router.py | test_retry_whose_wait_would_reach_the_deadline_exactly_is_not_made (5) | yes |
+| R111 | deadline check before the retry-after wait is applied | router.py | test_retry_whose_wait_would_reach_the_deadline_exactly_is_not_made (5) | yes |
+| R112 | log prefix changed | router.py | test_attempt_lines_for_two_failures_then_a_success (24) | yes |
+| R113 | request_id %s -> %r | router.py | test_attempt_lines_for_two_failures_then_a_success (22) | yes |
+| R114 | alias %r -> %s | router.py | test_attempt_lines_for_two_failures_then_a_success (22) | yes |
+| R115 | provider %s -> %r | router.py | test_attempt_lines_for_two_failures_then_a_success (22) | yes |
+| R116 | model %r -> %s | router.py | test_attempt_lines_for_two_failures_then_a_success (22) | yes |
+| R117 | attempt %d -> %s | router.py | survives: equivalent (`attempt` is always an int; `%d` and `%s` gave the same text for 1 to 4999) | yes |
+| R118 | status %s -> %r | router.py | test_attempt_lines_for_two_failures_then_a_success (5) | yes |
+| R119 | reason %s -> %r | router.py | test_attempt_lines_for_two_failures_then_a_success (22) | yes |
+| R12 | base_delay not validated | router.py | test_retry_policy_rejects_each_bad_value[base_delay_negative] (5) | yes |
+| R120 | error %s -> %r | router.py | test_attempt_lines_for_two_failures_then_a_success (22) | yes |
+| R121 | retry %s -> %r | router.py | test_attempt_lines_for_two_failures_then_a_success (22) | yes |
+| R122 | request_id dash fallback dropped | router.py | test_attempt_line_without_request_id_status_or_reason_uses_dashes (9) | yes |
+| R123 | request_id fallback 'none' | router.py | test_attempt_line_without_request_id_status_or_reason_uses_dashes (9) | yes |
+| R124 | alias and provider swapped in the log | router.py | test_attempt_lines_for_two_failures_then_a_success (22) | yes |
+| R125 | provider logged as adapter name | router.py | test_attempt_lines_for_two_failures_then_a_success (22) | yes |
+| R126 | model logged as the alias | router.py | test_attempt_lines_for_two_failures_then_a_success (22) | yes |
+| R127 | attempt logged 0-based | router.py | test_attempt_lines_for_two_failures_then_a_success (22) | yes |
+| R128 | status dash fallback dropped | router.py | test_attempt_lines_for_two_failures_then_a_success (5) | yes |
+| R129 | reason dash fallback dropped | router.py | test_attempt_line_without_request_id_status_or_reason_uses_dashes (2) | yes |
+| R13 | max_delay not validated | router.py | test_retry_policy_rejects_each_bad_value[max_delay_negative] (5) | yes |
+| R130 | status logged as reason | router.py | test_attempt_lines_for_two_failures_then_a_success (20) | yes |
+| R131 | error class always ProviderError | router.py | test_attempt_lines_for_two_failures_then_a_success (22) | yes |
+| R132 | error class qualname | router.py | test_attempt_line_names_the_subclass_of_the_error (1) | yes |
+| R133 | yes/no inverted | router.py | test_attempt_lines_for_two_failures_then_a_success (22) | yes |
+| R134 | retry logged as bool | router.py | test_attempt_lines_for_two_failures_then_a_success (22) | yes |
+| R135 | log level WARNING -> INFO | router.py | test_attempt_line_is_a_warning_on_the_llmgateway_router_logger (1) | yes |
+| R136 | log level WARNING -> ERROR | router.py | test_attempt_line_is_a_warning_on_the_llmgateway_router_logger (1) | yes |
+| R137 | logger name changed | router.py | test_attempt_lines_for_two_failures_then_a_success (24) | yes |
+| R138 | adapter message added to the log | router.py | test_attempt_lines_for_two_failures_then_a_success (23) | yes |
+| R139 | build_router drops the policy | router.py | test_build_router_passes_the_policy_and_one_sleep_to_router_and_mocks (6) | yes |
+| R14 | max_retry_after not validated | router.py | test_retry_policy_rejects_each_bad_value[max_retry_after_negative] (5) | yes |
+| R140 | build_router router sleep ignored | router.py | test_build_router_passes_the_policy_and_one_sleep_to_router_and_mocks (2) | yes |
+| R141 | build_router mock sleep ignored | router.py | test_build_router_passes_the_policy_and_one_sleep_to_router_and_mocks (9) | yes |
+| R142 | alias sent to the adapter on retries (routed model on the first attempt only) | router.py | test_every_attempt_sends_the_route_model_and_keeps_every_other_field (1) | yes |
+| R143 | sleep called twice per retry | router.py | test_retryable_error_is_retried_up_to_max_attempts_then_the_same_object_raised[unavailable] (37) | yes |
+| R144 | a wait of 0 is treated as giving up | router.py | test_random_zero_gives_a_zero_wait (2) | yes |
+| R15 | non-negative fields: number check dropped | router.py | survived; added test_retry_policy_rejects_each_bad_value[base_delay_string] (6) | yes |
+| R16 | non-negative fields: isfinite dropped | router.py | test_retry_policy_rejects_each_bad_value[base_delay_inf] (6) | yes |
+| R17 | non-negative fields: < 0 -> <= 0 | router.py | test_retry_policy_accepts_the_boundary_values (1) | yes |
+| R18 | non-negative fields: sign check dropped | router.py | test_retry_policy_rejects_each_bad_value[base_delay_negative] (6) | yes |
+| R19 | attempt_timeout not validated | router.py | test_retry_policy_rejects_each_bad_value[attempt_timeout_zero_int] (6) | yes |
+| R20 | total_timeout not validated | router.py | test_retry_policy_rejects_each_bad_value[total_timeout_zero_int] (6) | yes |
+| R21 | positive fields: number check dropped | router.py | survived; added test_retry_policy_rejects_each_bad_value[attempt_timeout_string] (4) | yes |
+| R22 | positive fields: isfinite dropped | router.py | test_retry_policy_rejects_each_bad_value[attempt_timeout_inf] (4) | yes |
+| R23 | positive fields: <= 0 -> < 0 | router.py | test_retry_policy_rejects_each_bad_value[attempt_timeout_zero_int] (4) | yes |
+| R24 | _is_number accepts bool | router.py | survived; added test_retry_policy_rejects_each_bad_value[base_delay_true] (8) | yes |
+| R25 | _is_number rejects int | router.py | survived; added test_retry_policy_accepts_whole_numbers_of_seconds (1) | yes |
+| R26 | policy argument ignored | router.py | test_max_attempts_one_never_retries (29) | yes |
+| R27 | policy=None default -> RetryPolicy(max_attempts=2) | router.py | test_default_policy_bounds_are_0_2_then_0_4 (6) | yes |
+| R28 | injected sleep ignored | router.py | test_retryable_error_is_retried_up_to_max_attempts_then_the_same_object_raised[unavailable] (38) | yes |
+| R29 | injected clock ignored | router.py | test_retry_whose_wait_would_reach_the_deadline_exactly_is_not_made (5) | yes |
+| R30 | injected random ignored | router.py | test_backoff_upper_bound_doubles_and_is_capped_at_max_delay (16) | yes |
+| R31 | default random uses the global random module | router.py | test_without_injected_random_the_router_does_not_use_the_global_random (1) | yes |
+| R32 | default clock time.monotonic -> time.time | router.py | test_router_takes_keyword_only_policy_sleep_clock_and_random (1) | yes |
+| R33 | complete request_id no longer keyword-only | router.py | test_complete_takes_a_keyword_only_request_id (1) | yes |
+| R34 | routed request keeps the alias as model | router.py | test_every_attempt_sends_the_route_model_and_keeps_every_other_field (7) | yes |
+| R35 | alias for the log taken from the route model | router.py | test_attempt_lines_for_two_failures_then_a_success (22) | yes |
+| R36 | deadline from router construction, not call start | router.py | test_deadline_is_measured_from_the_start_of_complete (1) | yes |
+| R37 | deadline not from the injected clock | router.py | test_retry_whose_wait_would_reach_the_deadline_exactly_is_not_made (8) | yes |
+| R38 | deadline uses attempt_timeout | router.py | test_retry_whose_wait_would_reach_the_deadline_exactly_is_not_made (11) | yes |
+| R39 | attempt counter starts at 1 (off by one) | router.py | test_retryable_error_is_retried_up_to_max_attempts_then_the_same_object_raised[unavailable] (52) | yes |
+| R40 | attempt counter step 2 | router.py | test_retryable_error_is_retried_up_to_max_attempts_then_the_same_object_raised[unavailable] (52) | yes |
+| R41 | log retry flag inverted | router.py | test_attempt_lines_for_two_failures_then_a_success (22) | yes |
+| R42 | log retry flag always True | router.py | test_attempt_lines_when_every_attempt_fails (16) | yes |
+| R43 | attempt log not written | router.py | test_attempt_lines_for_two_failures_then_a_success (24) | yes |
+| R44 | log written only when retrying | router.py | test_attempt_lines_when_every_attempt_fails (16) | yes |
+| R45 | give-up raises a copy, not the same object | router.py | test_retryable_error_is_retried_up_to_max_attempts_then_the_same_object_raised[unavailable] (27) | yes |
+| R46 | give-up raises a new ProviderError | router.py | test_retryable_error_is_retried_up_to_max_attempts_then_the_same_object_raised[unavailable] (88) | yes |
+| R47 | no sleep call for a wait of 0 | router.py | test_random_zero_gives_a_zero_wait (1) | yes |
+| R48 | sleep before the first attempt | router.py | test_success_on_the_first_attempt_calls_once_and_never_sleeps (69) | yes |
+| R49 | sleep after the last attempt | router.py | test_retryable_error_is_retried_up_to_max_attempts_then_the_same_object_raised[unavailable] (51) | yes |
+| R50 | no sleep between attempts | router.py | test_retryable_error_is_retried_up_to_max_attempts_then_the_same_object_raised[unavailable] (38) | yes |
+| R51 | sleep with 0 instead of the wait | router.py | test_backoff_upper_bound_doubles_and_is_capped_at_max_delay (19) | yes |
+| R52 | real asyncio.sleep between attempts | router.py | test_retryable_error_is_retried_up_to_max_attempts_then_the_same_object_raised[unavailable] (38) | yes |
+| R53 | non-ProviderError exceptions logged before propagating | router.py | survived; added test_exception_that_is_not_a_provider_error_writes_no_router_line[runtime_error] (5) | yes |
+| R54 | attempt timeout not capped by time left | router.py | test_attempt_timeout_is_capped_by_the_time_left_before_the_deadline (2) | yes |
+| R55 | attempt timeout only time left | router.py | test_hung_attempt_becomes_an_attempt_timeout_and_is_retried (4) | yes |
+| R56 | attempt timeout dropped (None) | router.py | test_hung_attempt_becomes_an_attempt_timeout_and_is_retried (6) | yes |
+| R57 | attempt timeout min -> max | router.py | test_hung_attempt_becomes_an_attempt_timeout_and_is_retried (6) | yes |
+| R58 | time left from real clock | router.py | survived; added test_time_left_for_an_attempt_is_read_from_the_injected_clock (1) | yes |
+| R59 | time left ignores elapsed time (total_timeout) | router.py | test_attempt_timeout_is_capped_by_the_time_left_before_the_deadline (1) | yes |
+| R60 | expired() check dropped (adapter TimeoutError translated) | router.py | test_an_adapters_own_timeout_error_is_not_turned_into_an_attempt_timeout (1) | yes |
+| R61 | expired() check inverted | router.py | test_an_adapters_own_timeout_error_is_not_turned_into_an_attempt_timeout (7) | yes |
+| R62 | attempt-timeout error built inside the except block (returned) | router.py | survives: equivalent (the error is returned there and raised later outside any except block, so `__context__` stays None; script-checked) | yes |
+| R63 | attempt-timeout error chained with __cause__ | router.py | test_attempt_timeout_error_is_a_retryable_provider_timeout_without_status (1) | yes |
+| R64 | attempt-timeout error chained with __context__ | router.py | test_attempt_timeout_error_is_a_retryable_provider_timeout_without_status (1) | yes |
+| R65 | attempt-timeout reason -> timeout | router.py | test_attempt_timeout_error_is_a_retryable_provider_timeout_without_status (4) | yes |
+| R66 | attempt-timeout reason dropped | router.py | test_attempt_timeout_error_is_a_retryable_provider_timeout_without_status (4) | yes |
+| R67 | attempt-timeout gets status 504 | router.py | test_attempt_timeout_error_is_a_retryable_provider_timeout_without_status (2) | yes |
+| R68 | attempt-timeout class -> plain retryable ProviderError | router.py | test_attempt_timeout_error_is_a_retryable_provider_timeout_without_status (5) | yes |
+| R69 | attempt-timeout not retryable | router.py | test_hung_attempt_becomes_an_attempt_timeout_and_is_retried (4) | yes |
+| R70 | attempt-timeout message changed | router.py | test_attempt_timeout_error_is_a_retryable_provider_timeout_without_status (1) | yes |
+| R71 | retry other exceptions (RuntimeError/ValueError/KeyError) as retryable ProviderError | router.py | test_other_exceptions_propagate_unchanged_after_one_call[runtime_error] (6) | yes |
+| R72 | retryable check dropped | router.py | test_non_retryable_error_is_raised_after_one_call_without_sleeping[bad_request] (16) | yes |
+| R73 | retryable check inverted | router.py | test_retryable_error_is_retried_up_to_max_attempts_then_the_same_object_raised[unavailable] (72) | yes |
+| R74 | 2xx rule dropped | router.py | test_retryable_error_with_a_2xx_status_is_not_retried[unavailable-200] (11) | yes |
+| R75 | 2xx lower bound 200 -> 201 | router.py | test_retryable_error_with_a_2xx_status_is_not_retried[unavailable-200] (5) | yes |
+| R76 | 2xx lower bound 200 -> 199 | router.py | test_retryable_error_with_no_status_or_a_non_2xx_status_is_retried[199] (1) | yes |
+| R77 | 2xx upper bound <= 299 -> < 299 | router.py | test_retryable_error_with_a_2xx_status_is_not_retried[unavailable-299] (2) | yes |
+| R78 | 2xx upper bound 299 -> 300 | router.py | test_retryable_error_with_no_status_or_a_non_2xx_status_is_retried[300] (1) | yes |
+| R79 | 2xx rule applies to status None as well | router.py | test_retryable_error_is_retried_up_to_max_attempts_then_the_same_object_raised[unavailable_no_status] (17) | yes |
+| R80 | max_attempts check >= -> > | router.py | test_retryable_error_is_retried_up_to_max_attempts_then_the_same_object_raised[unavailable] (33) | yes |
+| R81 | max_attempts check one too early | router.py | test_retryable_error_is_retried_up_to_max_attempts_then_the_same_object_raised[unavailable] (33) | yes |
+| R82 | max_attempts check dropped | router.py | test_retryable_error_is_retried_up_to_max_attempts_then_the_same_object_raised[unavailable] (11), then the mutant retried forever and the run was killed at 300 s | yes |
+| R83 | backoff cap dropped | router.py | test_backoff_upper_bound_doubles_and_is_capped_at_max_delay (6) | yes |
+| R84 | backoff min -> max | router.py | test_backoff_upper_bound_doubles_and_is_capped_at_max_delay (16) | yes |
+| R85 | backoff base hard-coded 0.2 | router.py | test_backoff_upper_bound_doubles_and_is_capped_at_max_delay (14) | yes |
+| R86 | backoff cap hard-coded 2.0 | router.py | test_backoff_upper_bound_doubles_and_is_capped_at_max_delay (5) | yes |
+| R87 | backoff doubling -> tripling | router.py | test_backoff_upper_bound_doubles_and_is_capped_at_max_delay (10) | yes |
+| R88 | backoff exponent n instead of n-1 | router.py | test_backoff_upper_bound_doubles_and_is_capped_at_max_delay (12) | yes |
+| R89 | backoff exponent n-2 | router.py | test_backoff_upper_bound_doubles_and_is_capped_at_max_delay (16) | yes |
+| R90 | backoff exponent constant | router.py | test_backoff_upper_bound_doubles_and_is_capped_at_max_delay (9) | yes |
+| R91 | _MAX_EXPONENT 1023 -> 1024 (overflow possible) | router.py | survived; added test_more_attempts_than_a_float_exponent_can_hold_still_gives_the_capped_wait (1) | yes |
+| R92 | _MAX_EXPONENT 1023 -> 10 | router.py | survived; added test_backoff_bound_keeps_doubling_while_it_is_under_max_delay (1) | yes |
+| R93 | no jitter (wait = bound) | router.py | test_backoff_upper_bound_doubles_and_is_capped_at_max_delay (22) | yes |
+| R94 | wait = random() (no bound) | router.py | test_backoff_upper_bound_doubles_and_is_capped_at_max_delay (15) | yes |
+| R95 | wait = (1 - random()) * bound | router.py | test_wait_is_exactly_random_times_the_bound (4) | yes |
+| R96 | wait = bound / 2 | router.py | test_wait_is_exactly_random_times_the_bound (5) | yes |
+| R97 | retry-after cap > -> >= | router.py | test_retry_after_of_exactly_the_5_s_cap_is_retried (2) | yes |
+| R98 | retry-after cap ignored | router.py | test_retry_after_above_the_5_s_cap_is_not_retried[5.000000000000001] (7) | yes |
+| R99 | retry-after cap hard-coded 5.0 | router.py | test_retry_after_cap_comes_from_the_policy[1.5-1] (1) | yes |
+
 ## Agent Mistakes Log
 
 Rows are taken only from what the git history and DECISIONS.md record. Where the history does not say who found a problem, the row says so.
@@ -947,3 +1226,7 @@ Rows are taken only from what the git history and DECISIONS.md record. Where the
 | 2026-11-03 | M8: the tester's mutation harness assumed LF line endings. `src` mixes CRLF (app.py, config.py, errors.py, gemini.py) and LF (main.py, router.py, schema.py) files, so multi-line mutation C06 did not match and the run stopped. | The harness's own exactly-once match check. Nothing had been applied for C06. | The harness matches each file's line endings; the run resumed from C06. |
 | 2026-11-04 | Fix 1: the tester's equivalence checker first classed mutant G37 (`@type` compared case-insensitively) as equivalent, because its random JSON corpus had no casing variants of `@type`. | The tester wrote a case-sensitivity test for G36 and found it also failed under G37. | G37 recorded as caught after a new test; the tester confirmed none of the 7 remaining equivalence verdicts depends on string comparison. |
 | 2026-11-04 | Fix 1: the builder wrote in D-048's risk that logs keep the adapter's message, so a 402 and a bad key can be told apart, and repeated it in the session log; the tester repeated it in three test comments. Nothing logs `ProviderError.message`. The false mitigation was part of the reason for rejecting a separate error class. | Reviewer round 1, BLOCKING 1, by reading `errors.py` and `app.py`. | D-048, the session log and the comments now say nothing logs the message yet; added to D-048's revisit conditions. |
+| 2026-11-04 | M9: the first mutation run was lost to an unclean Windows reboot (Kernel-Power event 41; cause not known). The harness had written no durable results, and it left `router.py` as 12,401 NUL bytes. The tester's later report said `src/` was clean after the reboot; it was clean only because the builder had already restored the file. | The builder checked the tree before resuming and found the file showing as binary in `git diff`. | Restored with `git checkout`; `git fsck` and a scan for other zeroed files came back clean. The harness now checks the tree before each mutation and fsyncs source and results. All mutations re-run from the start. |
+| 2026-11-04 | M9: D-050 excluded `bool` only for `max_attempts`, while the code rejects it for every field. The builder wrote the spec and the code from different assumptions, so nothing pinned it. | Mutant R24 survived, and the tester refused to write a test the spec did not support. | D-050 amended; ten test cases added; R24 caught. |
+| 2026-11-04 | M9: the builder's comment in `router.py` said the timeout error was built outside the except block so nothing is chained. That is not the reason: `__context__` is set on raise, and the error is only returned there. | Mutant R62, shown equivalent by the tester's script. | Comment corrected in ae6a0f6. |
+| 2026-11-04 | M9: the Mode 1 tests missed eight behaviors the spec covers: non-number policy values, whole-number seconds, no router line for bugs, time left from the injected clock, the exponent guard (two mutants), and `retry-after` only on rate limits. | Mutants R15, R21, R25, R53, R58, R91, R92 and R105 survived the first pass. | New tests added; all eight caught on re-run. |
