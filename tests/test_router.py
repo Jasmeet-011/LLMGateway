@@ -241,6 +241,16 @@ def test_unknown_alias_raises_unknown_alias(alias: str) -> None:
         router.select(alias)
 
 
+def test_unknown_alias_message_never_contains_the_alias() -> None:
+    # The alias is client text (D-023, D-045); the error must not carry it.
+    alias = "planted-marker-alias"
+    router = Router({"fast": [_route()]})
+    with pytest.raises(UnknownAlias) as info:
+        router.select(alias)
+    assert alias not in str(info.value)
+    assert alias not in repr(info.value)
+
+
 def test_unknown_alias_is_not_a_provider_error() -> None:
     # It must not be mapped to a provider status by the provider error handler.
     assert not issubclass(UnknownAlias, ProviderError)
@@ -406,6 +416,62 @@ def test_both_types_need_both_keys_and_messages_never_contain_a_key(
     assert missing in message
     assert ANTHROPIC_KEY not in message
     assert GEMINI_KEY not in message
+
+
+GEMINI_AND_CLAUDE = (
+    '[providers.g]\ntype = "gemini"\n\n[providers.c]\ntype = "claude"\n\n[aliases]\n'
+    'a = [{ provider = "g", model = "gemini-3.5-flash-lite" }, '
+    '{ provider = "c", model = "claude-haiku-5-5" }]\n'
+)
+
+
+def _record_http_clients(monkeypatch: pytest.MonkeyPatch) -> list[httpx.AsyncClient]:
+    """Every httpx.AsyncClient created from now on, in creation order."""
+    opened: list[httpx.AsyncClient] = []
+    original_init = httpx.AsyncClient.__init__
+
+    def recording_init(self: httpx.AsyncClient, *args: Any, **kwargs: Any) -> None:
+        opened.append(self)
+        original_init(self, *args, **kwargs)
+
+    monkeypatch.setattr(httpx.AsyncClient, "__init__", recording_init)
+    return opened
+
+
+@pytest.mark.parametrize(
+    ("text", "environ"),
+    [
+        (CLAUDE_AND_GEMINI, {"ANTHROPIC_API_KEY": ANTHROPIC_KEY}),
+        (CLAUDE_AND_GEMINI, {"GEMINI_API_KEY": GEMINI_KEY}),
+        (GEMINI_AND_CLAUDE, {"ANTHROPIC_API_KEY": ANTHROPIC_KEY}),
+        (GEMINI_AND_CLAUDE, {"GEMINI_API_KEY": GEMINI_KEY}),
+    ],
+    ids=[
+        "claude_first_gemini_missing",
+        "claude_first_claude_missing",
+        "gemini_first_gemini_missing",
+        "gemini_first_claude_missing",
+    ],
+)
+def test_missing_key_stops_before_any_http_client_is_opened(
+    monkeypatch: pytest.MonkeyPatch, text: str, environ: dict[str, str]
+) -> None:
+    # D-044: startup stops before any adapter is built, so nothing is left open.
+    config = parse_config(text)
+    opened = _record_http_clients(monkeypatch)
+    with pytest.raises(ConfigError):
+        build_router(config, environ)
+    assert opened == []
+
+
+@pytest.mark.asyncio
+async def test_each_real_instance_opens_one_http_client(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Shows the recorder above sees the adapters' clients, so its empty list means something.
+    config = parse_config(CLAUDE_AND_GEMINI)
+    opened = _record_http_clients(monkeypatch)
+    router = build_router(config, BOTH_KEYS)
+    assert len(opened) == 2
+    await router.aclose()
 
 
 @pytest.mark.asyncio

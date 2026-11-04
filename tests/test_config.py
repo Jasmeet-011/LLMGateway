@@ -14,6 +14,7 @@ table that holds it, since either is a reasonable report.
 
 import json
 import re
+import traceback
 from pathlib import Path
 
 import pytest
@@ -678,6 +679,80 @@ def test_invalid_toml_text_is_a_config_error() -> None:
     assert MARKER not in message
 
 
+# Names that break the rules are file text too, so they are never printed.
+
+SECRET_NAME = f"sk-ant {MARKER}"  # The space makes it an invalid name.
+
+
+@pytest.mark.parametrize(
+    ("text", "location"),
+    [
+        (
+            f'[providers.{_q(SECRET_NAME)}]\ntype = "mock"\n\n'
+            f'[aliases]\na = [{{ provider = {_q(SECRET_NAME)}, model = "x" }}]\n',
+            "providers",
+        ),
+        (
+            f'[providers.{_q(MARKER + "x" * 129)}]\ntype = "mock"\n\n'
+            f'[aliases]\na = [{{ provider = {_q(MARKER + "x" * 129)}, model = "x" }}]\n',
+            "providers",
+        ),
+        (_aliases(f'{_q(SECRET_NAME)} = [{{ provider = "m", model = "x" }}]'), "aliases"),
+        # A top-level key has no enclosing table to name.
+        (f"{_q(SECRET_NAME)} = 1\n" + _aliases(ALIAS_A), None),
+        (_mock_with(f"{_q(SECRET_NAME)} = 1"), "providers.m"),
+        (
+            _aliases(f'a = [{{ provider = "m", model = "x", {_q(SECRET_NAME)} = 1 }}]'),
+            "aliases.a[0]",
+        ),
+    ],
+    ids=[
+        "provider_name",
+        "long_provider_name",
+        "alias_name",
+        "top_level_key",
+        "key_in_a_provider_table",
+        "key_in_an_alias_entry",
+    ],
+)
+def test_invalid_name_or_key_from_the_file_is_never_printed(
+    text: str, location: str | None
+) -> None:
+    message = _error(text)
+    if location is not None:
+        assert location in message
+    assert MARKER not in message
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        # tomllib's own message for these quotes the key.
+        f'[providers.{_q(MARKER)}]\ntype = "mock"\n\n[providers.{_q(MARKER)}]\ntype = "mock"\n',
+        _mock_with("") + f"b = [{{ {_q(MARKER)} = 1, {_q(MARKER)} = 2 }}]\n",
+    ],
+    ids=["table_declared_twice", "inline_key_twice"],
+)
+def test_invalid_toml_message_never_quotes_the_file(text: str) -> None:
+    assert MARKER not in _error(text)
+
+
+def test_invalid_toml_message_names_the_line() -> None:
+    # The position is the only location a syntax error has.
+    message = _error('[providers.m]\ntype = "mock\n')
+    assert re.search(r"\bline 2\b", message), message
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["1", "1.5", "true", '"type"', '["type"]', "2020-01-01"],
+    ids=["integer", "float", "boolean", "string_type", "array_with_type", "date"],
+)
+def test_provider_value_of_any_other_type_stops(value: str) -> None:
+    text = f"[providers]\nm = {value}\n\n[aliases]\n{ALIAS_A}\n"
+    assert "providers.m" in _error(text)
+
+
 # load_config: the environment
 
 
@@ -701,12 +776,46 @@ def test_blank_llmgateway_config_stops(value: str) -> None:
     assert "LLMGATEWAY_CONFIG" in _load_error({"LLMGATEWAY_CONFIG": value})
 
 
+@pytest.mark.parametrize("value", [" ", "\t", "\n", "  \r\n "])
+def test_blank_llmgateway_config_reports_its_own_rule_not_an_unreadable_file(
+    tmp_path: Path, value: str
+) -> None:
+    # A blank value and a missing file break different rules, so the messages differ.
+    unreadable = _load_error({"LLMGATEWAY_CONFIG": str(tmp_path / "missing.toml")})
+    assert _load_error({"LLMGATEWAY_CONFIG": value}) != unreadable
+
+
 def test_missing_config_file_stops_without_the_path(tmp_path: Path) -> None:
     path = tmp_path / MARKER / "missing.toml"
     message = _load_error({"LLMGATEWAY_CONFIG": str(path)})
     assert "LLMGATEWAY_CONFIG" in message
     assert MARKER not in message
     assert str(path) not in message
+
+
+def _printed(error: BaseException) -> str:
+    """The error as a traceback print or `logger.exception` would show it."""
+    return "".join(traceback.format_exception(error))
+
+
+def test_config_error_traceback_never_shows_the_path_or_file_text(tmp_path: Path) -> None:
+    # A ConfigError logged with its traceback must not reveal, through a chained
+    # exception, what its message leaves out (D-044: console and CI logs).
+    errors: list[ConfigError] = []
+    missing = tmp_path / MARKER / "missing.toml"
+    with pytest.raises(ConfigError) as unreadable:
+        load_config({"LLMGATEWAY_CONFIG": str(missing)})
+    errors.append(unreadable.value)
+    for text in (
+        f'[providers.{_q(MARKER)}]\ntype = "mock"\n\n[providers.{_q(MARKER)}]\ntype = "mock"\n',
+        _mock_with(f"failure_type = {_q(MARKER)}"),
+        _mock_with(f"api_key = {_q(MARKER)}"),
+    ):
+        with pytest.raises(ConfigError) as invalid:
+            parse_config(text)
+        errors.append(invalid.value)
+    for error in errors:
+        assert MARKER not in _printed(error)
 
 
 def test_directory_as_config_path_stops_without_the_path(tmp_path: Path) -> None:
