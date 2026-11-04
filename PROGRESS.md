@@ -10,7 +10,9 @@ M1 to M6 are done: the unified schema, the adapter interface and error taxonomy,
 - The router uses each alias's first entry.
 - `LLMGATEWAY_PROVIDER` is no longer read; if it is set, startup stops.
 
-The next milestone is **M9 Router timeouts and retries**.
+M9 is done: the router retries retryable failures with full-jitter backoff, honors `retry-after` up to 5 s, applies a per-attempt timeout and a total deadline, does not retry a billed 2xx, and logs every failed attempt with the provider status and a fixed reason.
+
+The next milestone is **M10 Circuit breaker**.
 
 Open items: the owner reran the five live tests on 2026-11-04 after the Gemini fixes (D-048, D-049): 5 passed. Every checkout is now LF (`.gitattributes`).
 
@@ -26,7 +28,7 @@ Open items: the owner reran the five live tests on 2026-11-04 after the Gemini f
 | [x] | M6 Claude adapter | Merged in PR #9 (merge commit 8b833cc): `providers/claude.py`, `tests/test_claude_adapter.py`, provider selection in `main.py` (D-032 to D-037). FLOW.md recorded all five checks passing at 8d618a9 with 204 tests. Reproduced 2026-11-03 at 8b833cc: `uv sync --locked` ok; `uv run pytest`: 204 passed; `ruff check`: all checks passed; `ruff format --check`: 19 files already formatted; `mypy`: no issues in 13 source files. Mutation checks of the error mapping: session log, 2026-11-03. The 7 "DRAFT: owner review required" markers on its error-mapping tests were removed in the reset (c1f844a) under the new mutation-check rule, after those checks. The owner did not review those tests. Live test written, not yet run by the owner. |
 | [x] | M7 Gemini adapter | On `main` in 4d274c7, b82a9a7, fcab3b3, caca122 and the commit that carries the M7 session log's final entry: `providers/gemini.py`, `tests/test_gemini_adapter.py`, `tests/test_live_gemini.py`, Gemini rows in FLOW.md section 13 (D-039 to D-043). `.\scripts\check.ps1` PASS on 2026-11-03: `uv sync --locked` ok (31 packages); `uv run pytest`: 487 passed, 3 deselected; `ruff check`: all checks passed; `ruff format --check`: 26 files already formatted; `mypy`: no issues in 18 source files. Mutation checks: 177 mutations in two runs, all non-equivalent ones caught, 15 equivalent (session log). Reviewer: FAIL, then PASS in round 2. Windows 11 Home Single Language 10.0.26300, Python 3.12.12. The two live Gemini tests are written, not yet run by the owner. |
 | [x] | M8 Model aliases and router selection | On `main` in 1c2e7ed, c7a1597 and the commit that carries the M8 session log's final entry:<br>- code: `config.py` and `router.py`, with changes to `app.py`, `main.py` and `providers/gemini.py`;<br>- config: `config/providers.toml` and `config/mock-fallback.toml`;<br>- tests: `tests/test_config.py`, `tests/test_router.py`, `tests/test_main.py` and `tests/test_live_aliases.py`;<br>- docs: FLOW.md sections 4, 5, 8, 10, 11 and 13 (D-044 to D-047).<br>`.\scripts\check.ps1` PASS on 2026-11-03: `uv sync --locked` ok (31 packages); `uv run pytest`: 863 passed, 5 deselected; `ruff check`: all checks passed; `ruff format --check`: 32 files already formatted; `mypy`: no issues in 24 source files. Mutation checks: 105 mutations, all non-equivalent ones caught (13 only after a new test), 3 equivalent (session log). Reviewer: PASS in round 1. Windows 11 Home Single Language 10.0.26300, Python 3.12.12. The two live alias tests are written, not yet run by the owner. |
-| [ ] | M9 Router timeouts and retries | |
+| [x] | M9 Router timeouts and retries | On `main` in 3a40c97 (spec), d55ea21 (tests), 8f61c69 (implementation), 3ccf5b5, ae6a0f6, 167a6dc, 39c9a39 and the commits that carry the M9 session log's final entries:<br>- code: `router.py`, `providers/base.py`, `claude.py`, `gemini.py`, `mock.py`, `app.py`;<br>- tests: `tests/test_retries.py`, `tests/test_provider_errors.py`, and additions to the adapter, mock, router, app and main test files;<br>- docs: FLOW.md sections 5, 8, 10, 11 and 13 (D-050 to D-054).<br>`.\scripts\check.ps1` PASS on 2026-11-04: `uv sync --locked` ok; `uv run pytest`: 1293 passed, 5 deselected; `ruff check`: all checks passed; `ruff format --check`: 34 files already formatted; `mypy`: no issues in 26 source files. Tests seen failing before any `src/` change: 198 failed, 2 collection errors (session log). Mutation checks: 277 mutations, all non-equivalent ones caught (10 only after a new test or a separate run), 5 equivalent. Windows 11 Home Single Language 10.0.26300, Python 3.12.12. No live test was added or run for M9. |
 | [ ] | M10 Circuit breaker | |
 | [ ] | M11 Provider fallback and fault injection | |
 | [ ] | M12 Normalized SSE streaming | |
@@ -938,6 +940,10 @@ Tests added in Mode 2, all additive, all in `tests/test_retries.py`: `test_retry
 
 R24 (`_is_number` accepts `bool`) survived because D-050 excluded `bool` only for `max_attempts`, so a test would have pinned the implementation, not the spec. The builder decided: D-050 now says a number is an `int` or `float`, never a `bool`, as for mock settings (D-044), and the tester added the cases. `attempt_timeout` and `total_timeout` with `False` do not guard the check, because `False` equals 0 and `> 0` rejects it anyway; their `True` cases do. R62 also showed a `router.py` comment gave the wrong reason nothing is chained; corrected.
 
+**Cancellation mutations (tester, Mode 2, after review round 1).** At 39c9a39, same harness: 15 mutations (R145 to R159), all in `router.py`, all caught on the first pass by the four new tests, 13 of them only by those tests. R150 needs the outside-cancel test and R157 the cancel-on-a-retry test, so neither is redundant. These tests passed on the unchanged source when written, so these mutations are the evidence that they can fail. Rows are at the end of the table below.
+
+**Totals for M9.** 277 mutations in 293 recorded runs, none left unreverted (builder's recount of `m9_results.jsonl`): 262 caught on the first pass, 1 caught only when re-run alone, 9 caught after a new test, 5 equivalent. 262 + 1 + 9 + 5 = 277.
+
 | # | Mutation | File | Test that failed (n) | Reverted |
 | --- | --- | --- | --- | --- |
 | A01 | request_id not passed to the router | app.py | test_app_retries_a_retryable_failure_and_returns_200 (3) | yes |
@@ -1202,6 +1208,42 @@ R24 (`_is_number` accepts `bool`) survived because D-050 excluded `bool` only fo
 | R97 | retry-after cap > -> >= | router.py | test_retry_after_of_exactly_the_5_s_cap_is_retried (2) | yes |
 | R98 | retry-after cap ignored | router.py | test_retry_after_above_the_5_s_cap_is_not_retried[5.000000000000001] (7) | yes |
 | R99 | retry-after cap hard-coded 5.0 | router.py | test_retry_after_cap_comes_from_the_policy[1.5-1] (1) | yes |
+| R145 | except ProviderError widened to except BaseException in _attempt | router.py | test_cancel_during_an_attempt_propagates_with_no_retry_and_no_router_line (21) | yes |
+| R146 | CancelledError in an attempt becomes a retried attempt_timeout | router.py | test_cancel_during_an_attempt_propagates_with_no_retry_and_no_router_line (3) | yes |
+| R147 | CancelledError in an attempt returns a non-retryable failure | router.py | test_cancel_during_an_attempt_propagates_with_no_retry_and_no_router_line (3) | yes |
+| R148 | CancelledError in an attempt returns a retryable failure | router.py | test_cancel_during_an_attempt_propagates_with_no_retry_and_no_router_line (3) | yes |
+| R149 | CancelledError in an attempt raised as ProviderTimeout, no log | router.py | test_cancel_during_an_attempt_propagates_with_no_retry_and_no_router_line (3) | yes |
+| R150 | CancelledError after an expired timeout turned into attempt_timeout | router.py | test_cancel_from_outside_after_the_attempt_timeout_fired_stays_a_cancel (1) | yes |
+| R151 | cancel during backoff swallowed, loop continues | router.py | test_cancel_during_the_backoff_wait_propagates_with_no_further_attempt (1) | yes |
+| R152 | cancel during backoff raises the last failure instead | router.py | test_cancel_during_the_backoff_wait_propagates_with_no_further_attempt (1) | yes |
+| R153 | cancel during an attempt writes an attempt_failed line | router.py | test_cancel_during_an_attempt_propagates_with_no_retry_and_no_router_line (3) | yes |
+| R154 | cancel during backoff writes an attempt_failed line | router.py | test_cancel_during_the_backoff_wait_propagates_with_no_further_attempt (1) | yes |
+| R155 | cancel during an attempt writes some other router line | router.py | test_cancel_during_an_attempt_propagates_with_no_retry_and_no_router_line (3) | yes |
+| R156 | cancel during backoff writes some other router line | router.py | test_cancel_during_the_backoff_wait_propagates_with_no_further_attempt (1) | yes |
+| R157 | cancel on a retry (not the first attempt) raises the last failure | router.py | test_cancel_during_a_retry_keeps_only_the_line_of_the_attempt_that_failed (1) | yes |
+| R158 | adapter shielded, so a cancel never reaches the attempt | router.py | test_cancel_during_an_attempt_propagates_with_no_retry_and_no_router_line (5) | yes |
+| R159 | backoff wait shielded, so a cancel never reaches the sleep | router.py | test_cancel_during_the_backoff_wait_propagates_with_no_further_attempt (1) | yes |
+
+**Review.** Round 1: **PASS**, no BLOCKING items. check.ps1 PASS for the reviewer (1289 passed, 5 deselected). It recounted the mutation table from the raw results, agreed with the five equivalence claims, found no assertion loosened, and matched the red run against the saved output. `schema.py`, `pyproject.toml` and `uv.lock` unchanged.
+- SHOULD FIX, all fixed:
+  1. Cancellation had no spec and no test, so a regression such as `except BaseException` would have passed everything. D-050 and FLOW.md section 5 now state it. The tester added four tests, including an outside cancel after the attempt timeout has fired, where `expired()` is true and the result must stay `CancelledError`.
+  2. A client disconnect does not stop the retries. The builder read `h11_impl.py` to confirm it (not run): `connection_lost` only sets a flag, and httptools is not installed. Recorded in D-050 (Risk, Alternatives, Revisit) and FLOW.md section 5, not changed in M9.
+  3. D-052 overstated its protection: a connection lost or a read timeout partway through a 2xx body has no status, so it is retried and can bill twice. The text now says the rule removes only the double billing the gateway can see.
+  4. FLOW.md's glossary contradicted full jitter; rewritten.
+  5. D-043 had no pointer to D-052; added, with the consequence that a 401 or 429 with an undecodable body is now tried three times and loses its `retry-after`. D-026 gained a pointer to D-054 (note 6).
+- Notes, handled here:
+  - Test-first evidence: d55ea21 and 8f61c69 carry the same second, because both were committed after the implementation existed. The commit times do not show the order. The evidence is the saved red run, which the reviewer checked.
+  - The tester sanity-checked its Mode 1 arithmetic against a throwaway reference in the scratchpad (`ref_plugin.py`, patched in memory, never in the repo). It found one bug in a test. Nothing under `src/` changed for it.
+  - The stale "Assumption" comment in `tests/test_retries.py` is corrected.
+- Notes, left: `reason` is a plain `str`, so D-054's list is a convention (every raise site is a literal today; a `Literal` type would let mypy enforce it). `RetryPolicy(base_delay=10**400)` raises `OverflowError`, not `ValueError`.
+
+**Schema changes.** None. `ProviderError` gained `status` and `reason` (D-054), which is the adapter interface, not `schema.py`.
+
+**Final checks.** `.\scripts\check.ps1`: PASS. `uv sync --locked` ok; pytest 1293 passed, 5 deselected; `ruff check` all checks passed; `ruff format --check` 34 files already formatted; mypy no issues in 26 source files. `uv run pytest -m live --collect-only` is unchanged in scope. No dependency changed. Windows 11 Home Single Language 10.0.26300, Python 3.12.12.
+
+**Needs owner.**
+- Optional: rerun `uv run --env-file .env pytest -m live -v`. The 5-passed rerun predates M9's router and adapter changes. A passing run should cost the same as before, but a transient 5xx or a 429 can now make up to 3 real calls per request.
+- A client that disconnects does not stop the retries (D-050); M15 or M12 may need to act on it.
 
 ## Agent Mistakes Log
 
