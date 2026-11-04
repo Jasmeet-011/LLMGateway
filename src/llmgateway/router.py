@@ -197,7 +197,8 @@ class Router:
             # is a bug and propagates unchanged.
             if not timeout.expired():
                 raise
-        # Built here, not in the except block, so the TimeoutError is not chained.
+        # Returned, not raised: `complete` raises it outside any except block, so the
+        # TimeoutError is not chained onto it.
         return ProviderTimeout("router: attempt timed out", reason="attempt_timeout")
 
     def _retry_wait(self, error: ProviderError, attempt: int, deadline: float) -> float | None:
