@@ -11,8 +11,8 @@ Exact-delay tests use dyadic values (0.25, 0.5, ...) so that any correct way of
 computing `random() * min(max_delay, base_delay * 2 ** (n - 1))` gives the same
 float, and the tests can compare with `==`.
 
-Assumption (reported to the builder): the router calls its sleep exactly once
-between two attempts, with the computed wait, even when that wait is 0.
+D-050: the router calls its sleep exactly once between two attempts, with the
+computed wait, even when that wait is 0.
 """
 
 import asyncio
@@ -32,6 +32,7 @@ from llmgateway.app import create_app
 from llmgateway.config import parse_config
 from llmgateway.errors import ErrorBody
 from llmgateway.providers.base import (
+    ProviderAdapter,
     ProviderAuthError,
     ProviderBadRequest,
     ProviderError,
@@ -169,6 +170,84 @@ class HangingAdapter:
                 self.cancelled += 1
                 raise
         return RESULT
+
+
+class HangOnceAdapter:
+    """Raises `failures` in order, then hangs until cancelled; later calls answer RESULT.
+
+    Later calls answer so that a router that swallows the cancel ends with a result
+    and fails the test, instead of hanging on the next attempt.
+    """
+
+    def __init__(self, *failures: ProviderError) -> None:
+        self.failures = failures
+        self.requests: list[ChatRequest] = []
+        self.hanging = asyncio.Event()
+        self.cancelled = 0
+
+    @property
+    def name(self) -> Provider:
+        return "mock"
+
+    async def complete(self, request: ChatRequest) -> ProviderResult:
+        self.requests.append(request)
+        call = len(self.requests)
+        if call <= len(self.failures):
+            raise self.failures[call - 1]
+        if call == len(self.failures) + 1:
+            self.hanging.set()
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                self.cancelled += 1
+                raise
+        return RESULT
+
+
+class SlowCleanupAdapter:
+    """Hangs; the first cancel starts a cleanup that only a second cancel ends.
+
+    The test cancels only after `cleaning_up` is set, so the order of the two cancels
+    is fixed whatever the timers do. Later calls answer RESULT.
+    """
+
+    def __init__(self) -> None:
+        self.requests: list[ChatRequest] = []
+        self.cleaning_up = asyncio.Event()
+
+    @property
+    def name(self) -> Provider:
+        return "mock"
+
+    async def complete(self, request: ChatRequest) -> ProviderResult:
+        self.requests.append(request)
+        if len(self.requests) == 1:
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                self.cleaning_up.set()
+                await asyncio.Event().wait()
+        return RESULT
+
+
+class BlockingSleep:
+    """Records every wait; wait number `block_on` blocks until cancelled, others return."""
+
+    def __init__(self, block_on: int = 1) -> None:
+        self.block_on = block_on
+        self.calls: list[float] = []
+        self.waiting = asyncio.Event()
+        self.cancelled = 0
+
+    async def __call__(self, seconds: float) -> None:
+        self.calls.append(seconds)
+        if len(self.calls) == self.block_on:
+            self.waiting.set()
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                self.cancelled += 1
+                raise
 
 
 def _request(**overrides: Any) -> ChatRequest:
@@ -1052,6 +1131,114 @@ async def test_time_left_for_an_attempt_is_read_from_the_injected_clock() -> Non
         with pytest.raises(ProviderTimeout) as info:
             await router.complete(route, _request())
     assert info.value.reason == "attempt_timeout"
+
+
+# Cancellation (D-050, FLOW.md section 5): not a failure, so no retry and no router line
+
+
+def _cancel_setup(
+    adapter: ProviderAdapter,
+    policy: RetryPolicy = DYADIC,
+    sleep: BlockingSleep | None = None,
+) -> tuple[Router, Route, BlockingSleep]:
+    sleep = sleep if sleep is not None else BlockingSleep()
+    route = Route(provider=INSTANCE, model=MODEL, adapter=adapter)
+    router = Router(
+        {ALIAS: [route]},
+        policy=policy,
+        sleep=sleep,
+        clock=FakeClock(),
+        random=SequenceRandom(0.5),
+    )
+    return router, route, sleep
+
+
+async def _reached(event: asyncio.Event) -> None:
+    async with asyncio.timeout(GUARD_SECONDS):
+        await event.wait()
+
+
+async def _cancel_and_expect_cancelled(task: asyncio.Task[ProviderResult]) -> None:
+    # asyncio.wait, not `await task`: a router that swallows the cancel has to fail
+    # this test, and awaiting it would hand it the guard's cancel to swallow as well.
+    task.cancel()
+    await asyncio.wait({task}, timeout=GUARD_SECONDS)
+    assert task.done()
+    with pytest.raises(asyncio.CancelledError):
+        task.result()
+
+
+def _router_lines(caplog: pytest.LogCaptureFixture) -> list[str]:
+    return [r.getMessage() for r in caplog.records if r.name == "llmgateway.router"]
+
+
+@pytest.mark.asyncio
+async def test_cancel_during_an_attempt_propagates_with_no_retry_and_no_router_line(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # The attempt timeout is armed here and has not fired: it must not claim the cancel.
+    caplog.set_level(logging.DEBUG)
+    adapter = HangOnceAdapter()
+    router, route, sleep = _cancel_setup(adapter)
+    task = asyncio.create_task(router.complete(route, _request()))
+    await _reached(adapter.hanging)
+    await _cancel_and_expect_cancelled(task)
+    assert adapter.cancelled == 1
+    assert len(adapter.requests) == 1
+    assert sleep.calls == []
+    assert _router_lines(caplog) == []
+
+
+@pytest.mark.asyncio
+async def test_cancel_during_a_retry_keeps_only_the_line_of_the_attempt_that_failed(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.DEBUG)
+    adapter = HangOnceAdapter(_unavailable())
+    # The backoff wait returns at once here; only a second wait would block.
+    router, route, sleep = _cancel_setup(adapter, sleep=BlockingSleep(block_on=2))
+    task = asyncio.create_task(router.complete(route, _request()))
+    await _reached(adapter.hanging)
+    await _cancel_and_expect_cancelled(task)
+    assert adapter.cancelled == 1
+    assert len(adapter.requests) == 2
+    assert sleep.calls == [0.125]
+    assert _router_lines(caplog) == [_line(1, 503, "http_status", "ProviderUnavailable", "yes")]
+
+
+@pytest.mark.asyncio
+async def test_cancel_during_the_backoff_wait_propagates_with_no_further_attempt(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.DEBUG)
+    adapter = ScriptedAdapter(_unavailable(), RESULT)
+    router, route, sleep = _cancel_setup(adapter)
+    task = asyncio.create_task(router.complete(route, _request()))
+    await _reached(sleep.waiting)
+    await _cancel_and_expect_cancelled(task)
+    assert sleep.cancelled == 1
+    assert sleep.calls == [0.125]
+    assert len(adapter.requests) == 1
+    assert _router_lines(caplog) == [_line(1, 503, "http_status", "ProviderUnavailable", "yes")]
+
+
+@pytest.mark.asyncio
+async def test_cancel_from_outside_after_the_attempt_timeout_fired_stays_a_cancel(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # The timeout has fired (only it can have started the cleanup) and the adapter is
+    # still unwinding when the outside cancel lands. The timeout counts as expired, but
+    # the task was cancelled by someone else too, so this is not an attempt timeout.
+    caplog.set_level(logging.DEBUG)
+    adapter = SlowCleanupAdapter()
+    policy = RetryPolicy(max_attempts=3, attempt_timeout=TINY_TIMEOUT)
+    router, route, sleep = _cancel_setup(adapter, policy)
+    task = asyncio.create_task(router.complete(route, _request()))
+    await _reached(adapter.cleaning_up)
+    await _cancel_and_expect_cancelled(task)
+    assert len(adapter.requests) == 1
+    assert sleep.calls == []
+    assert _router_lines(caplog) == []
 
 
 # The attempt_failed log line (D-054)
