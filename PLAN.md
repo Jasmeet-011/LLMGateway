@@ -63,7 +63,7 @@ Worked in order. Status and evidence are in [PROGRESS.md](PROGRESS.md); this fil
 - **Scope:** fallback down the alias list (D-010) for non-streaming requests; streams get the pre-first-byte rule in M12. Per-provider fault injection switched by an environment variable, off by default.
 - **Proof:** inject failures on one provider and the other serves; the response says which provider served; with one mock at 100% failure, every request is served by the other.
 - **Dependencies allowed:** none.
-- **Open issues to settle:** whether non-retryable errors fall back (FLOW.md section 5, D-033); the fault-injection variables and how they are kept out of production, and whether they are still needed beyond the per-instance mock settings in the config (D-044); how the response says which provider served when two entries share a type, such as two mocks (D-045 reports the provider model and type only); how measurement 8's outage window (100% failure for a fixed time mid-run) is injected, since the mock's failure rate is fixed (D-016).
+- **Open issues to settle:** whether non-retryable errors fall back (FLOW.md section 5, D-033); the fault-injection variables and how they are kept out of production, and whether they are still needed beyond the per-instance mock settings in the config (D-044); how the response says which provider served when two entries share a type, such as two mocks (D-045 reports the provider model and type only); how measurement 8's outage window (100% failure for a fixed time mid-run) is injected, since the mock's failure rate is fixed (D-016); D-049 treats a 200 with empty content and finish reason `max_tokens` as a success that does not fall back, to be confirmed or revisited here; whether auth errors, which now include 402 and a Gemini invalid key (D-048), fall back.
 
 ### M12 Normalized SSE streaming
 
@@ -91,7 +91,7 @@ Worked in order. Status and evidence are in [PROGRESS.md](PROGRESS.md); this fil
 - **Scope:** usage and cost recorded per request, per key and tenant.
 - **Proof:** usage rows for success and failure paths.
 - **Dependencies allowed:** none new.
-- **Open issues to settle:** where usage rows live (FLOW.md section 9); where prices come from and their units; whether failed attempts are costed (D-035); how mock word counts are labeled (D-016).
+- **Open issues to settle:** where usage rows live (FLOW.md section 9); where prices come from and their units; whether failed attempts are costed (D-035); how mock word counts are labeled (D-016); `output_tokens` can exceed `max_tokens` on thinking models and includes thinking tokens, so usage is recorded as reported and never capped at `max_tokens` (D-049).
 
 ### M16 Redis Lua token-bucket rate limiter
 

@@ -23,6 +23,11 @@ Key design choices:
   Gemini's documented limit, are rejected before any network call too.
 - `temperature` and `top_p` are passed through when set (D-040). Google documents
   that Gemini 3.6 Flash and newer ignore them.
+- Every request asks for `thinkingLevel` `MINIMAL` (D-049). `gemini-3.6-flash`
+  defaults to medium thinking, which spent a whole 256-token `max_tokens` before
+  writing any text. `max_tokens` is sent unchanged, and `output_tokens`, which
+  includes thinking, is reported as Google sends it even above `max_tokens`. An
+  empty answer with finish reason `max_tokens` is a success, not an error.
 - Error mapping by HTTP status, as for Claude (D-041): 401, 402 (billing) and 403
   are auth errors; 429 is a rate limit with `retry-after` when numeric; 5xx
   (including 504 `deadline_exceeded`) and connection errors are unavailable;
@@ -69,6 +74,8 @@ from llmgateway.schema import ChatRequest, FinishReason, Provider, Role, Usage
 API_BASE: Final = "https://generativelanguage.googleapis.com/v1beta/models"
 DEFAULT_TIMEOUT: Final = httpx.Timeout(connect=5.0, read=60.0, write=10.0, pool=5.0)
 MAX_STOP_SEQUENCES: Final = 5
+# The lowest ThinkingLevel; both configured Gemini models accept it (D-049).
+THINKING_LEVEL: Final = "MINIMAL"
 
 # No "/", "?", "#", "%" or ":", so the model cannot change the request path (D-042).
 # Public because config validation applies it at startup too (D-046).
@@ -176,7 +183,12 @@ def _status_error(response: httpx.Response) -> ProviderError:
 
 
 def _request_body(request: ChatRequest) -> dict[str, Any]:
-    config: dict[str, Any] = {"maxOutputTokens": request.max_tokens}
+    # max_tokens is passed unchanged, with no thinking allowance; on thinking
+    # models it covers thinking too, so the lowest level leaves it for text (D-049).
+    config: dict[str, Any] = {
+        "maxOutputTokens": request.max_tokens,
+        "thinkingConfig": {"thinkingLevel": THINKING_LEVEL},
+    }
     if request.stop is not None:
         config["stopSequences"] = list(request.stop)
     if request.temperature is not None:

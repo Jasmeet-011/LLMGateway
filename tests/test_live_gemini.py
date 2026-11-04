@@ -55,8 +55,11 @@ async def _post_through_app(environ: Mapping[str, str], max_tokens: int) -> http
 )
 @pytest.mark.asyncio
 async def test_real_gemini_request_through_app() -> None:
-    # 256 rather than 32: if the model spends output tokens on thinking, a small
-    # budget could end with MAX_TOKENS and no text (unverified for this model).
+    # 256 rather than 32: on a Gemini thinking model max_tokens covers thinking and
+    # text together. The adapter asks for minimal thinking (D-049), which is not
+    # none, so a small budget can still end with MAX_TOKENS and no text. At 256 with
+    # no thinkingConfig, gemini-3.6-flash came back empty (D-049); keep 256 and the
+    # non-empty content assertion, so this test shows whether minimal thinking fixes it.
     response = await _post_through_app(os.environ, max_tokens=256)
     assert response.status_code == 200
     chat = ChatResponse.model_validate(response.json())

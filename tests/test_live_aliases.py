@@ -72,7 +72,8 @@ async def test_gemini_model_in_providers_toml_answers(
             json={
                 "model": "live",
                 # 256 as in test_live_gemini.py: a thinking model may spend a small
-                # budget before it writes any text.
+                # budget before it writes any text. The adapter asks for minimal
+                # thinking (D-049); keep 256 and the non-empty content assertion.
                 "max_tokens": 256,
                 "messages": [{"role": "user", "content": "Say hello in five words."}],
             },

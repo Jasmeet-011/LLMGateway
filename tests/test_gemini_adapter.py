@@ -27,6 +27,9 @@ API_KEY = "gemini-test-key-marker"
 PROMPT_MARKER = "secret-prompt-text"
 PROVIDER_TEXT = "provider-error-text-marker"
 MODEL = "gemini-3.5-flash-lite"
+# The thinking setting every Gemini request carries (D-049). Compared as an exact
+# dict, so includeThoughts or thinkingBudget alongside it fails the comparison.
+MINIMAL_THINKING = {"thinkingLevel": "MINIMAL"}
 
 Handler = Callable[[httpx.Request], httpx.Response]
 
@@ -201,10 +204,11 @@ async def test_minimal_request_translation() -> None:
     recorder = Recorder()
     async with _gemini(recorder) as adapter:
         await adapter.complete(_request())
-    # Optional fields are left out entirely, not sent as null.
+    # Optional fields are left out entirely, not sent as null. thinkingConfig is
+    # on every request (D-049).
     assert recorder.body == {
         "contents": [{"role": "user", "parts": [{"text": PROMPT_MARKER}]}],
-        "generationConfig": {"maxOutputTokens": 32},
+        "generationConfig": {"maxOutputTokens": 32, "thinkingConfig": MINIMAL_THINKING},
     }
 
 
@@ -233,7 +237,7 @@ async def test_system_instruction_translation() -> None:
     assert recorder.body == {
         "contents": [{"role": "user", "parts": [{"text": PROMPT_MARKER}]}],
         "systemInstruction": {"parts": [{"text": "be brief"}]},
-        "generationConfig": {"maxOutputTokens": 32},
+        "generationConfig": {"maxOutputTokens": 32, "thinkingConfig": MINIMAL_THINKING},
     }
 
 
@@ -245,6 +249,7 @@ async def test_stop_temperature_and_top_p_sent_when_set() -> None:
         await adapter.complete(request)
     assert recorder.body["generationConfig"] == {
         "maxOutputTokens": 64,
+        "thinkingConfig": MINIMAL_THINKING,
         "stopSequences": ["END", "STOP"],
         "temperature": 0.5,
         "topP": 0.9,
@@ -296,6 +301,89 @@ async def test_five_stop_sequences_sent() -> None:
     async with _gemini(recorder) as adapter:
         await adapter.complete(_request(stop=stops))
     assert recorder.body["generationConfig"]["stopSequences"] == stops
+
+
+# Minimal thinking on every request; max_tokens sent unchanged (D-049, FLOW.md 13)
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {},
+        {"system": "be brief"},
+        {"stop": ["END"], "temperature": 0.2, "top_p": 0.5},
+        {"stop": [], "temperature": 0, "top_p": 0},
+        {
+            "messages": [
+                {"role": "user", "content": "first"},
+                {"role": "assistant", "content": "second"},
+                {"role": "user", "content": "third"},
+            ],
+            "system": "be brief",
+        },
+        {"max_tokens": 1},
+        {"max_tokens": 256},
+        {"max_tokens": 65536},
+        {"max_tokens": 1_000_000},
+    ],
+    ids=[
+        "minimal",
+        "system",
+        "stop_temperature_top_p",
+        "empty_stop_zero_sampling",
+        "multi_turn_with_system",
+        "max_tokens_1",
+        "max_tokens_256",
+        "max_tokens_65536",
+        "max_tokens_1000000",
+    ],
+)
+@pytest.mark.asyncio
+async def test_every_request_asks_for_minimal_thinking_and_sends_max_tokens_unchanged(
+    overrides: dict[str, Any],
+) -> None:
+    recorder = Recorder()
+    request = _request(**overrides)
+    async with _gemini(recorder) as adapter:
+        await adapter.complete(request)
+    body = recorder.body
+    config = body["generationConfig"]
+    # The client's limit as is: no thinking allowance added, nothing clamped.
+    assert config["maxOutputTokens"] == request.max_tokens
+    assert type(config["maxOutputTokens"]) is int
+    # Exact dict: thinkingLevel MINIMAL only, never includeThoughts or thinkingBudget.
+    assert config["thinkingConfig"] == {"thinkingLevel": "MINIMAL"}
+    # thinkingConfig belongs inside generationConfig, not at the top level.
+    assert set(body) <= {"contents", "systemInstruction", "generationConfig"}
+
+
+@pytest.mark.asyncio
+async def test_thinking_config_is_the_same_on_every_call_of_one_adapter() -> None:
+    # A constant, not something that drifts with state kept across calls.
+    recorder = Recorder()
+    async with _gemini(recorder) as adapter:
+        await adapter.complete(_request(max_tokens=1))
+        await adapter.complete(_request(max_tokens=4096, system="s"))
+        await adapter.complete(_request())
+    assert len(recorder.requests) == 3
+    configs = [json.loads(r.content)["generationConfig"] for r in recorder.requests]
+    assert [config["maxOutputTokens"] for config in configs] == [1, 4096, 32]
+    for config in configs:
+        assert config["thinkingConfig"] == {"thinkingLevel": "MINIMAL"}
+
+
+@pytest.mark.parametrize("model", ["gemini-3.5-flash-lite", "gemini-3.6-flash"])
+@pytest.mark.asyncio
+async def test_minimal_thinking_sent_for_each_configured_gemini_model(model: str) -> None:
+    # One constant for every model, no per-model table (D-049).
+    recorder = Recorder()
+    async with _gemini(recorder) as adapter:
+        await adapter.complete(_request(model=model, max_tokens=256))
+    assert str(recorder.requests[0].url) == f"{API_BASE}/{model}:generateContent"
+    assert recorder.body["generationConfig"] == {
+        "maxOutputTokens": 256,
+        "thinkingConfig": {"thinkingLevel": "MINIMAL"},
+    }
 
 
 def test_default_timeout_constant() -> None:
@@ -555,6 +643,100 @@ async def test_output_tokens_include_thoughts() -> None:
     result = await _success(_ok(usageMetadata=usage))
     assert result.usage.input_tokens == 10
     assert result.usage.output_tokens == 12
+
+
+# The owner's live run (D-049): max_tokens 256, the model spent the budget on
+# thinking, Google answered 200 with MAX_TOKENS, no text, and 383 output tokens.
+LIVE_MAX_TOKENS = 256
+
+_THINKING_ONLY_CANDIDATES = [
+    {"content": {"role": "model"}, "finishReason": "MAX_TOKENS", "index": 0},
+    {"finishReason": "MAX_TOKENS", "index": 0},
+    {"content": {"role": "model", "parts": []}, "finishReason": "MAX_TOKENS", "index": 0},
+    {
+        "content": {"role": "model", "parts": [{"thoughtSignature": "c2lnbmF0dXJl"}]},
+        "finishReason": "MAX_TOKENS",
+        "index": 0,
+    },
+    {
+        "content": {
+            "role": "model",
+            "parts": [
+                {"text": "reasoning that is never shown", "thought": True},
+                {"thoughtSignature": "c2lnbmF0dXJl"},
+            ],
+        },
+        "finishReason": "MAX_TOKENS",
+        "index": 0,
+    },
+]
+_THINKING_ONLY_IDS = [
+    "content_without_parts",
+    "no_content",
+    "empty_parts",
+    "only_thought_signature",
+    "only_thought_parts",
+]
+_OVER_BUDGET_USAGE = [
+    # candidatesTokenCount absent (proto3 omits 0): the live run's shape.
+    ({"promptTokenCount": 9, "thoughtsTokenCount": 383, "totalTokenCount": 392}, 383),
+    (
+        {
+            "promptTokenCount": 9,
+            "candidatesTokenCount": 0,
+            "thoughtsTokenCount": 383,
+            "totalTokenCount": 392,
+        },
+        383,
+    ),
+    (
+        {
+            "promptTokenCount": 9,
+            "candidatesTokenCount": 4,
+            "thoughtsTokenCount": 380,
+            "totalTokenCount": 393,
+        },
+        384,
+    ),
+]
+_OVER_BUDGET_IDS = ["candidates_absent", "candidates_zero", "candidates_small"]
+
+
+@pytest.mark.parametrize(("usage", "output_tokens"), _OVER_BUDGET_USAGE, ids=_OVER_BUDGET_IDS)
+@pytest.mark.parametrize("candidate", _THINKING_ONLY_CANDIDATES, ids=_THINKING_ONLY_IDS)
+@pytest.mark.asyncio
+async def test_thinking_spent_budget_is_empty_max_tokens_success_with_uncapped_usage(
+    candidate: dict[str, Any], usage: dict[str, int], output_tokens: int
+) -> None:
+    recorder = Recorder(httpx.Response(200, json=_ok(candidates=[candidate], usageMetadata=usage)))
+    async with _gemini(recorder) as adapter:
+        result = await adapter.complete(_request(max_tokens=LIVE_MAX_TOKENS))
+    assert result.content == ""
+    assert result.finish_reason == "max_tokens"
+    assert result.usage.input_tokens == 9
+    # candidatesTokenCount + thoughtsTokenCount as reported, above max_tokens,
+    # never capped at it (D-049).
+    assert output_tokens > LIVE_MAX_TOKENS
+    assert result.usage.output_tokens == output_tokens
+    assert result.provider_response_id == "resp_01abc"
+    # Sent once, with the client's limit unchanged.
+    assert len(recorder.requests) == 1
+    assert recorder.body["generationConfig"]["maxOutputTokens"] == LIVE_MAX_TOKENS
+
+
+@pytest.mark.asyncio
+async def test_output_tokens_far_above_max_tokens_are_not_capped() -> None:
+    # max_tokens 1, thousands of thinking tokens: the count is reported as sent.
+    usage = {"promptTokenCount": 5, "candidatesTokenCount": 1, "thoughtsTokenCount": 5000}
+    candidate = _candidate(
+        content={"role": "model", "parts": [{"text": "H"}]}, finishReason="MAX_TOKENS"
+    )
+    recorder = Recorder(httpx.Response(200, json=_ok(candidates=[candidate], usageMetadata=usage)))
+    async with _gemini(recorder) as adapter:
+        result = await adapter.complete(_request(max_tokens=1))
+    assert result.content == "H"
+    assert result.finish_reason == "max_tokens"
+    assert result.usage.output_tokens == 5001
 
 
 # Proto3 JSON omits fields whose value is 0, so an absent count is 0 (D-041).
@@ -1563,6 +1745,56 @@ async def test_app_maps_undecodable_gemini_body_to_502() -> None:
     assert response.status_code == 502
     assert ErrorBody.model_validate(response.json()).error.code == "provider_unavailable"
     assert PROVIDER_TEXT not in response.text
+
+
+@pytest.mark.parametrize("candidate", _THINKING_ONLY_CANDIDATES, ids=_THINKING_ONLY_IDS)
+@pytest.mark.asyncio
+async def test_app_returns_200_empty_max_tokens_answer_with_uncapped_usage(
+    candidate: dict[str, Any], caplog: pytest.LogCaptureFixture
+) -> None:
+    # D-049: the provider answered and billed, so this is a success, not a 502;
+    # a second route on the alias is never tried, and nothing is retried.
+    caplog.set_level(logging.DEBUG)
+    usage = {"promptTokenCount": 9, "thoughtsTokenCount": 383, "totalTokenCount": 392}
+    primary = Recorder(httpx.Response(200, json=_ok(candidates=[candidate], usageMetadata=usage)))
+    secondary = Recorder()
+    async with _gemini(primary) as first, _gemini(secondary) as second:
+        router = Router(
+            {
+                ALIAS: [
+                    Route(provider="gemini", model="gemini-3.6-flash", adapter=first),
+                    Route(provider="gemini", model=MODEL, adapter=second),
+                ]
+            }
+        )
+        app = create_app(router=router)
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            response = await client.post("/v1/chat", json=_chat_body(max_tokens=LIVE_MAX_TOKENS))
+    assert response.status_code == 200, response.text
+    chat = ChatResponse.model_validate(response.json())
+    assert chat.provider == "gemini"
+    assert chat.model == "gemini-3.6-flash"
+    assert chat.content == ""
+    assert chat.finish_reason == "max_tokens"
+    assert chat.usage.input_tokens == 9
+    assert chat.usage.output_tokens == 383
+    assert chat.usage.output_tokens > LIVE_MAX_TOKENS
+    assert chat.id == response.headers["x-request-id"]
+    assert len(primary.requests) == 1
+    assert secondary.requests == []
+    lines = [r.getMessage() for r in caplog.records if r.name == "llmgateway.request"]
+    assert len(lines) == 1
+    assert "status=200" in lines[0]
+    assert "reasoning that is never shown" not in caplog.text
+    assert "reasoning that is never shown" not in response.text
+    assert PROMPT_MARKER not in caplog.text
+    # Last, so a run before D-049 lands shows every assertion above already holds.
+    assert primary.body["generationConfig"] == {
+        "maxOutputTokens": LIVE_MAX_TOKENS,
+        "thinkingConfig": {"thinkingLevel": "MINIMAL"},
+    }
 
 
 @pytest.mark.asyncio
