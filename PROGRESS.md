@@ -4,7 +4,15 @@ The single status file. A milestone is ticked only when its work is on `main` wi
 
 ## Current Status
 
-M1 to M6 are done: the unified schema, the adapter interface and error taxonomy, the mock provider, the `POST /v1/chat` endpoint with its error mapping, and the non-streaming Claude adapter, chosen with `LLMGATEWAY_PROVIDER`. On 2026-11-03 the repo moved to the autonomous workflow in CLAUDE.md: work happens on `main`, with tester and reviewer subagents, `scripts/check.ps1`, and a `live` test marker. M7 is done: the non-streaming Gemini adapter, chosen with `LLMGATEWAY_PROVIDER=gemini`. The next milestone is **M8 Model aliases and router selection**. Open items: the live tests (one Claude, two Gemini) have not been run by the owner, and the tester and reviewer subagents do not load by name (session logs, 2026-11-03).
+M1 to M6 are done: the unified schema, the adapter interface and error taxonomy, the mock provider, the `POST /v1/chat` endpoint with its error mapping, and the non-streaming Claude adapter, chosen with `LLMGATEWAY_PROVIDER`. On 2026-11-03 the repo moved to the autonomous workflow in CLAUDE.md: work happens on `main`, with tester and reviewer subagents, `scripts/check.ps1`, and a `live` test marker. M7 is done: the non-streaming Gemini adapter. M8 is done:
+- Clients send a model alias.
+- A TOML config named by `LLMGATEWAY_CONFIG` maps each alias to (provider instance, provider model) pairs and is validated at startup. Without it, a built-in mock-only default is used.
+- The router uses each alias's first entry.
+- `LLMGATEWAY_PROVIDER` is no longer read; if it is set, startup stops.
+
+The next milestone is **M9 Router timeouts and retries**.
+
+Open items: the owner has not run the five live tests (two alias, one Claude, two Gemini). The tester and reviewer subagents loaded by name for the first time in the 2026-11-03 M8 session.
 
 ## Milestones
 
@@ -17,7 +25,7 @@ M1 to M6 are done: the unified schema, the adapter interface and error taxonomy,
 | [x] | M5 Endpoint fix-ups | Merged in PR #8 (merge commit 895b47f): dependency age floor (D-029), `model` capped at 128 characters (D-030), scope for done (D-031). Reproduced 2026-11-03 at 895b47f: `uv run pytest`: 114 passed (pytest only). |
 | [x] | M6 Claude adapter | Merged in PR #9 (merge commit 8b833cc): `providers/claude.py`, `tests/test_claude_adapter.py`, provider selection in `main.py` (D-032 to D-037). FLOW.md recorded all five checks passing at 8d618a9 with 204 tests. Reproduced 2026-11-03 at 8b833cc: `uv sync --locked` ok; `uv run pytest`: 204 passed; `ruff check`: all checks passed; `ruff format --check`: 19 files already formatted; `mypy`: no issues in 13 source files. Mutation checks of the error mapping: session log, 2026-11-03. The 7 "DRAFT: owner review required" markers on its error-mapping tests were removed in the reset (c1f844a) under the new mutation-check rule, after those checks. The owner did not review those tests. Live test written, not yet run by the owner. |
 | [x] | M7 Gemini adapter | On `main` in 4d274c7, b82a9a7, fcab3b3, caca122 and the commit that carries the M7 session log's final entry: `providers/gemini.py`, `tests/test_gemini_adapter.py`, `tests/test_live_gemini.py`, Gemini rows in FLOW.md section 13 (D-039 to D-043). `.\scripts\check.ps1` PASS on 2026-11-03: `uv sync --locked` ok (31 packages); `uv run pytest`: 487 passed, 3 deselected; `ruff check`: all checks passed; `ruff format --check`: 26 files already formatted; `mypy`: no issues in 18 source files. Mutation checks: 177 mutations in two runs, all non-equivalent ones caught, 15 equivalent (session log). Reviewer: FAIL, then PASS in round 2. Windows 11 Home Single Language 10.0.26300, Python 3.12.12. The two live Gemini tests are written, not yet run by the owner. |
-| [ ] | M8 Model aliases and router selection | |
+| [x] | M8 Model aliases and router selection | On `main` in 1c2e7ed, c7a1597 and the commit that carries the M8 session log's final entry:<br>- code: `config.py` and `router.py`, with changes to `app.py`, `main.py` and `providers/gemini.py`;<br>- config: `config/providers.toml` and `config/mock-fallback.toml`;<br>- tests: `tests/test_config.py`, `tests/test_router.py`, `tests/test_main.py` and `tests/test_live_aliases.py`;<br>- docs: FLOW.md sections 4, 5, 8, 10, 11 and 13 (D-044 to D-047).<br>`.\scripts\check.ps1` PASS on 2026-11-03: `uv sync --locked` ok (31 packages); `uv run pytest`: 863 passed, 5 deselected; `ruff check`: all checks passed; `ruff format --check`: 32 files already formatted; `mypy`: no issues in 24 source files. Mutation checks: 105 mutations, all non-equivalent ones caught (13 only after a new test), 3 equivalent (session log). Reviewer: PASS in round 1. Windows 11 Home Single Language 10.0.26300, Python 3.12.12. The two live alias tests are written, not yet run by the owner. |
 | [ ] | M9 Router timeouts and retries | |
 | [ ] | M10 Circuit breaker | |
 | [ ] | M11 Provider fallback and fault injection | |
@@ -459,6 +467,213 @@ One `docs:` commit (a01286d) with seven owner instructions: measurement 4 also r
 
 **Plan.** Settle M8's open issues and record them (D-044 to D-047) with the FLOW.md changes before any code. Config: a TOML file named by `LLMGATEWAY_CONFIG`, read with the standard library's `tomllib` (no new dependency), with named provider instances so one alias can hold two independent mocks; a built-in mock-only default when the variable is unset; API keys only from the environment. Router: `router.py` selects the alias's first entry and passes the adapter the request with the entry's provider model; an unknown alias gets 400 `unknown_model`. `ChatResponse.model` reports the provider model that served, and the schema does not change. The D-042 model-ID check stays in the Gemini adapter and is also run at startup. Alias lists in `config/providers.toml`, plus a two-mock config, with a live test that each Gemini model in an alias is served by `generateContent`. Then: tester Mode 1 writes the tests from that spec, including migrating the D-036 tests that M8 supersedes; implement; tester Mode 2 runs mutation checks; reviewer; push. Also take the fix-up reviewer's two SHOULD FIX items into the M10 and M11 open issues.
 
+**Spec.** D-044 to D-047 were written before any code, together with the FLOW.md changes. Git cannot show this order, because the docs and the code share commit 1c2e7ed; it rests on this session's record. The FLOW.md changes:
+- section 4: the alias check after body validation;
+- section 5: route entries and the provider model;
+- section 8: `config.py` and `router.py`;
+- section 10: the alias entry in the glossary;
+- section 11: the alias-list question removed, because D-047 answers it;
+- section 13: the `unknown_model` row, a note that the D-042 row can no longer be reached from a client, and a new "Configuration errors" table for startup.
+
+PLAN.md: question (a) points to D-047. M10's open issues now say a breaker per provider type would open both mocks together, and ask how breaker state changes are observed for measurement 8. M11's open issues add how a response tells two entries of the same type apart, how measurement 8's outage window is injected, and whether M11's environment-variable switch is still needed. Those are the fix-up reviewer's two SHOULD FIX items. D-027, D-036 and D-042 each gained a one-line pointer to the entry that supersedes or revisits them.
+
+Sources, read 2026-11-03:
+- Google's models page (https://aistudio.google.com/docs/models): `gemini-3.6-flash` and `gemini-3.5-flash-lite` are marked Stable, `gemini-3.8-flash` New, and `gemini-3.1-pro-preview` is a preview. It does not say which API serves which model.
+- The builder probed pydantic 2.14.1 strict mode: an int is accepted for a float field; a bool, `inf` and `nan` are rejected; an int field rejects `True` and `1.0`.
+- tomllib parses `inf` and `nan`, and multi-line arrays of inline tables.
+- pydantic's discriminated-union error repeats the unknown tag value, so the config parser dispatches on `type` itself.
+
+**Tests (tester, Mode 1).** This was the first time `tester` was started by name. New: `tests/test_config.py`, `tests/test_router.py`, `tests/test_main.py` (in-process and subprocess startup), and `tests/test_live_aliases.py` (live).
+
+Migrated, as the builder asked, because D-044 and D-045 supersede the behavior they tested:
+- In `tests/test_app.py`, `create_app(provider=...)` became `create_app(router=...)`, `_body()` sends alias `mock`, the model-echo test now expects `mock-1`, and the 128-character test is now a 128-character alias tested end to end.
+- The `provider_from_env` and `LLMGATEWAY_PROVIDER` tests in `test_claude_adapter.py` and `test_gemini_adapter.py` became config and startup tests of at least equal strength in `test_main.py`, `test_router.py` and `test_config.py`. The tester's report has the full mapping from old to new.
+- The old exact-message assertions became checks of the variable name plus the absence of planted markers, because D-044 fixes locations, not wording.
+- The through-the-app adapter tests now go through alias `fast`; their log-line substrings gained `provider_model`.
+- `test_app_rejects_invalid_gemini_model_without_network_call` was split in three: the adapter check through a Route built without a config (the same assertions), a client model that looks like a path rejected as an unknown alias, and the startup check in `test_config.py`.
+- The two live tests now start through `parse_config` and then `build_router`.
+
+No other assertion changed. The tests were written while the builder was writing the implementation, so the new tests were never seen failing before it existed. The mutation checks below are the evidence that they can fail (Agent Mistakes Log).
+
+**Implementation.**
+- `config.py`: models, a parser that dispatches on `type`, and messages with locations; invalid names are shown as `<invalid name>`, and a TOML error keeps only its position.
+- `router.py`: `Route`, `Router`, and `build_router`, which checks keys before building any adapter.
+- `app.py`: the router replaces the single provider, an unknown alias gets 400 before the 501, the response reports the provider model and type, and the log line ends with `provider_model`.
+- `main.py`: `router_from_env`.
+- `providers/gemini.py`: `MODEL_ID_PATTERN` is public.
+- Docstrings in `claude.py` and `gemini.py`, and a comment in `schema.py`.
+- `config/providers.toml`, `config/mock-fallback.toml`, README "Run it", `.env.example`.
+- No dependency changed: `pyproject.toml` and `uv.lock` are untouched.
+- Committed locally as 1c2e7ed before the mutation checks.
+
+**Mutation checks (tester, Mode 2).** Run at 1c2e7ed with a clean tree, by a scratchpad harness:
+- One exact-string mutation at a time, checked to occur exactly once.
+- Every run used `test_config`, `test_router`, `test_main`, `test_app` and `test_gemini_adapter`, with failing node IDs taken from `--junitxml`.
+- `__pycache__` under `src` was cleared around each run, with `PYTHONDONTWRITEBYTECODE=1`.
+- Each run ended with `git checkout -- <file>` and `git diff --quiet -- src/`.
+
+The harness first stopped at C06, a multi-line mutation that did not match because `src` mixes CRLF and LF files. Nothing had been applied for C06, and C01 to C05 were single-line and valid. After the fix, the run resumed. The builder checked the counts and revert flags against `m8_mutation_results.json`: 89 caught on the first pass, 13 caught only after a new test, 3 equivalent, 0 not reverted.
+
+The tester checked each equivalence claim by running code:
+- C28: strict `AliasEntry` validation gives the same location and a fixed message for every non-table TOML value.
+- C42: `ge` and `le` already reject `nan` and `inf`.
+- M02: CPython prints only the message for an uncaught `SystemExit`, so `from exc` changes nothing on stderr.
+
+The `failure_rate` `allow_inf_nan=False` is therefore redundant, and was kept as an explicit statement of intent. In the table, "(n)" is the number of tests that failed; for added tests it is from the re-run.
+
+| # | Mutation | File | Test that failed (n) | Reverted |
+| --- | --- | --- | --- | --- |
+| 1 | name pattern allows a leading `.`, `_` or `-` | config.py | test_invalid_alias_name_stops, test_invalid_provider_name_stops (6) | yes |
+| 2 | name pattern allows any character after the first | config.py | same two (12) | yes |
+| 3 | name checked with `match`, not `fullmatch` | config.py | same two (14) | yes |
+| 4 | name limit 128 -> 129 | config.py | same two (2) | yes |
+| 5 | name length `<=` -> `<` | config.py | test_alias_of_128_chars_works_end_to_end, test_valid_alias_name_is_accepted (3) | yes |
+| 6 | provider name check skipped | config.py | test_invalid_provider_name_stops (13) | yes |
+| 7 | alias name check skipped | config.py | test_invalid_alias_name_stops (13) | yes |
+| 8 | `_shown` prints any name | config.py | survived; added test_invalid_name_or_key_from_the_file_is_never_printed (6) | yes |
+| 9 | `_validated` loc parts not masked | config.py | survived; added test_invalid_name_or_key_from_the_file_is_never_printed (2) | yes |
+| 10 | `_validated` message is the full ValidationError | config.py | test_api_key_in_the_file_stops_and_is_not_echoed, test_message_names_the_location_and_never_the_value (14) | yes |
+| 11 | model limit 128 -> 129 | config.py | test_model_empty_or_over_128_chars_stops (3) | yes |
+| 12 | model min_length 1 -> 0 | config.py | test_model_empty_or_over_128_chars_stops (2) | yes |
+| 13 | Gemini model pattern check skipped | config.py | test_gemini_model_not_matching_the_pattern_stops (14) | yes |
+| 14 | Gemini pattern uses `match` | config.py | test_gemini_model_not_matching_the_pattern_stops (11) | yes |
+| 15 | Gemini pattern applied to every non-mock type | config.py | test_gemini_pattern_does_not_apply_to_claude_or_mock (12) | yes |
+| 16 | Gemini pattern applied to claude instead | config.py | test_gemini_model_not_matching_the_pattern_stops, test_gemini_pattern_does_not_apply_to_claude_or_mock (26) | yes |
+| 17 | undefined provider falls through | config.py | test_entry_naming_an_undefined_instance_stops (2) | yes |
+| 18 | undefined-provider message echoes the name | config.py | test_entry_naming_an_undefined_instance_stops, test_message_names_the_location_and_never_the_value (2) | yes |
+| 19 | unused instance check skipped | config.py | test_instance_used_by_no_alias_stops, test_unused_claude_instance_stops (2) | yes |
+| 20 | duplicate entry check skipped | config.py | test_same_pair_twice_in_one_alias_stops, test_same_pair_twice_after_another_entry_stops (2) | yes |
+| 21 | unknown top-level key accepted | config.py | test_unknown_top_level_key_stops (3) | yes |
+| 22 | unknown top-level key shown unmasked | config.py | survived; added test_invalid_name_or_key_from_the_file_is_never_printed (1) | yes |
+| 23 | missing-table check skipped | config.py | test_missing_or_empty_table_stops (4) | yes |
+| 24 | table wrong-type check skipped | config.py | test_missing_or_empty_table_stops (2) | yes |
+| 25 | empty-table check skipped | config.py | test_missing_or_empty_table_stops (1) | yes |
+| 26 | alias not-an-array check skipped | config.py | test_alias_value_that_is_not_a_non_empty_array_stops (2) | yes |
+| 27 | alias empty-array check skipped | config.py | test_alias_value_that_is_not_a_non_empty_array_stops (1) | yes |
+| 28 | alias entry not-a-table check skipped | config.py | survives: equivalent (strict `AliasEntry` validation rejects every non-table TOML value at the same location, with a fixed message) | yes |
+| 29 | provider value not-a-table check skipped | config.py | survived; added test_provider_value_of_any_other_type_stops (6) | yes |
+| 30 | missing-type check skipped | config.py | test_instance_without_a_valid_type_stops (1) | yes |
+| 31 | type is-a-string check dropped | config.py | test_instance_without_a_valid_type_stops (1) | yes |
+| 32 | unknown-type message echoes the value | config.py | test_message_names_the_location_and_never_the_value, test_unknown_provider_type_in_config_stops_without_echo (2) | yes |
+| 33 | dispatch gemini -> ClaudeProviderConfig | config.py | test_committed_providers_toml_has_the_d047_aliases and 19 more (45) | yes |
+| 34 | dispatch always MockProviderConfig | config.py | test_claude_config_builds_a_claude_adapter and 26 more (74) | yes |
+| 35 | `extra` forbid -> ignore | config.py | test_api_key_in_the_file_stops_and_is_not_echoed, test_bad_alias_entry_stops (23) | yes |
+| 36 | strict -> False | config.py | test_invalid_mock_setting_stops (9) | yes |
+| 37 | frozen -> False | config.py | test_config_is_frozen (1) | yes |
+| 38 | latency_ms `ge` dropped | config.py | test_invalid_mock_setting_stops, test_invalid_config_in_a_file_names_the_location_not_the_path (3) | yes |
+| 39 | latency_ms allow_inf_nan -> True | config.py | test_invalid_mock_setting_stops (2) | yes |
+| 40 | failure_rate `ge` dropped | config.py | test_invalid_mock_setting_stops (1) | yes |
+| 41 | failure_rate `le` dropped | config.py | test_invalid_mock_setting_stops (2) | yes |
+| 42 | failure_rate allow_inf_nan -> True | config.py | survives: equivalent (`ge=0` and `le=1` already reject `nan`, `inf` and `-inf`; checked) | yes |
+| 43 | failure_type -> str | config.py | test_invalid_mock_setting_stops, test_message_names_the_location_and_never_the_value (4) | yes |
+| 44 | seed int -> float | config.py | test_each_mock_instance_has_its_own_seeded_sequence and 6 more (13) | yes |
+| 45 | TOML message is tomllib's full text | config.py | survived; added test_invalid_toml_message_never_quotes_the_file, test_config_error_traceback_never_shows_the_path_or_file_text (3) | yes |
+| 46 | TOML position dropped | config.py | survived; added test_invalid_toml_message_names_the_line (1) | yes |
+| 47 | TOML position regex not anchored | config.py | survived; added test_invalid_toml_message_never_quotes_the_file (2) | yes |
+| 48 | LLMGATEWAY_PROVIDER ignored | config.py | test_llmgateway_provider_set_to_any_value_stops and 4 more (18) | yes |
+| 49 | LLMGATEWAY_PROVIDER ignored when empty | config.py | test_llmgateway_provider_set_to_any_value_stops (2) | yes |
+| 50 | blank check is `if not path` | config.py | survived; added test_blank_llmgateway_config_reports_its_own_rule_not_an_unreadable_file (4) | yes |
+| 51 | blank LLMGATEWAY_CONFIG treated as unset | config.py | test_blank_llmgateway_config_stops, test_startup_with_blank_config_path_fails_cleanly (6) | yes |
+| 52 | OSError narrowed to FileNotFoundError | config.py | test_directory_as_config_path_stops_without_the_path (1) | yes |
+| 53 | unreadable-file message includes the path | config.py | test_missing_config_file_stops_without_the_path, test_directory_as_config_path_stops_without_the_path (3) | yes |
+| 54 | OSError branch: `from None` dropped | config.py | survived; added test_config_error_traceback_never_shows_the_path_or_file_text (1) | yes |
+| 55 | decode with `errors="replace"` | config.py | test_non_utf8_config_file_stops (1) | yes |
+| 56 | decode as latin-1 | config.py | test_non_utf8_config_file_stops, test_valid_config_file_is_loaded_as_utf8 (2) | yes |
+| 57 | default alias model changed | config.py | test_default_config_builds_the_mock_route, test_chat_happy_path (6) | yes |
+| 58 | default config not used when unset | config.py | test_claude_config_builds_a_claude_adapter and 13 more (36) | yes |
+| 59 | default mock gets a latency | config.py | test_default_mock_instance_has_mock_provider_defaults (1) | yes |
+| 60 | empty mapping accepted | router.py | test_router_rejects_an_empty_mapping (1) | yes |
+| 61 | empty route list accepted | router.py | test_router_rejects_an_alias_with_no_routes (2) | yes |
+| 62 | unknown alias returns `()` | router.py | test_alias_match_is_exact_and_case_sensitive and 8 more (22) | yes |
+| 63 | UnknownAlias message echoes the alias | router.py | survived; added test_unknown_alias_message_never_contains_the_alias (1) | yes |
+| 64 | select takes the last entry | router.py | test_failure_type_defaults_to_unavailable and 5 more (6) | yes |
+| 65 | complete does not replace the model | router.py | test_adapter_receives_the_route_model_not_the_alias and 7 more (8) | yes |
+| 66 | complete also clears temperature | router.py | test_complete_sends_the_route_model_and_keeps_every_other_field (1) | yes |
+| 67 | aclose dedupe removed | router.py | test_aclose_closes_each_distinct_adapter_once, test_lifespan_closes_each_adapter_once_through_the_router (2) | yes |
+| 68 | aclose `continue` -> `break` | router.py | test_aclose_closes_each_distinct_adapter_once (1) | yes |
+| 69 | aclose closes only the first alias | router.py | test_lifespan_closes_each_adapter_once_through_the_router (2) | yes |
+| 70 | aclose closes nothing | router.py | test_aclose_closes_each_distinct_adapter_once and 4 more (5) | yes |
+| 71 | blank key accepted | router.py | test_both_types_need_both_keys_and_messages_never_contain_a_key and 4 more (8) | yes |
+| 72 | key variables swapped | router.py | test_claude_config_without_anthropic_key_stops and 12 more (27) | yes |
+| 73 | every key required for every config | router.py | test_chat_happy_path and 41 more (77) | yes |
+| 74 | keys read while building adapters, not before | router.py | survived; added test_missing_key_stops_before_any_http_client_is_opened (2) | yes |
+| 75 | mock latency_ms not passed | router.py | test_each_mock_instance_waits_its_own_latency (7) | yes |
+| 76 | mock failure_rate not passed | router.py | test_each_mock_instance_has_its_own_seeded_sequence (8) | yes |
+| 77 | mock failure_type not passed | router.py | test_failing_mock_raises_its_failure_type_while_the_other_succeeds (4) | yes |
+| 78 | mock seed not passed | router.py | test_each_mock_instance_has_its_own_seeded_sequence, test_committed_mock_fallback_config_runs_without_keys (2) | yes |
+| 79 | injected sleep ignored | router.py | test_each_mock_instance_waits_its_own_latency (7) | yes |
+| 80 | Claude transport not passed | router.py | test_claude_instance_calls_anthropic_with_the_entry_model (4) | yes |
+| 81 | Gemini transport not passed | router.py | test_gemini_instance_calls_google_with_the_entry_model (4) | yes |
+| 82 | gemini instance built as ClaudeAdapter | router.py | test_gemini_config_builds_a_gemini_adapter (6) | yes |
+| 83 | each entry gets a copy of the adapter | router.py | test_entries_naming_one_instance_share_its_adapter (3) | yes |
+| 84 | Route.provider set to the model | router.py | test_claude_config_builds_a_claude_adapter and 10 more (15) | yes |
+| 85 | router keeps the caller's list | router.py | test_router_keeps_its_own_copy_of_each_list (2) | yes |
+| 86 | unknown alias 400 -> 404 | app.py | test_unknown_alias_is_400_unknown_model_without_echo_or_provider_call and 6 more (13) | yes |
+| 87 | code -> model_not_found | app.py | same group (12) | yes |
+| 88 | message echoes the model | app.py | test_default_app_rejects_a_free_form_model (4) | yes |
+| 89 | stream 501 before the alias check | app.py | test_unknown_alias_is_400_unknown_model_without_echo_or_provider_call (1) | yes |
+| 90 | response provider = instance name | app.py | test_response_provider_is_the_adapter_type_not_the_instance_name (5) | yes |
+| 91 | response model = alias | app.py | test_adapter_receives_the_route_model_not_the_alias (8) | yes |
+| 92 | log provider = adapter type | app.py | test_log_line_uses_instance_name_and_provider_model (2) | yes |
+| 93 | log provider_model = alias | app.py | test_log_line_uses_instance_name_and_provider_model (4) | yes |
+| 94 | log provider has no `-` default | app.py | test_log_line_for_unknown_alias_has_no_provider, test_log_line_before_validation_has_no_model_or_provider (2) | yes |
+| 95 | log provider_model has no `-` default | app.py | same two (2) | yes |
+| 96 | lifespan does not call aclose | app.py | test_lifespan_closes_each_adapter_once_through_the_router (3) | yes |
+| 97 | SystemExit prefix changed | main.py | test_startup_with_*_fails_cleanly (9) | yes |
+| 98 | SystemExit `from None` -> `from exc` | main.py | survives: equivalent (CPython prints only the message of an uncaught SystemExit, never the chain; probed with uvicorn and `python -c`) | yes |
+| 99 | ConfigError not caught | main.py | test_startup_with_*_fails_cleanly (9) | yes |
+| 100 | build_router gets os.environ | main.py | test_router_from_env_reads_keys_from_the_given_environ_only (4) | yes |
+| 101 | load_config gets os.environ | main.py | test_router_from_env_reads_the_config_path_from_the_given_environ_only (31) | yes |
+| 102 | adapter model ID check skipped | gemini.py | test_invalid_model_message_does_not_echo_model, test_app_keeps_the_adapter_model_check_for_routes_built_without_config (21) | yes |
+| 103 | adapter check uses `match` | gemini.py | same group (18) | yes |
+| 104 | `_validated`: `from None` dropped | config.py | survived; added test_config_error_traceback_never_shows_the_path_or_file_text (1) | yes |
+| 105 | TOML branch: `from None` dropped | config.py | survived; added test_config_error_traceback_never_shows_the_path_or_file_text (1) | yes |
+
+Tests added in Mode 2 (26 cases in 9 tests, committed in c7a1597, all additive):
+- In `tests/test_config.py`: `test_invalid_name_or_key_from_the_file_is_never_printed`, `test_invalid_toml_message_never_quotes_the_file`, `test_invalid_toml_message_names_the_line`, `test_provider_value_of_any_other_type_stops`, `test_blank_llmgateway_config_reports_its_own_rule_not_an_unreadable_file`, `test_config_error_traceback_never_shows_the_path_or_file_text`.
+- In `tests/test_router.py`: `test_unknown_alias_message_never_contains_the_alias`, `test_missing_key_stops_before_any_http_client_is_opened`, `test_each_real_instance_opens_one_http_client`. The last one proves the recorder sees the adapters' clients, so the empty list in the test before it means something.
+
+Before these tests, four spec guarantees were not pinned by any test: "before any adapter is built"; "never a value from the file" for invalid names and keys; a TOML error naming its position; and a blank `LLMGATEWAY_CONFIG` reporting its own rule. tomllib's own messages quote key names (for example on a table declared twice). The code already kept only the position, and the new tests pin it.
+
+**Review.** Round 1: **PASS**, with no BLOCKING items. This was the first time `reviewer` was started by name for a milestone. The schema check was in its prompt; `schema.py` changed only in a comment, and the new meaning of `ChatResponse.model` is covered by D-045, FLOW.md and the tests. The reviewer checked the mutation table against the raw JSON and agreed with all three equivalence claims. It judged the migrated tests not weakened, and `check.ps1` printed PASS for it.
+
+SHOULD FIX, all fixed in the commit that carries this entry:
+1. D-018 and D-026 had no pointer to D-045, which adds the alias check to D-018's order and changes D-026's log fields. Fixed: an "Amended by D-045" line in each.
+2. `test_startup_with_mock_fallback_config_serves_its_aliases` accepted 200 or 502 for the first request. With `seed = 1` the first roll is 0.134, below 0.3, so the 200 branch, the only `model == "mock-a"` check, never ran. The builder sent this to the tester, which decides on its own assertions (CLAUDE.md). The tester ran the RNG (0.1344, 0.8474, 0.7638, 0.2551) and made the test exact: four `mock-fallback` requests give 502 `provider_unavailable`, 200 `mock-a`, 200 `mock-a`, 502 `provider_unavailable`, and alias `mock` gives 400 `unknown_model`. The test also checks that sequence against a `MockProvider` built directly, as D-016 documents. The assertions are stricter; none was loosened.
+3. The Agent Mistakes Log row on parallel implementation said "the tester did not read the new modules", which nothing in the repo can confirm. Fixed: the row now says that the interface names came from the builder's brief, and that the tester's not reading the code rests on its own report. The "written before any code" claim above now says it rests on this session's record.
+
+Notes:
+- Handled:
+  - D-044 now records that a real API key pasted as a bare TOML key name, not a value, would be printed as part of a location.
+  - D-044 adds the "warn and ignore" alternative, and says when the `LLMGATEWAY_PROVIDER` check can go.
+  - D-047's "two cheapest tiers" is now "two smallest tiers by name", since no prices were checked.
+- Left as notes:
+  - The C28 mutant changes only the message wording.
+  - `GatewayConfig` is frozen only at the attribute level; its dicts can still be changed. The router copies them into a `MappingProxyType`.
+  - A `Route` built directly, outside a config, with a model that is empty or over 128 characters gives a 500. Only tests can build one.
+  - Startup "before uvicorn serves anything" is tested through `import llmgateway.main`. uvicorn itself was run only in the tester's M02 probe.
+  - No live test covers `claude-opus-5-5`, `smart`'s first entry (D-047 Risk).
+- Every model-status fact in D-047 rests on the builder's single read of Google's models page on 2026-11-03; the reviewer has no web access.
+
+No second round was needed: the verdict was PASS, and the fixes are docs plus a tightened test.
+
+**Schema changes.** None. `schema.py` changed only in a comment (D-045). The reviewer confirmed this.
+
+**Final checks.** `.\scripts\check.ps1`: PASS.
+- `uv sync --locked`: ok, 31 packages.
+- pytest: 863 passed, 5 deselected.
+- `ruff check`: all checks passed.
+- `ruff format --check`: 32 files already formatted.
+- mypy: no issues in 24 source files.
+
+`uv run pytest -m live --collect-only` selects exactly the five live tests: two in `test_live_aliases.py`, one Claude, and two Gemini. No dependency changed: `pyproject.toml` and `uv.lock` are untouched. Windows 11 Home Single Language 10.0.26300, Python 3.12.12.
+
+**Needs owner.**
+- Run `uv run pytest -m live` with `ANTHROPIC_API_KEY` and `GEMINI_API_KEY` set.
+  - `test_live_aliases.py` settles D-047's open point: that `generateContent` serves `gemini-3.5-flash-lite` and `gemini-3.6-flash`. If one fails, D-047 needs a new entry.
+  - The M7 live tests are still unrun. The invalid-key test settles D-041.
+- If your shell still has `LLMGATEWAY_PROVIDER` set from the old README, startup now stops. Remove it, and set `LLMGATEWAY_CONFIG` instead.
+
 ## Agent Mistakes Log
 
 Rows are taken only from what the git history and DECISIONS.md record. Where the history does not say who found a problem, the row says so.
@@ -476,3 +691,7 @@ Rows are taken only from what the git history and DECISIONS.md record. Where the
 | 2026-11-03 | M7: PLAN.md already listed `httpx.DecodingError` escaping the Claude adapter as a 500, and the builder copied the same `except` blocks into the Gemini adapter without closing the gap. `json.loads` added a second escape route (`RecursionError`). | Reviewer round 1, SHOULD FIX 1. | Both adapters map `DecodingError` to `ProviderUnavailable`; Gemini parses with pydantic (D-043). |
 | 2026-11-03 | M7: the tester's first mutation run used `-rN`, which suppressed the failing-test names, so its results were unusable. Stopping it partway left mutation #46 applied in `gemini.py`. | The tester noticed the missing names, then found the leftover mutation by checking `git diff -- src/` before re-running. | Reverted with `git checkout`, `src/` confirmed clean, and all 145 mutations re-run. |
 | 2026-11-03 | M7: the tester and reviewer could not be started by name again ("Agent type 'tester' not found"), although the reset session expected them to load from the next session on. That expectation was wrong. | The Agent tool's error on the first call. | Ran both as general-purpose agents with their agent files' text verbatim. The cause is not known; listed under Needs owner. |
+| 2026-11-03 | M8: the builder wrote `src/` while the tester was writing the Mode 1 tests, instead of after its report. CLAUDE.md asks for tests before implementation where practical, and here it was practical. The interface names the tests use (`Route`, `UnknownAlias`, `build_router(..., transport, sleep)`, `router_from_env`, `DEFAULT_CONFIG`) came from a public-interface contract the builder wrote into the tester's brief, not from any spec document. The tester reported that it did not read `config.py`, `router.py`, `app.py` or the new `main.py`; that rests on its report. The new tests were never seen failing before the code existed. | The tester's report: the implementation files appeared while it worked. | The mutation checks (105 mutations, 13 survivors closed with new tests) are the evidence that the tests can fail. From M9 on, the builder starts implementing only after the Mode 1 report. |
+| 2026-11-03 | M8: the tester's mock-fallback startup test accepted 200 or 502 for the first request instead of asserting the seeded outcome. The outcome is fixed (seed 1 gives 0.134 < 0.3, so the first request is always 502), so the 200 branch and its `model == "mock-a"` check never ran, and the 502's code was never checked. | Reviewer round 1, SHOULD FIX 2. | The tester made the test assert the exact seeded sequence of four requests, tied to a `MockProvider` built directly (D-016). |
+| 2026-11-03 | M8: the builder's first attempt to append D-044 to D-047 used a bash heredoc whose quoting broke. Nothing was written. | The Bash tool's "unexpected EOF" error. | Appended with the Edit tool instead. |
+| 2026-11-03 | M8: the tester's mutation harness assumed LF line endings. `src` mixes CRLF (app.py, config.py, errors.py, gemini.py) and LF (main.py, router.py, schema.py) files, so multi-line mutation C06 did not match and the run stopped. | The harness's own exactly-once match check. Nothing had been applied for C06. | The harness matches each file's line endings; the run resumed from C06. |
