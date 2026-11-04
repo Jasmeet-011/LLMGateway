@@ -23,10 +23,12 @@ import pytest
 from fastapi import FastAPI
 
 from llmgateway.config import ConfigError
+from llmgateway.providers.base import ProviderUnavailable
 from llmgateway.providers.claude import ClaudeAdapter
 from llmgateway.providers.gemini import GeminiAdapter
 from llmgateway.providers.mock import MockProvider
 from llmgateway.router import Router
+from llmgateway.schema import ChatRequest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 PROVIDERS_TOML = REPO_ROOT / "config" / "providers.toml"
@@ -256,14 +258,15 @@ def test_router_from_env_with_the_committed_mock_fallback_toml(
 
 STARTUP_VARS = ("LLMGATEWAY_PROVIDER", "LLMGATEWAY_CONFIG", "ANTHROPIC_API_KEY", "GEMINI_API_KEY")
 
-# Posts the same body for each alias to main.app and prints status and model.
+# Posts the same body for each alias to main.app, in order, one request at a time,
+# and prints [alias, status, model, error code] per request.
 PROBE = """
 import asyncio, json, os
 import httpx
 import llmgateway.main as main
 
 async def probe():
-    out = {}
+    out = []
     transport = httpx.ASGITransport(app=main.app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         for alias in os.environ["PROBE_ALIASES"].split(","):
@@ -271,8 +274,8 @@ async def probe():
                     "max_tokens": 8}
             response = await client.post("/v1/chat", json=body)
             data = response.json()
-            out[alias] = [response.status_code, data.get("model"),
-                          data.get("error", {}).get("code")]
+            out.append([alias, response.status_code, data.get("model"),
+                        data.get("error", {}).get("code")])
     print(json.dumps(out))
 
 asyncio.run(probe())
@@ -363,7 +366,7 @@ def test_startup_with_gemini_config_without_gemini_key_fails_cleanly(tmp_path: P
     _assert_clean_failure(result, ("GEMINI_API_KEY",), (ANTHROPIC_KEY, MARKER, str(path)))
 
 
-def _probe(env: dict[str, str], *aliases: str) -> dict[str, list[object]]:
+def _probe(env: dict[str, str], *aliases: str) -> list[list[object]]:
     # PROBE is the fixed script above, not outside input.
     result = subprocess.run(  # noqa: S603
         [sys.executable, "-c", PROBE],
@@ -376,25 +379,60 @@ def _probe(env: dict[str, str], *aliases: str) -> dict[str, list[object]]:
     assert result.returncode == 0, result.stderr
     assert "Traceback" not in result.stderr
     assert PREFIX not in result.stderr
-    out: dict[str, list[object]] = json.loads(result.stdout.strip().splitlines()[-1])
+    out: list[list[object]] = json.loads(result.stdout.strip().splitlines()[-1])
     return out
 
 
-def test_startup_with_mock_fallback_config_serves_its_aliases() -> None:
-    out = _probe(_env(LLMGATEWAY_CONFIG=str(MOCK_FALLBACK_TOML)), "mock-fallback", "mock")
-    # The file's alias is served (200, or 502 from the primary's 30% failures);
-    # the built-in default alias is not configured.
-    status, model, _code = out["mock-fallback"]
-    assert status in (200, 502)
-    if status == 200:
-        assert model == "mock-a"
-    assert out["mock"] == [400, None, "unknown_model"]
+FALLBACK_FAIL = ["mock-fallback", 502, None, "provider_unavailable"]
+FALLBACK_OK = ["mock-fallback", 200, "mock-a", None]
+
+
+@pytest.mark.asyncio
+async def test_startup_with_mock_fallback_config_serves_its_aliases() -> None:
+    # mock-primary (failure_rate 0.3, seed 1) serves every request until M11. Its
+    # seeded sequence is fixed (D-016): the first call fails, the next two succeed,
+    # the fourth fails. Checked against a MockProvider built directly with the
+    # file's settings, so both the 502 and the 200 path are exercised here.
+    direct = MockProvider(failure_rate=0.3, failure_type="unavailable", seed=1)
+    direct_ok: list[bool] = []
+    for _ in range(4):
+        try:
+            await direct.complete(
+                ChatRequest.model_validate(
+                    {
+                        "model": "mock-a",
+                        "messages": [{"role": "user", "content": "hi"}],
+                        "max_tokens": 8,
+                    }
+                )
+            )
+        except ProviderUnavailable:
+            direct_ok.append(False)
+        else:
+            direct_ok.append(True)
+    assert direct_ok == [False, True, True, False]
+
+    out = _probe(
+        _env(LLMGATEWAY_CONFIG=str(MOCK_FALLBACK_TOML)),
+        "mock-fallback",
+        "mock-fallback",
+        "mock-fallback",
+        "mock-fallback",
+        "mock",
+    )
+    assert out == [
+        FALLBACK_FAIL,
+        FALLBACK_OK,
+        FALLBACK_OK,
+        FALLBACK_FAIL,
+        # The built-in default alias is not configured when a file is used.
+        ["mock", 400, None, "unknown_model"],
+    ]
 
 
 def test_startup_without_config_serves_the_default_mock_alias() -> None:
     out = _probe(_env(), "mock", "mock-1")
-    assert out["mock"] == [200, "mock-1", None]
-    assert out["mock-1"] == [400, None, "unknown_model"]
+    assert out == [["mock", 200, "mock-1", None], ["mock-1", 400, None, "unknown_model"]]
 
 
 def test_import_with_valid_config_exits_zero() -> None:
