@@ -308,6 +308,8 @@ for _field in _NON_NEGATIVE_FIELDS:
         ({_field: math.nan}, f"{_field}_nan"),
         ({_field: "1.0"}, f"{_field}_string"),
         ({_field: None}, f"{_field}_none"),
+        ({_field: True}, f"{_field}_true"),
+        ({_field: False}, f"{_field}_false"),
     ]
 for _field in _POSITIVE_FIELDS:
     _BAD_POLICIES += [
@@ -319,6 +321,8 @@ for _field in _POSITIVE_FIELDS:
         ({_field: math.nan}, f"{_field}_nan"),
         ({_field: "1.0"}, f"{_field}_string"),
         ({_field: None}, f"{_field}_none"),
+        ({_field: True}, f"{_field}_true"),
+        ({_field: False}, f"{_field}_false"),
     ]
 
 
