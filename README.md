@@ -59,10 +59,10 @@ $env:GEMINI_API_KEY = Read-Host "Gemini API key" -MaskInput
 uv run uvicorn llmgateway.main:app --host 127.0.0.1 --port 8000
 ```
 
-Terminal 2: alias `smart` (served by Claude), alias `fast` (served by Gemini), then an alias that is not configured:
+Terminal 2: alias `fast` (served by Gemini, `gemini-3.5-flash-lite`), then an alias that is not configured. The demo leaves out `smart`, whose first entry is Claude Opus, the most expensive model:
 
 ```powershell
-foreach ($alias in "smart", "fast", "no-such-alias") {
+foreach ($alias in "fast", "no-such-alias") {
   $body = @{ model = $alias; max_tokens = 256; messages = @(@{ role = "user"; content = "Say hello in five words." }) } | ConvertTo-Json -Depth 5
   $r = Invoke-WebRequest -Method Post -Uri http://127.0.0.1:8000/v1/chat -ContentType "application/json" -Body $body -SkipHttpErrorCheck
   $j = $r.Content | ConvertFrom-Json
