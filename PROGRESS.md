@@ -686,6 +686,103 @@ No milestone this session.
 
 **Chore 2 (cd664b8).** CLAUDE.md, Conventions, Tests: the cheapest-models rule for live tests. Pushed with chore 1.
 
+**Owner's live run** (`uv run --env-file .env pytest -m live -v`, run by the owner): 3 passed, 2 failed. Passed: Claude through the app, Gemini through the app, and `gemini-3.5-flash-lite` in the alias test. Failed: `test_invalid_gemini_key_is_provider_auth_error` (400 `provider_bad_request`, Fix 1) and `gemini-3.6-flash` in the alias test (200, empty content, Fix 2). `gemini-3.6-flash` returned 200 with a real `responseId`, so `generateContent` serves both Gemini alias models; noted in D-047.
+
+**Fix 1: Gemini invalid key, and 402 (D-048).**
+- Spec first: D-048 and the FLOW.md section 13 rows, with pointer lines in D-035 and D-041.
+- Evidence: the one direct `generateContent` request the owner approved, sent with the fixed fake key from `tests/test_live_gemini.py` (no real key read, `.env` not opened). HTTP 400, body recorded in D-048; the key was not echoed (checked before redacting). The claim about `ErrorInfo` stability is quoted from AIP-193, read this session.
+- Tests (tester, Mode 1), written before any `src/` change: in `tests/test_gemini_adapter.py`, the captured body as a constant; it and six variants of the matching `ErrorInfo` are auth errors; 32 other 400 bodies stay bad requests (other reason, domain or `@type`, message text only, `details` not a list, `error` not an object, not JSON, empty, truncated); deep nesting on a 400; the captured body on other statuses keeps their mapping; 402 on both adapters; app-level 502 `provider_auth_error` for the captured 400 and for 402 on both; Claude keeps a 400 with the Gemini body as a bad request. Seen failing before the change: `18 failed, 391 passed` (builder re-ran it). Assertion change, decided by the tester on the builder's reason: the `(402, ProviderBadRequest)` row of `test_http_status_mapping` in both adapter test files is now `(402, ProviderAuthError)`, because D-048 amends the rule that row encoded. Comments changed, no assertions: the upper-4xx tests, `test_status_mapping_ignores_error_body`, and the live invalid-key test.
+- Implementation (cfff6cc): `_is_invalid_key` and the 400 and 402 branches in `gemini.py`; the 402 branch in `claude.py`; module docstrings. check.ps1 PASS, 931 passed, 5 deselected.
+
+**Mutation checks, Fix 1 (tester, Mode 2).** At cfff6cc with a clean tree, by a scratchpad harness: one exact-string mutation at a time, checked to occur exactly once; `tests/test_gemini_adapter.py`, `tests/test_claude_adapter.py` and `tests/test_app.py` run for each; `git checkout -- <file>` and `git diff --quiet -- src/` after each. The tester checked equivalence claims with a side-by-side checker (`_status_error` over statuses 100 to 599, `_is_invalid_key` on about 20,000 random JSON bodies plus deep, invalid-UTF-8, empty and truncated ones, and `complete()` through `MockTransport`). The builder checked the counts against `d048_results_combined.json`: 70 rows, 60 caught on the first pass, 3 caught after a new test, 7 equivalent, none left unreverted.
+
+| # | Mutation | File | Test that failed (n) | Reverted |
+| --- | --- | --- | --- | --- |
+| G01 | 400 invalid-key branch dropped | gemini.py | test_captured_invalid_key_400_is_auth_error (8) | yes |
+| G02 | every 4xx reads the body | gemini.py | test_invalid_key_body_on_other_statuses_maps_by_status[404-...] (6) | yes |
+| G03 | 400 -> 422 in that branch | gemini.py | test_captured_invalid_key_400_is_auth_error (9) | yes |
+| G04 | `status == 400 and` -> `or` | gemini.py | test_http_status_mapping[400-...] (48) | yes |
+| G05 | 400 branch after the 4xx catch-all | gemini.py | test_captured_invalid_key_400_is_auth_error (8) | yes |
+| G06 | 400 branch before 401/403 | gemini.py | survives: equivalent (disjoint statuses; checker) | yes |
+| G07 | 400 branch after 429 | gemini.py | survives: equivalent (disjoint statuses; checker) | yes |
+| G08 | 400 auth -> ProviderBadRequest | gemini.py | test_captured_invalid_key_400_is_auth_error (8) | yes |
+| G09 | 400 auth -> ProviderUnavailable | gemini.py | same (8) | yes |
+| G10 | 400 message without `gemini: ` | gemini.py | same (7) | yes |
+| G11 | 400 message + `response.text[:50]` | gemini.py | test_invalid_key_error_info_on_400_is_auth_error[error_info_only] (4) | yes |
+| G12 | 400 message + full `response.text` | gemini.py | test_captured_invalid_key_400_is_auth_error (6) | yes |
+| G13 | status error chained (`raise_for_status`, `from exc`) | gemini.py | same (36) | yes |
+| G14 | status error raised inside except | gemini.py | same (36) | yes |
+| G15 | `raise _status_error(...) from None` | gemini.py | survives: equivalent (cause and context stay None; only `__suppress_context__` differs) | yes |
+| G16 | `_ERROR_INFO_TYPE` -> LocalizedMessage | gemini.py | test_captured_invalid_key_400_is_auth_error (9) | yes |
+| G17 | `_ERROR_INFO_TYPE` without `type.googleapis.com/` | gemini.py | same (9) | yes |
+| G18 | parse except removed | gemini.py | test_status_mapping_ignores_error_body[400-...] (10) | yes |
+| G19 | parse except broadened to Exception | gemini.py | survives: equivalent (measured: `validate_json` raised only ValidationError on every input tried) | yes |
+| G20 | parse failure returns True | gemini.py | test_status_mapping_ignores_error_body[400-...] (10) | yes |
+| G21 | `json.loads` instead of the D-043 parser | gemini.py | test_other_400_bodies_stay_bad_request[body_json_array] (6) | yes |
+| G22 | `json.loads` plus a dict check | gemini.py | test_deeply_nested_400_body_is_bad_request[nested_arrays] (3) | yes |
+| G23 | `error` dict check removed | gemini.py | test_other_400_bodies_stay_bad_request[error_is_list] (4) | yes |
+| G24 | `body.get("error", body)` | gemini.py | ...[details_at_top_level_without_error] (1) | yes |
+| G25 | `details` list check removed | gemini.py | test_http_status_mapping[400-...] (8) | yes |
+| G26 | `details` may be list or dict | gemini.py | survives: equivalent (iterating a dict yields string keys, never dicts) | yes |
+| G27 | dict `details` wrapped into a list | gemini.py | ...[details_object_not_list] (1) | yes |
+| G28 | `isinstance(detail, dict)` dropped | gemini.py | test_invalid_key_error_info_on_400_is_auth_error[error_info_after_non_objects] (3) | yes |
+| G29 | `@type` check dropped | gemini.py | ...[type_localized_message] (4) | yes |
+| G30 | reason check dropped | gemini.py | ...[reason_expired] (6) | yes |
+| G31 | domain check dropped | gemini.py | ...[domain_service_host] (3) | yes |
+| G32 | `@type` only | gemini.py | ...[reason_expired] (9) | yes |
+| G33 | reason only | gemini.py | ...[domain_service_host] (7) | yes |
+| G34 | domain only | gemini.py | ...[reason_expired] (10) | yes |
+| G35 | reason case-insensitive | gemini.py | ...[reason_lowercase] (1) | yes |
+| G36 | domain case-insensitive | gemini.py | survived; added test_error_info_fields_match_case_sensitively[domain_upper] (2) | yes |
+| G37 | `@type` case-insensitive | gemini.py | survived; added test_error_info_fields_match_case_sensitively[type_lower] (2) | yes |
+| G38 | domain `endswith("googleapis.com")` | gemini.py | ...[domain_service_host] (1) | yes |
+| G39 | `@type` `endswith("ErrorInfo")` | gemini.py | ...[type_without_prefix] (1) | yes |
+| G40 | reason substring match | gemini.py | ...[reason_list] (1) | yes |
+| G41 | only `details[:1]` checked | gemini.py | test_invalid_key_error_info_on_400_is_auth_error[error_info_second] (2) | yes |
+| G42 | only `details[-1:]` checked | gemini.py | test_captured_invalid_key_400_is_auth_error (3) | yes |
+| G43 | `any` -> `all` | gemini.py | same (6) | yes |
+| G44 | `.get("@type")` -> `["@type"]` | gemini.py | ...[type_missing] (2) | yes |
+| G45 | `and reason` -> `or reason` | gemini.py | ...[error_info_after_non_objects] (16) | yes |
+| G46 | only `content[:100]` parsed | gemini.py | test_captured_invalid_key_400_is_auth_error (8) | yes |
+| G47 | 402 branch dropped | gemini.py | test_http_status_mapping[402-ProviderAuthError] (5) | yes |
+| G48 | 402 -> ProviderBadRequest | gemini.py | same (5) | yes |
+| G49 | 402 -> ProviderUnavailable | gemini.py | same (5) | yes |
+| G50 | 402 message without "billing" | gemini.py | test_402_is_auth_error_naming_billing[json_body] (3) | yes |
+| G51 | 402 message equal to the 401 message | gemini.py | same (4, including test_402_message_differs_from_401_message) | yes |
+| G52 | 402 message without `gemini: ` | gemini.py | test_http_status_mapping[402-...] (4) | yes |
+| G53 | 402 message + `response.text[:50]` | gemini.py | test_402_is_auth_error_naming_billing[non_json_body] (1) | yes |
+| G54 | `status == 402` -> `403` | gemini.py | test_http_status_mapping[402-...] (5) | yes |
+| G55 | 402 branch widened to (400, 402) | gemini.py | test_http_status_mapping[400-...] (39) | yes |
+| G56 | 402 branch after the 4xx catch-all | gemini.py | test_http_status_mapping[402-...] (5) | yes |
+| G57 | 402 branch before 401/403 | gemini.py | survives: equivalent (disjoint statuses; checker) | yes |
+| G58 | 402 message equal to the invalid-key message | gemini.py | test_402_is_auth_error_naming_billing[json_body] (3) | yes |
+| C01 | 402 branch dropped | claude.py | test_http_status_mapping[402-ProviderAuthError] (5) | yes |
+| C02 | 402 -> ProviderBadRequest | claude.py | same (5) | yes |
+| C03 | 402 -> ProviderUnavailable | claude.py | same (5) | yes |
+| C04 | 402 message without "billing" | claude.py | test_402_is_auth_error_naming_billing[billing_error_body] (3) | yes |
+| C05 | 402 message equal to the 401 message | claude.py | same (4) | yes |
+| C06 | 402 message without `claude: ` | claude.py | survived; added test_402_message_names_claude (1) | yes |
+| C07 | 402 message + `response.text` | claude.py | test_http_status_mapping[402-...] (4) | yes |
+| C08 | `status == 402` -> `403` | claude.py | same (5) | yes |
+| C09 | 402 branch widened to (400, 402) | claude.py | test_http_status_mapping[400-...] (2) | yes |
+| C10 | 402 branch after the 4xx catch-all | claude.py | test_http_status_mapping[402-...] (5) | yes |
+| C11 | 402 branch before 401/403 | claude.py | survives: equivalent (disjoint statuses; checker) | yes |
+| C12 | Claude 400 reads a Gemini `API_KEY_INVALID` body | claude.py | test_400_with_gemini_invalid_key_body_stays_bad_request (1) | yes |
+
+60 + 3 + 7 = 70. Tests added in Mode 2, additive: `test_error_info_fields_match_case_sensitively` (Gemini, 5 cases) and `test_402_message_names_claude`. The tester's random-body checker first called G37 equivalent, because its corpus had no casing variants of `@type`; the new test showed it is not. None of the 7 equivalence verdicts rests on string comparison. C06's `claude: ` prefix is a convention, not a D-entry; the builder keeps the test, because every adapter message carries its provider prefix and, per D-048's risk, the adapter message is the only thing that tells a billing failure from a bad key (nothing logs it yet).
+
+**Review, Fix 1.** Round 1: **FAIL**. check.ps1 PASS for the reviewer (937 passed, 5 deselected); it matched all 70 mutation rows against the raw JSON and agreed with the 7 equivalence claims; `schema.py`, `errors.py`, `pyproject.toml` and `uv.lock` unchanged.
+- BLOCKING 1: D-048's risk said "logs keep the adapter's own message, which tells them apart", and this log and three test comments repeated it. Nothing logs `ProviderError.message`: `errors.py` returns the fixed client message, and the request log line has no error class for handled provider errors. Fixed, docs and comments only: D-048 now says the adapter message is the only thing that tells a 402 from a bad key, that nothing logs it, and that an operator sees the same 502 line for both until a step logs the class or message (added to Revisit when); the alternatives line now names the operator-visibility gain of a separate class. The three test comments were reworded; no assertion changed.
+- SHOULD FIX, all fixed: (1) D-048 now marks a Gemini 402 from `generateContent` as unverified, since the page listing it is written for the Interactions API; (2) D-048's risk now records that the client's fixed `provider_auth_error` message ("could not authenticate") is wrong for billing, accepted; (3) the D-047 line no longer cites D-049, which did not exist on this branch.
+- Notes: code matches D-048 and FLOW.md; no provider text, key or prompt reaches the client or logs; the one changed assertion is justified; the D-048 body is reformatted from Google's pretty-printed original, field content identical; the reviewer could not check the AIP-193 quotes (no web access).
+
+Round 2: **PASS**, no BLOCKING items; all four round 1 items confirmed fixed, no assertion changed, check.ps1 PASS (937 passed, 5 deselected), `schema.py` unchanged.
+- SHOULD FIX, fixed: the log line carries only `status=502`, not the error code, so D-048 now says an operator sees the same line for a bad key, billing and `provider_unavailable`.
+- Notes, fixed: "the message never names the cause" removed from D-048 (it contradicted the clause before it); the `test_402_message_names_claude` comment now gives the prefix convention as its reason, not D-048.
+- Notes, left: FLOW.md's Gemini 402 row does not repeat D-048's "unverified" caveat (FLOW.md states what the code does); the AIP-193 quotes were not checked by the reviewer.
+
+**Schema changes.** None for Fix 1.
+
 ## Agent Mistakes Log
 
 Rows are taken only from what the git history and DECISIONS.md record. Where the history does not say who found a problem, the row says so.
@@ -707,3 +804,5 @@ Rows are taken only from what the git history and DECISIONS.md record. Where the
 | 2026-11-03 | M8: the tester's mock-fallback startup test accepted 200 or 502 for the first request instead of asserting the seeded outcome. The outcome is fixed (seed 1 gives 0.134 < 0.3, so the first request is always 502), so the 200 branch and its `model == "mock-a"` check never ran, and the 502's code was never checked. | Reviewer round 1, SHOULD FIX 2. | The tester made the test assert the exact seeded sequence of four requests, tied to a `MockProvider` built directly (D-016). |
 | 2026-11-03 | M8: the builder's first attempt to append D-044 to D-047 used a bash heredoc whose quoting broke. Nothing was written. | The Bash tool's "unexpected EOF" error. | Appended with the Edit tool instead. |
 | 2026-11-03 | M8: the tester's mutation harness assumed LF line endings. `src` mixes CRLF (app.py, config.py, errors.py, gemini.py) and LF (main.py, router.py, schema.py) files, so multi-line mutation C06 did not match and the run stopped. | The harness's own exactly-once match check. Nothing had been applied for C06. | The harness matches each file's line endings; the run resumed from C06. |
+| 2026-11-04 | Fix 1: the tester's equivalence checker first classed mutant G37 (`@type` compared case-insensitively) as equivalent, because its random JSON corpus had no casing variants of `@type`. | The tester wrote a case-sensitivity test for G36 and found it also failed under G37. | G37 recorded as caught after a new test; the tester confirmed none of the 7 remaining equivalence verdicts depends on string comparison. |
+| 2026-11-04 | Fix 1: the builder wrote in D-048's risk that logs keep the adapter's message, so a 402 and a bad key can be told apart, and repeated it in the session log; the tester repeated it in three test comments. Nothing logs `ProviderError.message`. The false mitigation was part of the reason for rejecting a separate error class. | Reviewer round 1, BLOCKING 1, by reading `errors.py` and `app.py`. | D-048, the session log and the comments now say nothing logs the message yet; added to D-048's revisit conditions. |

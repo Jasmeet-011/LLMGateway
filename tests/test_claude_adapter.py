@@ -396,11 +396,19 @@ async def test_402_is_auth_error_naming_billing(response: httpx.Response) -> Non
 
 @pytest.mark.asyncio
 async def test_402_message_differs_from_401_message() -> None:
-    # Both map to provider_auth_error, so the adapter's message is what tells
-    # a billing failure from a bad key in the logs (D-048 risk note).
+    # Both map to provider_auth_error, so the adapter's message is the only thing
+    # that tells a billing failure from a bad key. Nothing logs it yet (D-048 risk).
     billing = await _failure(Recorder(_error_response(402)))
     bad_key = await _failure(Recorder(_error_response(401)))
     assert billing.message != bad_key.message
+
+
+@pytest.mark.asyncio
+async def test_402_message_names_claude() -> None:
+    # Every adapter message carries its provider prefix, as the other Claude
+    # failure messages do (convention kept after mutation C06, Fix 1 session log).
+    exc = await _failure(Recorder(_error_response(402)))
+    assert exc.message.startswith("claude: ")
 
 
 # Gemini's invalid-key ErrorInfo (D-048) means nothing to Claude: Claude maps 400

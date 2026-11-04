@@ -1273,6 +1273,34 @@ async def test_other_400_bodies_stay_bad_request(content: bytes) -> None:
     assert len(recorder.requests) == 1
 
 
+# (@type, reason, domain) are machine-readable codes that Google keeps stable
+# (D-048, AIP-193), so they match exactly: a value that differs only in letter
+# case is another value, and the 400 stays a bad request.
+@pytest.mark.parametrize(
+    "info",
+    [
+        _error_info(domain="GOOGLEAPIS.COM"),
+        _error_info(domain="Googleapis.com"),
+        _error_info(**{"@type": "type.googleapis.com/google.rpc.errorinfo"}),
+        _error_info(**{"@type": "TYPE.GOOGLEAPIS.COM/GOOGLE.RPC.ERRORINFO"}),
+        _error_info(reason="Api_Key_Invalid"),
+    ],
+    ids=["domain_upper", "domain_capitalized", "type_lower", "type_upper", "reason_mixed"],
+)
+@pytest.mark.asyncio
+async def test_error_info_fields_match_case_sensitively(info: dict[str, Any]) -> None:
+    content = _json(_with_details([info, _localized_message()]))
+    recorder = Recorder(httpx.Response(400, content=content, headers=INVALID_KEY_HEADERS))
+    exc = await _failure(recorder)
+    assert type(exc) is ProviderBadRequest
+    assert exc.retryable is False
+    _assert_clean(exc)
+    _assert_no_google_text(exc)
+    assert exc.__cause__ is None
+    assert exc.__context__ is None
+    assert len(recorder.requests) == 1
+
+
 # The 400 body goes through the D-043 parser: nesting too deep to parse is a body
 # that cannot be read, so the 400 is a bad request, not a RecursionError (a 500),
 # even when a matching ErrorInfo sits next to the deep part.
@@ -1373,8 +1401,8 @@ async def test_402_is_auth_error_naming_billing(response: httpx.Response) -> Non
 
 @pytest.mark.asyncio
 async def test_402_message_differs_from_401_message() -> None:
-    # Both map to provider_auth_error, so the adapter's message is what tells
-    # a billing failure from a bad key in the logs (D-048 risk note).
+    # Both map to provider_auth_error, so the adapter's message is the only thing
+    # that tells a billing failure from a bad key. Nothing logs it yet (D-048 risk).
     billing = await _failure(Recorder(_error_response(402)))
     bad_key = await _failure(Recorder(_error_response(401)))
     assert billing.message != bad_key.message
