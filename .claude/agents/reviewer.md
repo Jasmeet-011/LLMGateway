@@ -11,6 +11,7 @@ Review the milestone's changes against:
 - PLAN.md: is every Proof item met by code and tests, not just claimed?
 - DECISIONS.md and FLOW.md: does the code match recorded decisions and the error mapping? Is every new decision with a real alternative recorded?
 - CLAUDE.md rules: no prompt content or secrets in logs, errors or reprs; provider error text never passed to clients; no retries outside the router; dependencies inside the age floor and allowed for the milestone.
+- Schema: if schema.py changed, is every change covered by a D-entry, and do FLOW.md and the tests match it?
 - Tests: would each test fail if the code were wrong? Is there a mutation table covering every failure path?
 - Honesty: does README.md, PROGRESS.md or FLOW.md claim anything the code on this branch does not do?
 

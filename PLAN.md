@@ -11,6 +11,8 @@ The two resume bullets define done (D-031). The owner's text, verbatim:
 > - Built a FastAPI gateway over the Claude and Gemini APIs that normalizes SSE streaming across providers, with hashed per-key auth in Postgres, an atomic Redis Lua token-bucket rate limiter, and a tenant-scoped response cache.
 > - Added timeouts, retries with jittered backoff, a circuit breaker, and pre-first-byte provider fallback; under k6 load with [X]% injected provider failures, raised successful responses from [A]% to [B]% at [N] req/s, with [Y] ms p95 gateway overhead.
 
+X, A, B and N come from measurement 4 (one pair of runs); Y from measurement 1.
+
 The bracketed numbers stay as placeholders until `docs/RESULTS.md` has measured values.
 
 D-031, verbatim: "The project is done when everything the two resume bullets need is merged: Claude and Gemini adapters, normalized SSE streaming, hashed API keys in Postgres, the Redis Lua rate limiter, the tenant-scoped response cache, timeouts and retries with jittered backoff, the circuit breaker, pre-first-byte provider fallback, and a k6 load test with failure injection whose results are in `docs/RESULTS.md`. Also required: token and cost accounting, Docker Compose, CI, and the README."
@@ -37,10 +39,10 @@ Worked in order. Status and evidence are in [PROGRESS.md](PROGRESS.md); this fil
 
 ### M8 Model aliases and router selection
 
-- **Scope:** config maps each alias to an ordered list of (provider, model) pairs (D-010), validated at startup. The router picks the first entry; fallback down the list comes in M11. Replaces env-var provider selection (D-036) and the `model` echo (D-027).
+- **Scope:** config maps each alias to an ordered list of (provider, model) pairs (D-010), validated at startup. The router picks the first entry; fallback down the list comes in M11. Replaces env-var provider selection (D-036) and the `model` echo (D-027). An alias list can hold two mock entries with independent latency and fault-injection settings, so fallback is tested and measured without keys.
 - **Proof:** the same request routed to each provider by alias; unknown alias rejected; invalid config stops startup.
 - **Dependencies allowed:** none.
-- **Open issues to settle:** which pairs go in each alias list (PLAN question (a)); config format and where it lives; what `ChatResponse.model` reports (alias or provider model); how alias length relates to the 128-character cap (D-030).
+- **Open issues to settle:** which pairs go in each alias list (PLAN question (a)); config format and where it lives; what `ChatResponse.model` reports (alias or provider model); how alias length relates to the 128-character cap (D-030); confirm each Gemini model used in an alias list is served by `generateContent` (live-marked test, the owner runs it).
 
 ### M9 Router timeouts and retries
 
@@ -59,14 +61,14 @@ Worked in order. Status and evidence are in [PROGRESS.md](PROGRESS.md); this fil
 ### M11 Provider fallback and fault injection
 
 - **Scope:** fallback down the alias list (D-010) for non-streaming requests; streams get the pre-first-byte rule in M12. Per-provider fault injection switched by an environment variable, off by default.
-- **Proof:** inject failures on one provider and the other serves; the response says which provider served.
+- **Proof:** inject failures on one provider and the other serves; the response says which provider served; with one mock at 100% failure, every request is served by the other.
 - **Dependencies allowed:** none.
 - **Open issues to settle:** whether non-retryable errors fall back (FLOW.md section 5, D-033); the fault-injection variables and how they are kept out of production.
 
 ### M12 Normalized SSE streaming
 
 - **Scope:** streaming for both providers through one event shape: `delta` events, then one final event with usage and provider. `stream=true` stops returning 501 (D-022). Streaming joins the adapter interface (D-015). Fallback (M11) extends to streams with the pre-first-byte rule: a stream falls back only before its first byte reaches the client (CLAUDE.md).
-- **Proof:** tests asserting identical event shapes from the Claude, Gemini and mock streams; tests for mid-stream failure; live-marked streaming tests for both providers.
+- **Proof:** tests asserting identical event shapes from the Claude, Gemini and mock streams; tests for mid-stream failure; a failure before the first byte falls back; a failure after it ends the stream as FLOW.md specifies (section 5), with no retry and no fallback; live-marked streaming tests for both providers.
 - **Dependencies allowed:** none.
 - **Open issues to settle:** mid-stream provider failure behavior (how the stream ends, what the client sees, what is recorded); what the read timeout means for streams (D-034); whether the final event's shape changes `StreamEnd` in `schema.py`.
 
@@ -108,7 +110,7 @@ Worked in order. Status and evidence are in [PROGRESS.md](PROGRESS.md); this fil
 ### M18 Load tests and results
 
 - **Scope:** k6 scripts (steady, burst, injected outage, with and without fallback), `docs/RESULTS.md`, and a README with the request lifecycle and results. Measured against the mock, stated openly.
-- **Proof:** RESULTS.md numbers from real runs, with the conditions listed under Measurements; an outage demo, with one provider fully down while the gateway keeps serving, recorded in RESULTS.md; a Known limitations section in RESULTS.md.
+- **Proof:** RESULTS.md numbers from real runs, with the conditions listed under Measurements; measurement 8 recorded in RESULTS.md; a Known limitations section in RESULTS.md; README.md has a short Known limitations section linking to the full one in RESULTS.md.
 - **Dependencies allowed:** none (k6 is a binary).
 - **Open issues to settle:** the k6 version; how gateway overhead is measured against the mock directly (measurement 1); measurements 6 and 7 are shown as not run unless their stretch items are built (D-031).
 
@@ -123,10 +125,11 @@ Every entry in `docs/RESULTS.md` records: machine (CPU, RAM), OS, Python version
 | 1 | p50/p95/p99 gateway overhead: latency through the gateway minus latency calling the mock provider directly | None set | Mock latency setting, request count |
 | 2 | Throughput (requests/s) at a stated concurrency | None set | Concurrency level, run duration, error rate |
 | 3 | Cache hit vs. miss latency, and hit rate, on a named workload | None set | Workload name and definition (request mix, repeat ratio) |
-| 4 | Success rate under 30% injected provider failures, with fallback and without fallback | None set | Injected failure rate (30%), failure type, retry settings, both runs |
+| 4 | Success rate under 30% injected provider failures, with fallback and without fallback | None set | Injected failure rate (30%), failure type, retry settings, both runs, request rate (req/s) of both runs |
 | 5 | 429 behavior under a burst: requests over the limit get 429; requests within it do not | Correct behavior | Rate limit settings, burst size and duration, count of 429s and of successes |
 | 6 | Upstream calls made when N identical requests arrive at once (stretch) | 1 | N, upstream call count |
 | 7 | Spend-cap overshoot under concurrent load (stretch) | 0 | Cap value, concurrency, spend recorded vs. cap |
+| 8 | Outage timeline: one provider at 100% failure for a fixed window mid-run; success rate per second with fallback on and off, and breaker state changes | None set | Window start and length, request rate, breaker thresholds |
 
 ## Open design questions
 
