@@ -74,7 +74,8 @@ from llmgateway.schema import ChatRequest, FinishReason, Provider, Role, Usage
 API_BASE: Final = "https://generativelanguage.googleapis.com/v1beta/models"
 DEFAULT_TIMEOUT: Final = httpx.Timeout(connect=5.0, read=60.0, write=10.0, pool=5.0)
 MAX_STOP_SEQUENCES: Final = 5
-# The lowest ThinkingLevel; both configured Gemini models accept it (D-049).
+# The lowest ThinkingLevel. Google's thinking guide (Interactions API) lists it for
+# both configured Gemini models; unverified on generateContent (D-049).
 THINKING_LEVEL: Final = "MINIMAL"
 
 # No "/", "?", "#", "%" or ":", so the model cannot change the request path (D-042).
@@ -183,8 +184,9 @@ def _status_error(response: httpx.Response) -> ProviderError:
 
 
 def _request_body(request: ChatRequest) -> dict[str, Any]:
-    # max_tokens is passed unchanged, with no thinking allowance; on thinking
-    # models it covers thinking too, so the lowest level leaves it for text (D-049).
+    # max_tokens is passed unchanged, with no thinking allowance. Google's guide
+    # says it covers thinking too (unverified on generateContent), so the lowest
+    # level is meant to leave it for text (D-049).
     config: dict[str, Any] = {
         "maxOutputTokens": request.max_tokens,
         "thinkingConfig": {"thinkingLevel": THINKING_LEVEL},

@@ -9,6 +9,12 @@ Until M11, an alias only uses its first entry, so each entry is sent through its
 own one-entry alias; the request still goes through the config, the router and
 the app. Excluded by default (`-m 'not live'`); the owner runs it with
 `uv run pytest -m live` and GEMINI_API_KEY set. It costs a few tokens per model.
+
+Owner exception to CLAUDE.md's cheapest-models rule: this test also sends
+`gemini-3.6-flash` (`smart`'s second entry), directly through a one-entry alias,
+not through `smart`. The owner asked for it on 2026-11-04 (D-047's check, and
+D-049's fix, whose acceptance of `MINIMAL` only the `smart[1]` case verifies).
+Do not drop that case without asking the owner.
 """
 
 import json

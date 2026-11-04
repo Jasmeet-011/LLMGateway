@@ -12,7 +12,7 @@ M1 to M6 are done: the unified schema, the adapter interface and error taxonomy,
 
 The next milestone is **M9 Router timeouts and retries**.
 
-Open items: the owner has not run the five live tests (two alias, one Claude, two Gemini). The tester and reviewer subagents loaded by name for the first time in the 2026-11-03 M8 session.
+Open items: the owner ran the five live tests on 2026-11-04 (3 passed, 2 failed). Both failures were fixed that day (D-048, D-049) and need a rerun (2026-11-04 session log, Needs owner). Every checkout is now LF (`.gitattributes`).
 
 ## Milestones
 
@@ -782,6 +782,87 @@ Round 2: **PASS**, no BLOCKING items; all four round 1 items confirmed fixed, no
 - Notes, left: FLOW.md's Gemini 402 row does not repeat D-048's "unverified" caveat (FLOW.md states what the code does); the AIP-193 quotes were not checked by the reviewer.
 
 **Schema changes.** None for Fix 1.
+
+Fix 1 pushed as cfff6cc and 4ce37cf.
+
+**Fix 2: Gemini thinking (D-049).**
+- Google's docs, read 2026-11-04 (full quotes and URLs in D-049):
+  - Confirmed for `generateContent` by its API reference: `ThinkingConfig` has `includeThoughts`, `thinkingBudget` and `thinkingLevel` (`MINIMAL`, `LOW`, `MEDIUM`, `HIGH`; default model-dependent; an error on models before Gemini 3); `thoughtsTokenCount` counts thinking, and `totalTokenCount` lists thoughts apart from candidates.
+  - From the thinking guide, whose fetched version is written for the Interactions API (the old `generateContent` URL redirects to it): `gemini-3.6-flash` defaults to medium and lists minimal, low, medium, high; `gemini-3.5-flash-lite` defaults to minimal; `max_output_tokens` includes thought tokens; thinking is billed as output. The guide gives no way to turn thinking off for either alias model.
+  - Not confirmed: that `maxOutputTokens` includes thinking on `generateContent` (the reference does not say, and the owner's run reported 383 output tokens against 256); that `gemini-3.6-flash` accepts `MINIMAL` on `generateContent` (the 3.6 migration note names only "medium" or "high"); that the upper-case enum name is accepted as written.
+- Decision (D-049, owner's defaults): every request sends `thinkingConfig.thinkingLevel` `MINIMAL`; `max_tokens` unchanged; `output_tokens` may exceed it (M15 and spend caps must assume so); an empty answer with `max_tokens` stays a 200 success and does not fall back (M11). PLAN.md M11 and M15 open issues point to it; D-041 has a pointer line, and D-047 records the owner's live run. The live tests keep `max_tokens` 256 and the non-empty assertion; only their comments changed.
+- Tests (tester, Mode 1), written before the change: every request carries exactly `{"thinkingLevel": "MINIMAL"}` with `maxOutputTokens` equal to `max_tokens` (9 request shapes, `max_tokens` 1 to 1,000,000), the same on every call and for both configured models; empty content with `MAX_TOKENS` and usage above `max_tokens` is a success with uncapped `output_tokens` (15 adapter cases), and a separate test reports 5001 output tokens against `max_tokens` 1, with content "H"; through the app, 200 with `content` "" and `output_tokens` 383 against 256, one request to the primary and none to the second entry. Seen failing before the change: `20 failed, 950 passed, 5 deselected` (builder re-ran it); every failure was the missing `thinkingConfig`. The empty-content success cases already passed. Assertion changes, decided by the tester on the builder's reason (D-049 changes the exact request shape): `test_minimal_request_translation`, `test_system_instruction_translation` and `test_stop_temperature_and_top_p_sent_when_set` stay exact, with `thinkingConfig` added.
+- Implementation (da3f82c): `THINKING_LEVEL` and the `thinkingConfig` entry in `gemini.py`, module docstring. check.ps1 PASS, 970 passed, 5 deselected.
+
+**Mutation checks, Fix 2 (tester, Mode 2).** At da3f82c with a clean tree, same harness rules as Fix 1; `tests/test_gemini_adapter.py`, `tests/test_app.py` and `tests/test_router.py` for each. The builder checked the counts and revert flags against `d049_results.json`: 47 rows, all caught, none equivalent, all reverted. Every failing test was in `tests/test_gemini_adapter.py`.
+
+| # | Mutation | File | Test that failed (n) | Reverted |
+| --- | --- | --- | --- | --- |
+| T01 | `thinkingConfig` dropped | gemini.py | test_minimal_request_translation and the other new request tests (20) | yes |
+| T02 | level `LOW` | gemini.py | same (20) | yes |
+| T03 | level `minimal` (lower case) | gemini.py | same (20) | yes |
+| T04 | level `THINKING_LEVEL_UNSPECIFIED` | gemini.py | same (20) | yes |
+| T05 | level `MEDIUM` | gemini.py | same (20) | yes |
+| T06 | level `HIGH` | gemini.py | same (20) | yes |
+| T07 | inner key `thinking_level` | gemini.py | same (20) | yes |
+| T08 | inner key `thinkingBudget` | gemini.py | same (20) | yes |
+| T09 | `{thinkingBudget: 0}` instead | gemini.py | same (20) | yes |
+| T10 | outer key `thinking_config` | gemini.py | same (20) | yes |
+| T11 | `includeThoughts: true` added | gemini.py | same (20) | yes |
+| T12 | `includeThoughts: false` added | gemini.py | same (20) | yes |
+| T13 | `thinkingBudget: 0` added next to the level | gemini.py | same (20) | yes |
+| T14 | `thinkingConfig` at top level instead | gemini.py | same (20) | yes |
+| T15 | `thinkingConfig` at top level as well | gemini.py | test_every_request_asks_for_minimal_thinking_and_sends_max_tokens_unchanged, test_minimal_request_translation, test_system_instruction_translation (11) | yes |
+| T16 | sent only when `max_tokens` <= 256 | gemini.py | ...[max_tokens_65536], ...[max_tokens_1000000], test_thinking_config_is_the_same_on_every_call_of_one_adapter (3) | yes |
+| T17 | sent only when `max_tokens` <= 65536 | gemini.py | ...[max_tokens_1000000] (1) | yes |
+| T18 | sent only when `max_tokens` > 1 | gemini.py | ...[max_tokens_1], test_thinking_config_is_the_same_on_every_call_of_one_adapter (2) | yes |
+| T19 | sent only for `gemini-3.6-flash` | gemini.py | test_minimal_thinking_sent_for_each_configured_gemini_model[gemini-3.5-flash-lite] (14) | yes |
+| T20 | skipped for `gemini-3.5-flash-lite` | gemini.py | same (14) | yes |
+| T21 | sent only when "3.6" is in the model | gemini.py | same (14) | yes |
+| T22 | sent only when `system` is None | gemini.py | test_system_instruction_translation (4) | yes |
+| T23 | sent only when `stop` is None | gemini.py | test_stop_temperature_and_top_p_sent_when_set (2) | yes |
+| T24 | sent only when `temperature` is None | gemini.py | same (3) | yes |
+| T25 | sent only for one-message requests | gemini.py | ...[multi_turn_with_system] (1) | yes |
+| M01 | `maxOutputTokens` = `max_tokens` + 1024 | gemini.py | test_every_request_..., test_thinking_spent_budget_... (35) | yes |
+| M02 | `maxOutputTokens` = min(`max_tokens`, 65536) | gemini.py | ...[max_tokens_1000000] (1) | yes |
+| M03 | `maxOutputTokens` = max(`max_tokens`, 256) | gemini.py | test_minimal_request_translation (10) | yes |
+| M04 | `maxOutputTokens` = `max_tokens` * 2 | gemini.py | same as M01 (35) | yes |
+| M05 | `maxOutputTokens` as a float | gemini.py | test_every_request_... (9) | yes |
+| M06 | `maxOutputTokens` dropped | gemini.py | same as M01 (35) | yes |
+| M07 | key `max_output_tokens` | gemini.py | same as M01 (35) | yes |
+| U01 | `output_tokens` capped at `max_tokens` in `complete` | gemini.py | test_thinking_spent_budget_is_empty_max_tokens_success_with_uncapped_usage, test_output_tokens_far_above_max_tokens_are_not_capped, test_app_returns_200_... (21) | yes |
+| U02 | `output_tokens` = `candidatesTokenCount` only | gemini.py | test_output_tokens_include_thoughts and others (23) | yes |
+| U03 | `output_tokens` = `thoughtsTokenCount` only | gemini.py | test_minimal_success_translation, test_app_with_gemini_adapter (10) | yes |
+| U04 | `output_tokens` = max of the two | gemini.py | test_output_tokens_include_thoughts (7) | yes |
+| U05 | `output_tokens` capped at 256 in `_result` | gemini.py | same as U01 (21) | yes |
+| U06 | thoughts dropped from `output_tokens` when content is empty | gemini.py | test_thinking_spent_budget_..., test_app_returns_200_... (20) | yes |
+| E01 | empty + `MAX_TOKENS` -> ProviderUnavailable in `complete` | gemini.py | test_only_thought_parts_gives_empty_content, test_thinking_spent_budget_..., test_app_returns_200_... (21) | yes |
+| E02 | same, as ProviderBadRequest | gemini.py | same (21) | yes |
+| E03 | empty content with any finish reason -> ProviderUnavailable | gemini.py | E01's tests and test_candidate_without_content_or_parts_gives_empty_content (27) | yes |
+| E04 | empty + `MAX_TOKENS` -> ValueError in `_result` | gemini.py | same as E01 (21) | yes |
+| E05 | empty + `MAX_TOKENS` -> ProviderUnavailable in `_result` | gemini.py | same as E01 (21) | yes |
+| E06 | `MAX_TOKENS` with no parts -> ProviderUnavailable | gemini.py | test_thinking_spent_budget_..., test_app_returns_200_... (12) | yes |
+| E07 | empty content -> finish reason `other` | gemini.py | test_only_thought_parts_gives_empty_content and others (23) | yes |
+| E08 | empty content falls back to the thought text | gemini.py | test_only_thought_parts_gives_empty_content and others (5) | yes |
+| E09 | empty + `MAX_TOKENS` -> ProviderTimeout | gemini.py | same as E01 (21) | yes |
+
+47 caught + 0 after a new test + 0 equivalent = 47. No tests added. T17 and M02 are caught only by the `max_tokens_1000000` case, and T25 only by `multi_turn_with_system`.
+
+**Review, Fix 2.** Round 1: **PASS**, no BLOCKING items. check.ps1 PASS for the reviewer (970 passed, 5 deselected); `schema.py` unchanged; all 47 mutation rows match `d049_results.json`; the three changed exact-body tests stay exact; the live tests changed comments only.
+- SHOULD FIX, all fixed:
+  1. "`max_tokens` covers thinking" and "both models accept `MINIMAL`" were written as fact in D-049's Decision, two `gemini.py` comments and a live-test comment, while D-049's Risk marks both unverified on `generateContent`. Each now cites Google's guide and says unverified.
+  2. The `test_real_gemini_request_through_app` comment said it shows whether minimal thinking fixes the problem, but it sends `gemini-3.5-flash-lite`, whose default is already minimal. It now points to the `smart[1]` case in `test_live_aliases.py`.
+  3. The live alias test sends `gemini-3.6-flash`, which CLAUDE.md's new cheapest-models rule excludes unless the owner asks. The owner asked for it this session, so the exception is now written in that test's docstring, and the case must not be dropped without the owner.
+- Notes, fixed: three test names added to the T15, T16 and T18 rows (counts were right); the 5001-against-1 test described as separate from the 15 empty-content cases; the thinking-off sentence above aligned with D-049.
+- Notes, left: the app test's "no request to the second entry" is trivially true before M11 and becomes a real check then; one `MINIMAL` constant meets the owner's default only for the two configured models (D-049 Risk); da3f82c's message says D-047 notes the live run, while only its last sentence changed in that commit; README's manual demo sends alias `smart` (Opus) and is not a live test, so it is left for the owner.
+
+**Schema changes.** None for Fix 2.
+
+**Final checks.** `.\scripts\check.ps1`: PASS. `uv sync --locked` ok; pytest 970 passed, 5 deselected; `ruff check` all checks passed; `ruff format --check` 32 files already formatted; mypy no issues in 24 source files. `uv run pytest -m live --collect-only` selects the same five live tests. No dependency changed: `pyproject.toml` and `uv.lock` untouched. Windows 11 Home Single Language 10.0.26300, Python 3.12.12.
+
+**Needs owner.**
+- Rerun `uv run --env-file .env pytest -m live -v`. It should now be 5 passed. The two that failed are `tests/test_live_gemini.py::test_invalid_gemini_key_is_provider_auth_error` (Fix 1, no cost) and `tests/test_live_aliases.py::test_gemini_model_in_providers_toml_answers[smart[1]-gemini-3.6-flash]` (Fix 2; also verifies that `gemini-3.6-flash` accepts `MINIMAL`). `test_real_gemini_request_through_app` and the `fast[0]` alias case now send `thinkingConfig` too, so they should be rerun as well.
+- If `smart[1]` still returns empty content, or fails with 400 `provider_bad_request`, D-049 needs a new entry; do not raise `max_tokens`.
 
 ## Agent Mistakes Log
 
