@@ -5,25 +5,26 @@ mapping into an HTTP API (D-022), and gives every request one gateway ID (D-020)
 
 Key design choices:
 
-- `create_app(provider=None, id_factory=None)` (D-024): tests inject a provider and
-  deterministic IDs; the default is `MockProvider`, so nothing calls a real
-  provider unless configured to. Which provider the server uses is chosen in
-  `main` (D-036).
-- The app owns its provider: on shutdown its lifespan calls the provider's
-  `aclose()` if it has one, which closes the Claude adapter's HTTP client. The
-  adapter interface does not require `aclose()`, so the mock needs none.
+- `create_app(router=None, id_factory=None)` (D-024): tests inject a router and
+  deterministic IDs; the default router is built from the built-in mock-only
+  config, so nothing calls a real provider unless configured to. The server's
+  router is built from its config in `main` (D-044).
+- `model` must be a configured alias (D-045): otherwise 400 `unknown_model`, with
+  the value not echoed and no provider called, before the `stream=true` 501. The
+  response's `model` is the provider model that served, and `provider` is that
+  instance's provider type.
+- The app owns its router: on shutdown its lifespan calls `router.aclose()`,
+  which closes each adapter's HTTP client.
 - A small pure ASGI middleware, not `BaseHTTPMiddleware`, assigns the request ID,
   adds `x-request-id` to every response, writes one log line per request, and turns
   unexpected exceptions into the standard 500 body. It handles those itself
   because FastAPI runs `Exception` handlers outside user middleware, where the
   request ID header would not be added.
-- Log lines contain only the request ID, provider, model, status, and latency
-  (D-026). The model is client text, so it is logged with `repr`. Unexpected
-  exceptions are logged by type name only, since their messages can contain
-  request or provider content.
+- Log lines contain only the request ID, provider instance, model, status,
+  latency and provider model (D-026, D-045). The model is client text, so it is
+  logged with `repr`. Unexpected exceptions are logged by type name only, since
+  their messages can contain request or provider content.
 - FastAPI's built-in OpenTelemetry instrumentation is turned off (D-026).
-- Temporary (D-027): the request's `model` is echoed back and the single
-  configured provider handles every request.
 - Known gaps (D-025): no auth and no request body size limit, so run it on
   127.0.0.1 only.
 """
@@ -33,7 +34,6 @@ import time
 import uuid
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
-from typing import Protocol, runtime_checkable
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -41,6 +41,7 @@ from starlette.datastructures import MutableHeaders
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from llmgateway.config import DEFAULT_CONFIG, parse_config
 from llmgateway.errors import (
     GatewayError,
     gateway_error_handler,
@@ -50,8 +51,8 @@ from llmgateway.errors import (
     request_id_of,
     validation_error_handler,
 )
-from llmgateway.providers.base import ProviderAdapter, ProviderError
-from llmgateway.providers.mock import MockProvider
+from llmgateway.providers.base import ProviderError
+from llmgateway.router import Router, UnknownAlias, build_router
 from llmgateway.schema import ChatRequest, ChatResponse
 
 logger = logging.getLogger("llmgateway.request")
@@ -61,11 +62,6 @@ REQUEST_ID_HEADER = "x-request-id"
 
 def new_request_id() -> str:
     return f"gw_{uuid.uuid4().hex}"
-
-
-@runtime_checkable
-class _Closeable(Protocol):
-    async def aclose(self) -> None: ...
 
 
 class RequestContextMiddleware:
@@ -105,13 +101,15 @@ class RequestContextMiddleware:
         finally:
             latency_ms = (time.perf_counter() - started) * 1000
             model = state.get("model")
-            line = "request_id=%s provider=%s model=%s status=%d latency_ms=%.1f"
+            provider_model = state.get("provider_model")
+            line = "request_id=%s provider=%s model=%s status=%d latency_ms=%.1f provider_model=%s"
             args: list[object] = [
                 request_id,
                 state.get("provider", "-"),
                 repr(model) if model is not None else "-",
                 status,
                 latency_ms,
+                repr(provider_model) if provider_model is not None else "-",
             ]
             if error_type is None:
                 logger.info(line, *args)
@@ -120,16 +118,15 @@ class RequestContextMiddleware:
 
 
 def create_app(
-    provider: ProviderAdapter | None = None,
+    router: Router | None = None,
     id_factory: Callable[[], str] | None = None,
 ) -> FastAPI:
-    adapter: ProviderAdapter = provider if provider is not None else MockProvider()
+    gateway = router if router is not None else build_router(parse_config(DEFAULT_CONFIG), {})
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         yield
-        if isinstance(adapter, _Closeable):
-            await adapter.aclose()
+        await gateway.aclose()
 
     app = FastAPI(
         title="LLMGateway",
@@ -150,16 +147,24 @@ def create_app(
     @app.post("/v1/chat", response_model=ChatResponse)
     async def chat(body: ChatRequest, request: Request) -> ChatResponse:
         request.state.model = body.model
+        try:
+            route = gateway.select(body.model)
+        except UnknownAlias:
+            # Fixed message: the alias is client text and is not echoed (D-045).
+            raise GatewayError(
+                400, "unknown_model", "The model is not a configured alias."
+            ) from None
         if body.stream:
             raise GatewayError(
                 501, "streaming_not_implemented", "Streaming is not implemented yet."
             )
-        request.state.provider = adapter.name
-        result = await adapter.complete(body)
+        request.state.provider = route.provider
+        request.state.provider_model = route.model
+        result = await gateway.complete(route, body)
         return ChatResponse(
             id=request_id_of(request),
-            provider=adapter.name,
-            model=body.model,
+            provider=route.adapter.name,
+            model=route.model,
             content=result.content,
             finish_reason=result.finish_reason,
             usage=result.usage,

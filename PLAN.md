@@ -56,14 +56,14 @@ Worked in order. Status and evidence are in [PROGRESS.md](PROGRESS.md); this fil
 - **Scope:** a breaker per provider with closed, open and half-open states (FLOW.md section 6).
 - **Proof:** tests for every transition.
 - **Dependencies allowed:** none.
-- **Open issues to settle:** where breaker state lives (record it); thresholds and cooldown; whether provider rate limits count as failures (D-014); whether one breaker covers a provider or a (provider, model) pair.
+- **Open issues to settle:** where breaker state lives (record it); thresholds and cooldown; whether provider rate limits count as failures (D-014); whether one breaker covers a provider or a (provider, model) pair; with two mock instances in one alias (D-044, D-047), a breaker per provider type would open both together and break measurement 8 and the M11 proof, so per config instance is the candidate; how breaker state changes are made observable for measurement 8 (Prometheus is stretch).
 
 ### M11 Provider fallback and fault injection
 
 - **Scope:** fallback down the alias list (D-010) for non-streaming requests; streams get the pre-first-byte rule in M12. Per-provider fault injection switched by an environment variable, off by default.
 - **Proof:** inject failures on one provider and the other serves; the response says which provider served; with one mock at 100% failure, every request is served by the other.
 - **Dependencies allowed:** none.
-- **Open issues to settle:** whether non-retryable errors fall back (FLOW.md section 5, D-033); the fault-injection variables and how they are kept out of production.
+- **Open issues to settle:** whether non-retryable errors fall back (FLOW.md section 5, D-033); the fault-injection variables and how they are kept out of production, and whether they are still needed beyond the per-instance mock settings in the config (D-044); how the response says which provider served when two entries share a type, such as two mocks (D-045 reports the provider model and type only); how measurement 8's outage window (100% failure for a fixed time mid-run) is injected, since the mock's failure rate is fixed (D-016).
 
 ### M12 Normalized SSE streaming
 
@@ -135,7 +135,7 @@ Every entry in `docs/RESULTS.md` records: machine (CPU, RAM), OS, Python version
 
 Each question is answered in `DECISIONS.md` when the step that needs it starts. Decided questions link their entry; any part still open is listed under the question.
 
-- (a) How the request's `model` field maps to a provider, and which Gemini model is the fallback for which Claude model. **Decided in D-010, not implemented:** clients send an alias, and config maps each alias to an ordered list of (provider, model) pairs; fallback is the next entry. Still open: which pairs go in each alias list.
+- (a) How the request's `model` field maps to a provider, and which Gemini model is the fallback for which Claude model. **Decided in D-010, not implemented:** clients send an alias, and config maps each alias to an ordered list of (provider, model) pairs; fallback is the next entry. **The lists are decided in D-047**, with the config format in D-044.
 - (b) Whether `ChatResponse.id` is the provider's ID or a gateway-generated request ID. Cache hits and mock responses need one either way. **Decided in D-011 and D-020:** the gateway generates the response ID, and the provider's ID goes in the separate `provider_response_id` field. D-020 sets the format: `gw_` plus a random UUID4 in hex, also returned in the `x-request-id` header.
 - (c) How cache hits are represented in accounting, since no tokens are billed. Likely response metadata or headers. **Decided in D-012 and D-021, implemented with the cache:** hits are billed zero via a `cache_hit` flag in accounting, and also exposed in the `x-gateway-cache` response header (`hit` or `miss`).
 - (d) `stop=[]` and `stop=None` mean the same thing and must normalize to one cache key. **Decided in D-013:** an empty `stop` is normalized to `None` in the schema.

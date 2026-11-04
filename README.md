@@ -31,6 +31,8 @@ Supporting pieces: Docker Compose (gateway, Postgres, Redis), pytest test suite,
 
 PowerShell 7. The server has no auth yet (D-025), so bind it to `127.0.0.1` only. The gateway reads the process environment; it does not load `.env` files (see `.env.example` for the variables).
 
+Clients send a model alias in `model`, never a provider model. A TOML config file maps each alias to an ordered list of (provider instance, provider model) pairs (D-010, D-044). `LLMGATEWAY_CONFIG` names the file. When it is unset, a built-in default with the mock provider only is used. Until fallback (M11), only the first entry of an alias is used. An alias that is not configured gets 400 `unknown_model`. The response's `model` is the provider model that answered, and `provider` is its provider type (D-045). A bad config stops startup with one `llmgateway: configuration error: ...` line. `LLMGATEWAY_PROVIDER` is no longer read; if it is still set, startup stops.
+
 Mock provider (the default, no key needed). Terminal 1:
 
 ```powershell
@@ -38,56 +40,37 @@ uv sync
 uv run uvicorn llmgateway.main:app --host 127.0.0.1 --port 8000
 ```
 
-Terminal 2:
+Terminal 2: alias `mock`, served by the mock as model `mock-1`:
 
 ```powershell
 Invoke-RestMethod http://127.0.0.1:8000/healthz
-$body = @{ model = "mock-1"; max_tokens = 32; messages = @(@{ role = "user"; content = "hello there" }) } | ConvertTo-Json -Depth 5
+$body = @{ model = "mock"; max_tokens = 32; messages = @(@{ role = "user"; content = "hello there" }) } | ConvertTo-Json -Depth 5
 Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/v1/chat -ContentType "application/json" -Body $body
 ```
 
-Claude (real API calls, which cost money). Terminal 1; the variables last only for this PowerShell session, and `Read-Host` keeps the key out of your command history:
+Two mocks in one alias, with no key: `$env:LLMGATEWAY_CONFIG = "config/mock-fallback.toml"`, then send alias `mock-fallback`. Its first instance has 20 ms latency and fails 30% of requests with 502 `provider_unavailable`. Its second instance is not used until fallback exists.
+
+Claude and Gemini (real API calls, which cost money). `config/providers.toml` defines alias `fast` (`gemini-3.5-flash-lite`, then `claude-haiku-5-5`) and alias `smart` (`claude-opus-5-5`, then `gemini-3.6-flash`) (D-047). It needs both keys; to use only one provider, write a config with only that provider's instance. Terminal 1; the variables last only for this PowerShell session, and `Read-Host` keeps the keys out of your command history:
 
 ```powershell
-$env:LLMGATEWAY_PROVIDER = "claude"
+$env:LLMGATEWAY_CONFIG = "config/providers.toml"
 $env:ANTHROPIC_API_KEY = Read-Host "Anthropic API key" -MaskInput
-uv run uvicorn llmgateway.main:app --host 127.0.0.1 --port 8000
-```
-
-Terminal 2: one chat request, then one with an invalid model ID to see the mapped error (Claude's 404 becomes the gateway's 400 `provider_bad_request`):
-
-```powershell
-$body = @{ model = "claude-haiku-5-5"; max_tokens = 32; messages = @(@{ role = "user"; content = "Say hello in five words." }) } | ConvertTo-Json -Depth 5
-$r = Invoke-WebRequest -Method Post -Uri http://127.0.0.1:8000/v1/chat -ContentType "application/json" -Body $body -SkipHttpErrorCheck
-$j = $r.Content | ConvertFrom-Json
-"status=$($r.StatusCode) x-request-id=$($r.Headers['x-request-id']) provider=$($j.provider)"
-$j.usage
-
-$bad = @{ model = "claude-not-a-real-model"; max_tokens = 32; messages = @(@{ role = "user"; content = "hi" }) } | ConvertTo-Json -Depth 5
-$r = Invoke-WebRequest -Method Post -Uri http://127.0.0.1:8000/v1/chat -ContentType "application/json" -Body $bad -SkipHttpErrorCheck
-"status=$($r.StatusCode) x-request-id=$($r.Headers['x-request-id'])"
-$r.Content
-```
-
-When done, stop uvicorn (Ctrl+C) and, in terminal 1, `Remove-Item Env:ANTHROPIC_API_KEY, Env:LLMGATEWAY_PROVIDER`.
-
-Gemini (real API calls, which cost money) works the same way. Terminal 1:
-
-```powershell
-$env:LLMGATEWAY_PROVIDER = "gemini"
 $env:GEMINI_API_KEY = Read-Host "Gemini API key" -MaskInput
 uv run uvicorn llmgateway.main:app --host 127.0.0.1 --port 8000
 ```
 
-Terminal 2: the same requests as for Claude, with a Gemini model ID such as `gemini-3.5-flash-lite`. Until model aliases exist, `model` goes into the request path, so the adapter rejects any ID that does not start with a letter or digit, or that has characters other than letters, digits, `.`, `_` and `-`, with 400 `provider_bad_request`, before calling Gemini (D-042).
+Terminal 2: alias `smart` (served by Claude), alias `fast` (served by Gemini), then an alias that is not configured:
 
 ```powershell
-$body = @{ model = "gemini-3.5-flash-lite"; max_tokens = 32; messages = @(@{ role = "user"; content = "Say hello in five words." }) } | ConvertTo-Json -Depth 5
-$r = Invoke-WebRequest -Method Post -Uri http://127.0.0.1:8000/v1/chat -ContentType "application/json" -Body $body -SkipHttpErrorCheck
-"status=$($r.StatusCode) provider=$(($r.Content | ConvertFrom-Json).provider)"
+foreach ($alias in "smart", "fast", "no-such-alias") {
+  $body = @{ model = $alias; max_tokens = 256; messages = @(@{ role = "user"; content = "Say hello in five words." }) } | ConvertTo-Json -Depth 5
+  $r = Invoke-WebRequest -Method Post -Uri http://127.0.0.1:8000/v1/chat -ContentType "application/json" -Body $body -SkipHttpErrorCheck
+  $j = $r.Content | ConvertFrom-Json
+  "alias=$alias status=$($r.StatusCode) x-request-id=$($r.Headers['x-request-id']) provider=$($j.provider) model=$($j.model) error=$($j.error.code)"
+}
 ```
 
-When done, stop uvicorn and run `Remove-Item Env:GEMINI_API_KEY, Env:LLMGATEWAY_PROVIDER`.
+When done, stop uvicorn (Ctrl+C) and, in terminal 1, `Remove-Item Env:LLMGATEWAY_CONFIG, Env:ANTHROPIC_API_KEY, Env:GEMINI_API_KEY`.
 
 ## Results
 

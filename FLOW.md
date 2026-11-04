@@ -32,13 +32,15 @@ Where spend caps, coalescing state, and usage records live is not decided yet (s
 
 ## 4. Order of checks per request
 
-Decided in D-018. Body validation rejects with 422 (D-019). Which checks exist today is in [PROGRESS.md](PROGRESS.md).
+Decided in D-018. Body validation rejects with 422 (D-019), and a `model` that is not a configured alias with 400 `unknown_model` (D-045). Which checks exist today is in [PROGRESS.md](PROGRESS.md).
 
 ```mermaid
 flowchart TD
     A[Request arrives] --> B{Body valid}
     B -->|no| R1[Reject with 422]
-    B -->|yes| C{API key valid}
+    B -->|yes| AL{Model is a configured alias}
+    AL -->|no| R0[Reject with 400 unknown_model]
+    AL -->|yes| C{API key valid}
     C -->|no| R2[Reject, status to be decided]
     C -->|yes| D{Within rate limit}
     D -->|no| R3[Reject, status to be decided]
@@ -63,7 +65,7 @@ flowchart TD
 
 Why each check sits where it does:
 
-1. **Validate the body first.** It is the cheapest check and needs no database or Redis call. A malformed request should not cost a key lookup. Rejected with 422 (D-019).
+1. **Validate the body first.** It is the cheapest check and needs no database or Redis call. A malformed request should not cost a key lookup. Rejected with 422 (D-019). Then the `model` must exactly match a configured alias (D-045), another check that needs nothing but the config. An unknown alias gets 400 `unknown_model`, before the `stream=true` 501 and before any provider call.
 2. **API key next.** Every later check is per key (rate limit, cache key, spend cap), so the gateway must know who is calling before it can apply them.
 3. **Rate limit before any expensive work.** A caller over its limit should be turned away before the gateway does a cache lookup or calls a provider. Whether cache hits also count against the limit is an open question (section 11). PLAN.md measurement 5 expects 429 for this case, and D-019 reserves 429 for the gateway's own rate limiter.
 4. **Cache lookup before calling anyone.** Only cacheable requests are looked up; the rest go straight to the spend cap. A hit made no upstream call, so it is returned at once and billed zero (D-012). The cache key includes the caller, so one tenant never sees another tenant's response (D-003).
@@ -76,7 +78,7 @@ Why each check sits where it does:
 
 ## 5. Router flow (target design)
 
-The router tries the entries of the requested alias in order (D-010). Errors are classified by their `retryable` flag (D-014). Retry counts, timeouts, and backoff values are not chosen yet.
+The router tries the entries of the requested alias in order (D-010). Each entry is a (provider instance, provider model) pair from the config (D-044). The adapter gets a copy of the request whose `model` is the entry's provider model, and the response reports that provider model and the instance's provider type (D-045). Errors are classified by their `retryable` flag (D-014). Retry counts, timeouts, and backoff values are not chosen yet.
 
 ```mermaid
 flowchart TD
@@ -164,13 +166,14 @@ src/llmgateway/
 │   └── gemini.py        GeminiAdapter, generateContent over httpx
 ├── app.py               create_app, request middleware, endpoints
 ├── errors.py            error body, status mapping, exception handlers
-├── main.py              module-level app for uvicorn, provider configuration
+├── config.py            TOML config: provider instances and aliases, validated at startup
+├── router.py            alias selection; later timeouts, retries, breaker, fallback
+├── main.py              module-level app for uvicorn, config from the environment
 ├── auth                 API key hashing and lookup
 ├── ratelimit            Redis Lua token bucket
 ├── cache                cache key and storage
 ├── coalescing           stretch (D-031)
 ├── spend                stretch (D-031): spend caps
-├── router               timeouts, retries, breaker, fallback
 ├── accounting           usage and cost records
 └── metrics              stretch (D-031): Prometheus metrics
 ```
@@ -196,6 +199,7 @@ src/llmgateway/
 - **Coalescing (stretch, D-031):** when several identical requests arrive at the same time, only the first goes to the provider. The others wait and share its answer. This saves money and protects the provider during bursts.
 - **Backoff and jitter:** after a failure, wait before retrying, and wait longer after each failure (backoff). Add a small random amount to each wait (jitter), so many clients that failed together do not all retry at the same instant.
 - **Circuit breaker:** a switch that stops calling a provider after it keeps failing, then cautiously tries again later. See section 6.
+- **Alias:** the name a client sends in `model`, such as `fast`. The config maps it to an ordered list of (provider instance, provider model) pairs (D-010, D-044). The client never names a provider model directly.
 - **Fallback:** if one provider cannot answer, try the next provider and model in the alias's list (D-010). The list is explicit, so the gateway never guesses which models are equivalent.
 - **Retryable error:** an error where trying again might work, such as a timeout, a provider rate limit, or a provider outage. A bad request or a credential problem will fail the same way every time, so it is not retryable (D-014).
 - **Spend cap (stretch, D-031):** a budget per API key. Once a key's recorded spend reaches its cap, further paid requests are refused. The check must be atomic so concurrent requests cannot overshoot it; PLAN.md measurement 7 targets zero overshoot.
@@ -205,7 +209,6 @@ src/llmgateway/
 
 Listed, not answered.
 
-- Which provider and model pairs go into each alias list, and in what order (the mechanism is decided in D-010; the lists are not).
 - Whether cache hits count against rate limits.
 - The status code returned when a spend cap rejects a request (stretch, D-031).
 - Retry counts, timeouts, and circuit breaker thresholds: to be chosen, then measured.
@@ -248,7 +251,7 @@ Request (D-039, D-040): `POST https://generativelanguage.googleapis.com/v1beta/m
 
 | Provider outcome | Error type | Retryable | Client status | Client code |
 | --- | --- | --- | --- | --- |
-| `model` does not fully match `[A-Za-z0-9][A-Za-z0-9._-]*` (rejected before any network call, D-042) | `ProviderBadRequest` | no | 400 | `provider_bad_request` |
+| `model` does not fully match `[A-Za-z0-9][A-Za-z0-9._-]*` (rejected before any network call, D-042). Not reachable from a client since aliases: a config with such a Gemini model stops startup (D-046) | `ProviderBadRequest` | no | 400 | `provider_bad_request` |
 | More than 5 stop sequences (rejected before any network call, D-042) | `ProviderBadRequest` | no | 400 | `provider_bad_request` |
 | HTTP 401 or 403 | `ProviderAuthError` | no | 502 | `provider_auth_error` |
 | HTTP 429 | `ProviderRateLimited`, `retry_after_seconds` from a numeric, finite, non-negative `retry-after`, else none | yes | 503, with `Retry-After` rounded up to whole seconds when known, never below 0 (D-038) | `provider_rate_limited` |
@@ -269,6 +272,7 @@ On success (D-041): the first candidate's text is the concatenation of the `text
 | Outcome | Client status | Client code |
 | --- | --- | --- |
 | Body fails validation, or is not valid JSON (`details` holds `loc` and `msg` only); a body that is not valid UTF-8 gets 400 `http_error` instead (row below) | 422 | `validation_error` |
+| `model` is not a configured alias (exact, case-sensitive match; the value is not echoed; no provider is called; checked before the `stream=true` 501, D-045) | 400 | `unknown_model` |
 | Unknown route | 404 | `not_found` |
 | Method not allowed | 405 | `method_not_allowed` |
 | Any other HTTP exception raised by the framework (message is the standard phrase, never its detail) | its own status | `http_error` |
@@ -277,3 +281,26 @@ On success (D-041): the first candidate's text is the concatenation of the `text
 | Any other exception | 500 | `internal_error` |
 
 Every response, including errors, carries `x-request-id` (D-020).
+
+### Configuration errors (startup, `config.py`, `router.py`, `main.py`, D-044, D-046)
+
+These never reach a client: the process exits at import with `llmgateway: configuration error: <message>` and no traceback, before uvicorn serves anything. The message names the environment variable or the location in the file (for example `aliases.fast[1].provider`) and the rule broken. It never contains a value from the file, the config path, or any environment value.
+
+| Outcome | Startup |
+| --- | --- |
+| `LLMGATEWAY_CONFIG` unset | Built-in default: instance `mock` (type `mock`, default settings), alias `mock` = (`mock`, `mock-1`) |
+| `LLMGATEWAY_PROVIDER` set, to any value including empty | Stops (the variable is no longer read) |
+| `LLMGATEWAY_CONFIG` set but empty or blank | Stops |
+| The file cannot be read, is not valid UTF-8, or is not valid TOML | Stops |
+| A top-level key other than `providers` and `aliases`, or either table missing or empty | Stops |
+| A provider or alias name that does not fully match `[A-Za-z0-9][A-Za-z0-9._-]*`, or is longer than 128 characters | Stops |
+| A provider instance without a valid `type` (`mock`, `claude`, `gemini`), or with a key its type does not take | Stops |
+| A mock setting with the wrong type or out of range: `latency_ms` a finite number >= 0; `failure_rate` a number from 0 to 1; `failure_type` one of `timeout`, `rate_limited`, `unavailable`, `bad_request`, `auth`; `seed` an integer. A TOML boolean is not a number; `inf` and `nan` are rejected | Stops |
+| An alias whose value is not a non-empty array of `{provider, model}` tables, or an entry with another key | Stops |
+| An entry whose `provider` names no defined instance | Stops |
+| A defined instance that no alias uses | Stops |
+| One alias listing the same (instance, model) pair twice | Stops |
+| A `model` that is empty or longer than 128 characters | Stops |
+| A Gemini entry whose `model` does not fully match the D-042 pattern (D-046) | Stops |
+| An instance of type `claude` and `ANTHROPIC_API_KEY` unset or blank; type `gemini` and `GEMINI_API_KEY` unset or blank | Stops |
+| Valid config | One adapter per instance; mock settings are passed to that instance's `MockProvider` |

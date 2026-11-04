@@ -18,7 +18,8 @@ Key design choices:
 - API version `2026-10-21` (D-033). On that version `temperature` and `top_p`
   return a 400 on every model, so a request that sets either is rejected here with
   `ProviderBadRequest` before any network call, instead of being dropped silently.
-- `request.model` is sent as the Claude model ID until model aliases exist (D-027).
+- `request.model` is sent as the Claude model ID. The router sets it to the alias
+  entry's provider model from the config (D-045).
 - Error mapping (D-014, D-035): 401 and 403 are auth errors; 429 is a rate limit
   with `retry-after` when numeric; 5xx (including 529 overloaded) and connection
   errors are unavailable; timeouts are timeouts; other 4xx are bad requests. A 2xx

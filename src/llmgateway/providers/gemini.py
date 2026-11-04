@@ -15,10 +15,12 @@ Key design choices:
   reused `httpx.AsyncClient` with the D-034 timeouts; `aclose()` closes it.
 - The key is sent in the `x-goog-api-key` header, never as the `key=` query
   parameter, so it is never part of a URL.
-- The model ID goes in the URL path and is client text until model aliases
-  (D-027), so it must fully match a strict pattern before any network call
-  (D-042); otherwise it could send the keyed request to another endpoint. More
-  than 5 stop sequences, Gemini's documented limit, are rejected the same way.
+- The model ID goes in the URL path, so it must fully match a strict pattern
+  before any network call (D-042); otherwise it could send the keyed request to
+  another endpoint. Since aliases the model comes from the config, which checks
+  the same `MODEL_ID_PATTERN` at startup, but the adapter keeps its own check so
+  its safety does not depend on its caller (D-046). More than 5 stop sequences,
+  Gemini's documented limit, are rejected before any network call too.
 - `temperature` and `top_p` are passed through when set (D-040). Google documents
   that Gemini 3.6 Flash and newer ignore them.
 - Error mapping by HTTP status only, as for Claude (D-041): 401 and 403 are auth
@@ -66,7 +68,8 @@ DEFAULT_TIMEOUT: Final = httpx.Timeout(connect=5.0, read=60.0, write=10.0, pool=
 MAX_STOP_SEQUENCES: Final = 5
 
 # No "/", "?", "#", "%" or ":", so the model cannot change the request path (D-042).
-_MODEL_ID: Final = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
+# Public because config validation applies it at startup too (D-046).
+MODEL_ID_PATTERN: Final = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 
 _ROLES: Final[dict[Role, str]] = {"user": "user", "assistant": "model"}
 
@@ -212,7 +215,7 @@ class GeminiAdapter:
 
     async def complete(self, request: ChatRequest) -> ProviderResult:
         # fullmatch, not match with "$", which would also accept a trailing newline.
-        if _MODEL_ID.fullmatch(request.model) is None:
+        if MODEL_ID_PATTERN.fullmatch(request.model) is None:
             raise ProviderBadRequest("gemini: invalid model ID")
         if request.stop is not None and len(request.stop) > MAX_STOP_SEQUENCES:
             raise ProviderBadRequest("gemini: at most 5 stop sequences are supported")

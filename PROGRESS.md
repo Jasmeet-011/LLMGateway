@@ -445,6 +445,20 @@ Round 2: **PASS**, no BLOCKING items. Every round 1 item was checked in code and
 - Run `uv run pytest -m live` with `GEMINI_API_KEY` set; the Claude live test also needs `ANTHROPIC_API_KEY`. `test_invalid_gemini_key_is_provider_auth_error` sends a fake key, so it costs nothing. It settles D-041's unverified point: if Gemini answers a bad key with 400 rather than 401 or 403, the test fails and D-041 needs a new entry.
 - The `tester` and `reviewer` agent types do not load in these sessions, although the files are on `main`. The cause is unknown.
 
+### 2026-11-03: docs fix-up before M8
+
+One `docs:` commit (a01286d) with seven owner instructions: measurement 4 also records the request rate; new measurement 8 (outage timeline), which M18's proof now points at; the definition of done names the measurement behind each placeholder; M8's scope allows two independent mock entries in one alias list, and its open issues add a live check of the Gemini alias models; the M11, M12 and M18 proofs are extended; `.claude/agents/reviewer.md` gains a schema check; D-039 gains a risk and a revisit condition.
+
+- D-039 quotes Google's Interactions overview (https://aistudio.google.com/docs/interactions-overview, read 2026-11-03), not the instruction's paraphrase. The page says new models and capabilities "beyond the core mainline family", with agentic capabilities and tools, launch on the Interactions API. It does not mention multimodal capabilities.
+- Agents: `tester` and `reviewer` loaded by name in this session for the first time. The reviewer ran on the fix-up and returned **PASS**, with no BLOCKING items. Because the edited `reviewer.md` loads only next session, the builder put the new schema check in the reviewer's prompt.
+- Reviewer SHOULD FIX, taken into M8 (below): two mock entries cannot be told apart, because `provider` is the provider type; and no milestone builds what measurement 8 needs (a time-windowed outage, visible breaker state changes).
+- Reviewer note 5 asked for this entry in the fix-up commit. The owner approved fix-up edits to PLAN.md, DECISIONS.md and `reviewer.md` only, so it is recorded here in the M8 commits.
+- `.\scripts\check.ps1`: PASS (pytest 487 passed, 3 deselected).
+
+### 2026-11-03: M8 Model aliases and router selection
+
+**Plan.** Settle M8's open issues and record them (D-044 to D-047) with the FLOW.md changes before any code. Config: a TOML file named by `LLMGATEWAY_CONFIG`, read with the standard library's `tomllib` (no new dependency), with named provider instances so one alias can hold two independent mocks; a built-in mock-only default when the variable is unset; API keys only from the environment. Router: `router.py` selects the alias's first entry and passes the adapter the request with the entry's provider model; an unknown alias gets 400 `unknown_model`. `ChatResponse.model` reports the provider model that served, and the schema does not change. The D-042 model-ID check stays in the Gemini adapter and is also run at startup. Alias lists in `config/providers.toml`, plus a two-mock config, with a live test that each Gemini model in an alias is served by `generateContent`. Then: tester Mode 1 writes the tests from that spec, including migrating the D-036 tests that M8 supersedes; implement; tester Mode 2 runs mutation checks; reviewer; push. Also take the fix-up reviewer's two SHOULD FIX items into the M10 and M11 open issues.
+
 ## Agent Mistakes Log
 
 Rows are taken only from what the git history and DECISIONS.md record. Where the history does not say who found a problem, the row says so.

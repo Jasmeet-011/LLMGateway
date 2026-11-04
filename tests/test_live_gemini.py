@@ -5,31 +5,34 @@ Excluded by default (`-m 'not live'` in pyproject.toml). The owner runs them wit
 second sends a fixed invalid key, so it needs no real key and costs nothing.
 """
 
-import importlib
 import os
+from collections.abc import Mapping
 
 import httpx
 import pytest
 
 from llmgateway.app import create_app
+from llmgateway.config import parse_config
 from llmgateway.errors import ErrorBody
+from llmgateway.router import build_router
 from llmgateway.schema import ChatResponse
 
 pytestmark = pytest.mark.live
 
 INVALID_KEY = "llmgateway-live-test-invalid-gemini-key"
 
+CONFIG = """
+[providers.gemini]
+type = "gemini"
 
-async def _post_through_app(
-    monkeypatch: pytest.MonkeyPatch, environ: dict[str, str], max_tokens: int
-) -> httpx.Response:
-    # Importing main builds its module-level app from os.environ; keep that on the
-    # mock so the import itself opens no Gemini client.
-    monkeypatch.setenv("LLMGATEWAY_PROVIDER", "mock")
-    provider_from_env = importlib.import_module("llmgateway.main").provider_from_env
-    # The server's startup path, with LLMGATEWAY_PROVIDER=gemini.
-    provider = provider_from_env({**environ, "LLMGATEWAY_PROVIDER": "gemini"})
-    app = create_app(provider=provider)
+[aliases]
+lite = [{ provider = "gemini", model = "gemini-3.5-flash-lite" }]
+"""
+
+
+async def _post_through_app(environ: Mapping[str, str], max_tokens: int) -> httpx.Response:
+    # The server's startup path (D-044): config, then keys from the environment.
+    app = create_app(router=build_router(parse_config(CONFIG), environ))
     async with (
         app.router.lifespan_context(app),
         httpx.AsyncClient(
@@ -39,7 +42,7 @@ async def _post_through_app(
         return await client.post(
             "/v1/chat",
             json={
-                "model": "gemini-3.5-flash-lite",
+                "model": "lite",
                 "max_tokens": max_tokens,
                 "messages": [{"role": "user", "content": "Say hello in five words."}],
             },
@@ -51,13 +54,14 @@ async def _post_through_app(
     reason="GEMINI_API_KEY is not set; this live test needs a real key",
 )
 @pytest.mark.asyncio
-async def test_real_gemini_request_through_app(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_real_gemini_request_through_app() -> None:
     # 256 rather than 32: if the model spends output tokens on thinking, a small
     # budget could end with MAX_TOKENS and no text (unverified for this model).
-    response = await _post_through_app(monkeypatch, dict(os.environ), max_tokens=256)
+    response = await _post_through_app(os.environ, max_tokens=256)
     assert response.status_code == 200
     chat = ChatResponse.model_validate(response.json())
     assert chat.provider == "gemini"
+    assert chat.model == "gemini-3.5-flash-lite"
     assert chat.id == response.headers["x-request-id"]
     assert chat.content
     assert chat.usage.input_tokens > 0
@@ -65,15 +69,13 @@ async def test_real_gemini_request_through_app(monkeypatch: pytest.MonkeyPatch) 
 
 
 @pytest.mark.asyncio
-async def test_invalid_gemini_key_is_provider_auth_error(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+async def test_invalid_gemini_key_is_provider_auth_error() -> None:
     # Checks the unverified claim in D-041's risk note: that generateContent
     # answers an invalid key with 401 or 403. If Google returns 400
     # INVALID_ARGUMENT instead, this test fails with 400 provider_bad_request,
     # and D-041 must be revisited. A fixed fake key, so no real key is needed.
     environ = {**os.environ, "GEMINI_API_KEY": INVALID_KEY}
-    response = await _post_through_app(monkeypatch, environ, max_tokens=16)
+    response = await _post_through_app(environ, max_tokens=16)
     assert response.status_code == 502, response.text
     assert ErrorBody.model_validate(response.json()).error.code == "provider_auth_error"
     assert INVALID_KEY not in response.text

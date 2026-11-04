@@ -26,7 +26,8 @@ class Message(_Model):
 
 
 class ChatRequest(_Model):
-    # Bounded because it is client text that is logged and echoed back (D-030).
+    # A configured alias (D-045). Bounded because it is client text that is logged
+    # (D-030); aliases are capped at the same length (D-044).
     model: Annotated[str, Field(min_length=1, max_length=128)]
     messages: tuple[Message, ...]
     system: Annotated[str, Field(min_length=1)] | None = None

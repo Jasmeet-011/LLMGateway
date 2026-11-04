@@ -1,0 +1,25 @@
+# Two independent mock instances in one alias (D-047), so fallback can be tested
+# and measured without keys. No real provider is called.
+# Use it with: $env:LLMGATEWAY_CONFIG = "config/mock-fallback.toml"
+#
+# Until M11, only the first entry is used, so mock-primary serves every request
+# and 30% of them fail (measurement 4's injected failure rate).
+
+[providers.mock-primary]
+type = "mock"
+latency_ms = 20
+failure_rate = 0.3
+failure_type = "unavailable"
+seed = 1
+
+[providers.mock-secondary]
+type = "mock"
+latency_ms = 40
+failure_rate = 0.0
+seed = 2
+
+[aliases]
+mock-fallback = [
+    { provider = "mock-primary", model = "mock-a" },
+    { provider = "mock-secondary", model = "mock-b" },
+]

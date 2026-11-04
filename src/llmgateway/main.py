@@ -2,16 +2,17 @@
 
 Why it exists: uvicorn needs an importable app object, while tests build their own
 apps with `create_app` so they never share state. This module is the only place
-the server's app is created and its provider chosen (D-024, D-036).
+the server's app is created and its config read (D-024, D-044).
 
 Key design choices:
 
 - It gives the `llmgateway` logger an INFO handler if it has none, because
   uvicorn configures only its own loggers and the request log lines (D-026) would
   otherwise be dropped.
-- Temporary, until model aliases (D-010): `LLMGATEWAY_PROVIDER` picks the one
-  provider, `mock` (the default), `claude` or `gemini` (D-036, D-039). `claude`
-  needs `ANTHROPIC_API_KEY`; `gemini` needs `GEMINI_API_KEY`.
+- The config is the TOML file named by `LLMGATEWAY_CONFIG`, or the built-in
+  mock-only default when that is unset (D-044). API keys come only from the
+  environment: `ANTHROPIC_API_KEY` and `GEMINI_API_KEY`, each required only when
+  the config uses that provider type.
 - Bad configuration stops the process at import, before uvicorn serves anything,
   with a `SystemExit` message and no traceback. The messages never echo the
   values that were set, so a key pasted into the wrong variable is not printed.
@@ -23,35 +24,12 @@ import os
 from collections.abc import Mapping
 
 from llmgateway.app import create_app
-from llmgateway.providers.base import ProviderAdapter
-from llmgateway.providers.claude import ClaudeAdapter
-from llmgateway.providers.gemini import GeminiAdapter
-from llmgateway.providers.mock import MockProvider
+from llmgateway.config import ConfigError, load_config
+from llmgateway.router import Router, build_router
 
 
-class ConfigError(Exception):
-    """The environment does not describe a valid gateway configuration."""
-
-
-def provider_from_env(environ: Mapping[str, str]) -> ProviderAdapter:
-    name = environ.get("LLMGATEWAY_PROVIDER", "mock")
-    if name == "mock":
-        return MockProvider()
-    if name == "claude":
-        api_key = environ.get("ANTHROPIC_API_KEY", "")
-        if not api_key.strip():
-            raise ConfigError(
-                "ANTHROPIC_API_KEY is not set; it is required when LLMGATEWAY_PROVIDER=claude"
-            )
-        return ClaudeAdapter(api_key)
-    if name == "gemini":
-        api_key = environ.get("GEMINI_API_KEY", "")
-        if not api_key.strip():
-            raise ConfigError(
-                "GEMINI_API_KEY is not set; it is required when LLMGATEWAY_PROVIDER=gemini"
-            )
-        return GeminiAdapter(api_key)
-    raise ConfigError("LLMGATEWAY_PROVIDER must be 'mock', 'claude' or 'gemini'")
+def router_from_env(environ: Mapping[str, str]) -> Router:
+    return build_router(load_config(environ), environ)
 
 
 _logger = logging.getLogger("llmgateway")
@@ -62,8 +40,8 @@ if not _logger.handlers:
     _logger.setLevel(logging.INFO)
 
 try:
-    _provider = provider_from_env(os.environ)
+    _router = router_from_env(os.environ)
 except ConfigError as exc:
     raise SystemExit(f"llmgateway: configuration error: {exc}") from None
 
-app = create_app(provider=_provider)
+app = create_app(router=_router)

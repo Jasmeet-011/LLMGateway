@@ -1,11 +1,7 @@
-import importlib
 import inspect
 import json
 import logging
-import os
-import subprocess
-import sys
-from collections.abc import AsyncIterator, Callable, Mapping
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from typing import Any
 
@@ -24,6 +20,7 @@ from llmgateway.providers.base import (
     ProviderUnavailable,
 )
 from llmgateway.providers.gemini import API_BASE, DEFAULT_TIMEOUT, GeminiAdapter
+from llmgateway.router import Route, Router
 from llmgateway.schema import ChatRequest, ChatResponse
 
 API_KEY = "gemini-test-key-marker"
@@ -1055,18 +1052,25 @@ async def test_deeply_nested_body_is_unavailable(content: bytes) -> None:
     assert exc.__context__ is None
 
 
-# Through the app
+# Through the app, via a Router with an alias (D-045)
+
+ALIAS = "fast"
 
 
-def _client(adapter: ProviderAdapter) -> httpx.AsyncClient:
+def _router(adapter: ProviderAdapter, model: str = MODEL) -> Router:
+    return Router({ALIAS: [Route(provider="gemini", model=model, adapter=adapter)]})
+
+
+def _client(adapter: ProviderAdapter, model: str = MODEL) -> httpx.AsyncClient:
     return httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=create_app(provider=adapter)), base_url="http://test"
+        transport=httpx.ASGITransport(app=create_app(router=_router(adapter, model))),
+        base_url="http://test",
     )
 
 
 def _chat_body(**overrides: Any) -> dict[str, Any]:
     body: dict[str, Any] = {
-        "model": MODEL,
+        "model": ALIAS,
         "messages": [{"role": "user", "content": PROMPT_MARKER}],
         "max_tokens": 32,
     }
@@ -1083,6 +1087,7 @@ async def test_app_with_gemini_adapter(caplog: pytest.LogCaptureFixture) -> None
     assert response.status_code == 200
     chat = ChatResponse.model_validate(response.json())
     assert chat.provider == "gemini"
+    assert chat.model == MODEL
     assert chat.content == "Hi!"
     assert chat.finish_reason == "stop"
     assert chat.usage.input_tokens == 12
@@ -1090,10 +1095,13 @@ async def test_app_with_gemini_adapter(caplog: pytest.LogCaptureFixture) -> None
     assert chat.provider_response_id == "resp_01abc"
     assert chat.id == response.headers["x-request-id"]
     assert len(recorder.requests) == 1
+    # Gemini gets the route's provider model in the URL, never the alias.
+    assert str(recorder.requests[0].url) == f"{API_BASE}/{MODEL}:generateContent"
 
     lines = [r.getMessage() for r in caplog.records if r.name == "llmgateway.request"]
     assert len(lines) == 1
-    assert "provider=gemini model='gemini-3.5-flash-lite' status=200" in lines[0]
+    assert "provider=gemini model='fast' status=200" in lines[0]
+    assert "provider_model='gemini-3.5-flash-lite'" in lines[0]
     assert API_KEY not in caplog.text
     assert PROMPT_MARKER not in caplog.text
     assert "Hi!" not in caplog.text
@@ -1137,12 +1145,27 @@ async def test_app_maps_gemini_errors(status: int, client_status: int, code: str
 
 
 @pytest.mark.asyncio
-async def test_app_rejects_invalid_gemini_model_without_network_call() -> None:
+async def test_app_keeps_the_adapter_model_check_for_routes_built_without_config() -> None:
+    # D-046: the adapter keeps the D-042 check, so a Route built directly with a
+    # bad model (bypassing config validation) still never reaches the network.
+    recorder = Recorder()
+    async with _gemini(recorder) as adapter, _client(adapter, model="x/../../files") as client:
+        response = await client.post("/v1/chat", json=_chat_body())
+    assert response.status_code == 400
+    assert ErrorBody.model_validate(response.json()).error.code == "provider_bad_request"
+    assert recorder.requests == []
+
+
+@pytest.mark.asyncio
+async def test_app_rejects_path_like_client_model_as_unknown_alias() -> None:
+    # Replaces D-042's client-reachable case: the client's model is now only an
+    # alias name, so a path-like value is an unknown alias and nothing is sent.
     recorder = Recorder()
     async with _gemini(recorder) as adapter, _client(adapter) as client:
         response = await client.post("/v1/chat", json=_chat_body(model="x/../../files"))
     assert response.status_code == 400
-    assert ErrorBody.model_validate(response.json()).error.code == "provider_bad_request"
+    assert ErrorBody.model_validate(response.json()).error.code == "unknown_model"
+    assert "x/../../files" not in response.text
     assert recorder.requests == []
 
 
@@ -1160,88 +1183,10 @@ async def test_app_maps_undecodable_gemini_body_to_502() -> None:
 async def test_lifespan_closes_gemini_client() -> None:
     transport = ClosingTransport(Recorder())
     adapter = GeminiAdapter(API_KEY, transport=transport)
-    app = create_app(provider=adapter)
+    app = create_app(router=_router(adapter))
     async with app.router.lifespan_context(app):
         assert transport.closed == 0
     assert transport.closed == 1
 
 
-# Provider selection at startup (D-036, D-039)
-
-
-ProviderFromEnv = Callable[[Mapping[str, str]], ProviderAdapter]
-
-GEMINI_KEY_MESSAGE = "GEMINI_API_KEY is not set; it is required when LLMGATEWAY_PROVIDER=gemini"
-UNKNOWN_PROVIDER_MESSAGE = "LLMGATEWAY_PROVIDER must be 'mock', 'claude' or 'gemini'"
-
-
-@pytest.fixture
-def provider_from_env(monkeypatch: pytest.MonkeyPatch) -> ProviderFromEnv:
-    # Importing main builds the module-level app from os.environ, so make sure
-    # that environment is valid whatever the developer's shell has set.
-    monkeypatch.setenv("LLMGATEWAY_PROVIDER", "mock")
-    fn: ProviderFromEnv = importlib.import_module("llmgateway.main").provider_from_env
-    return fn
-
-
-@pytest.mark.asyncio
-async def test_gemini_provider_from_env(provider_from_env: ProviderFromEnv) -> None:
-    provider = provider_from_env({"LLMGATEWAY_PROVIDER": "gemini", "GEMINI_API_KEY": API_KEY})
-    assert isinstance(provider, GeminiAdapter)
-    assert provider.name == "gemini"
-    await provider.aclose()
-
-
-@pytest.mark.parametrize(
-    "environ",
-    [
-        {"LLMGATEWAY_PROVIDER": "gemini"},
-        {"LLMGATEWAY_PROVIDER": "gemini", "GEMINI_API_KEY": ""},
-        {"LLMGATEWAY_PROVIDER": "gemini", "GEMINI_API_KEY": "  "},
-        # The Claude key is not a substitute for the Gemini key.
-        {"LLMGATEWAY_PROVIDER": "gemini", "ANTHROPIC_API_KEY": API_KEY},
-    ],
-    ids=["missing", "empty", "blank", "only_anthropic_key"],
-)
-def test_gemini_without_key_fails(
-    provider_from_env: ProviderFromEnv, environ: dict[str, str]
-) -> None:
-    from llmgateway.main import ConfigError
-
-    with pytest.raises(ConfigError) as info:
-        provider_from_env(environ)
-    assert str(info.value) == GEMINI_KEY_MESSAGE
-    assert API_KEY not in str(info.value)
-
-
-# The value is matched exactly; near misses are unknown and are not echoed.
-@pytest.mark.parametrize("value", ["Gemini", "GEMINI", "gemini ", "google", API_KEY])
-def test_unknown_provider_lists_gemini_without_echo(
-    provider_from_env: ProviderFromEnv, value: str
-) -> None:
-    from llmgateway.main import ConfigError
-
-    with pytest.raises(ConfigError) as info:
-        provider_from_env({"LLMGATEWAY_PROVIDER": value, "GEMINI_API_KEY": API_KEY})
-    assert str(info.value) == UNKNOWN_PROVIDER_MESSAGE
-    assert API_KEY not in str(info.value)
-
-
-def test_gemini_startup_without_key_fails_cleanly() -> None:
-    env = {k: v for k, v in os.environ.items() if k != "GEMINI_API_KEY"}
-    env["LLMGATEWAY_PROVIDER"] = "gemini"
-    env["ANTHROPIC_API_KEY"] = API_KEY
-    # The real startup path: importing main, as uvicorn does.
-    result = subprocess.run(
-        [sys.executable, "-c", "import llmgateway.main"],
-        env=env,
-        capture_output=True,
-        text=True,
-        timeout=60,
-        check=False,
-    )
-    assert result.returncode == 1
-    assert GEMINI_KEY_MESSAGE in result.stderr
-    assert "Traceback" not in result.stderr
-    assert API_KEY not in result.stderr
-    assert API_KEY not in result.stdout
+# Startup selection of Gemini moved to test_main.py and test_router.py (D-044).

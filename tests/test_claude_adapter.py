@@ -1,10 +1,6 @@
-import importlib
 import json
 import logging
-import os
-import subprocess
-import sys
-from collections.abc import AsyncIterator, Callable, Mapping
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from typing import Any
 
@@ -24,6 +20,7 @@ from llmgateway.providers.base import (
 )
 from llmgateway.providers.claude import ANTHROPIC_VERSION, ClaudeAdapter
 from llmgateway.providers.mock import MockProvider
+from llmgateway.router import Route, Router
 from llmgateway.schema import ChatRequest, ChatResponse
 
 API_KEY = "sk-ant-test-key-marker"
@@ -587,12 +584,15 @@ async def test_deeply_nested_body_is_unavailable(content: bytes) -> None:
     assert exc.__context__ is None
 
 
-# Through the app
+# Through the app, via a Router with an alias (D-045)
+
+ALIAS = "fast"
 
 
 def _client(adapter: ProviderAdapter) -> httpx.AsyncClient:
+    router = Router({ALIAS: [Route(provider="claude", model="claude-haiku-5-5", adapter=adapter)]})
     return httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=create_app(provider=adapter)), base_url="http://test"
+        transport=httpx.ASGITransport(app=create_app(router=router)), base_url="http://test"
     )
 
 
@@ -604,7 +604,7 @@ async def test_app_with_claude_adapter(caplog: pytest.LogCaptureFixture) -> None
         response = await client.post(
             "/v1/chat",
             json={
-                "model": "claude-haiku-5-5",
+                "model": ALIAS,
                 "messages": [{"role": "user", "content": PROMPT_MARKER}],
                 "max_tokens": 32,
             },
@@ -612,13 +612,17 @@ async def test_app_with_claude_adapter(caplog: pytest.LogCaptureFixture) -> None
     assert response.status_code == 200
     chat = ChatResponse.model_validate(response.json())
     assert chat.provider == "claude"
+    assert chat.model == "claude-haiku-5-5"
     assert chat.content == "Hi!"
     assert chat.provider_response_id == "msg_01abc"
     assert chat.id == response.headers["x-request-id"]
+    # Claude gets the route's provider model, never the alias.
+    assert recorder.body["model"] == "claude-haiku-5-5"
 
     lines = [r.getMessage() for r in caplog.records if r.name == "llmgateway.request"]
     assert len(lines) == 1
-    assert "provider=claude model='claude-haiku-5-5' status=200" in lines[0]
+    assert "provider=claude model='fast' status=200" in lines[0]
+    assert "provider_model='claude-haiku-5-5'" in lines[0]
     assert API_KEY not in caplog.text
     assert PROMPT_MARKER not in caplog.text
     assert "Hi!" not in caplog.text
@@ -634,7 +638,7 @@ async def test_app_maps_claude_rate_limit_to_503_with_retry_after(
         response = await client.post(
             "/v1/chat",
             json={
-                "model": "claude-haiku-5-5",
+                "model": ALIAS,
                 "messages": [{"role": "user", "content": "hi"}],
                 "max_tokens": 32,
             },
@@ -655,7 +659,7 @@ async def test_app_maps_undecodable_claude_body_to_502() -> None:
         response = await client.post(
             "/v1/chat",
             json={
-                "model": "claude-haiku-5-5",
+                "model": ALIAS,
                 "messages": [{"role": "user", "content": "hi"}],
                 "max_tokens": 32,
             },
@@ -666,9 +670,28 @@ async def test_app_maps_undecodable_claude_body_to_502() -> None:
 
 
 @pytest.mark.asyncio
+async def test_app_rejects_claude_model_name_as_unknown_alias() -> None:
+    # Replaces D-027's pass-through: a provider model is not an alias.
+    recorder = Recorder()
+    async with _claude(recorder) as adapter, _client(adapter) as client:
+        response = await client.post(
+            "/v1/chat",
+            json={
+                "model": "claude-haiku-5-5",
+                "messages": [{"role": "user", "content": "hi"}],
+                "max_tokens": 32,
+            },
+        )
+    assert response.status_code == 400
+    assert ErrorBody.model_validate(response.json()).error.code == "unknown_model"
+    assert recorder.requests == []
+
+
+@pytest.mark.asyncio
 async def test_lifespan_closes_claude_client() -> None:
     adapter = ClaudeAdapter(API_KEY, transport=httpx.MockTransport(Recorder()))
-    app = create_app(provider=adapter)
+    router = Router({ALIAS: [Route(provider="claude", model="claude-haiku-5-5", adapter=adapter)]})
+    app = create_app(router=router)
     async with app.router.lifespan_context(app):
         assert not adapter._client.is_closed
     assert adapter._client.is_closed
@@ -676,96 +699,10 @@ async def test_lifespan_closes_claude_client() -> None:
 
 @pytest.mark.asyncio
 async def test_lifespan_with_provider_without_aclose() -> None:
-    app = create_app(provider=MockProvider())
+    router = Router({"mock": [Route(provider="mock", model="mock-1", adapter=MockProvider())]})
+    app = create_app(router=router)
     async with app.router.lifespan_context(app):
         pass
 
 
-# Provider selection at startup
-
-
-ProviderFromEnv = Callable[[Mapping[str, str]], ProviderAdapter]
-
-
-@pytest.fixture
-def provider_from_env(monkeypatch: pytest.MonkeyPatch) -> ProviderFromEnv:
-    # Importing main builds the module-level app from os.environ, so make sure
-    # that environment is valid whatever the developer's shell has set.
-    monkeypatch.setenv("LLMGATEWAY_PROVIDER", "mock")
-    fn: ProviderFromEnv = importlib.import_module("llmgateway.main").provider_from_env
-    return fn
-
-
-@pytest.mark.parametrize("environ", [{}, {"LLMGATEWAY_PROVIDER": "mock"}])
-def test_mock_is_the_default_provider(
-    provider_from_env: ProviderFromEnv, environ: dict[str, str]
-) -> None:
-    assert isinstance(provider_from_env(environ), MockProvider)
-
-
-@pytest.mark.asyncio
-async def test_claude_provider_from_env(provider_from_env: ProviderFromEnv) -> None:
-    provider = provider_from_env({"LLMGATEWAY_PROVIDER": "claude", "ANTHROPIC_API_KEY": API_KEY})
-    assert isinstance(provider, ClaudeAdapter)
-    await provider.aclose()
-
-
-@pytest.mark.parametrize(
-    "environ",
-    [
-        {"LLMGATEWAY_PROVIDER": "claude"},
-        {"LLMGATEWAY_PROVIDER": "claude", "ANTHROPIC_API_KEY": ""},
-        {"LLMGATEWAY_PROVIDER": "claude", "ANTHROPIC_API_KEY": "  "},
-    ],
-)
-def test_claude_without_key_fails(
-    provider_from_env: ProviderFromEnv, environ: dict[str, str]
-) -> None:
-    from llmgateway.main import ConfigError
-
-    with pytest.raises(ConfigError, match="ANTHROPIC_API_KEY is not set"):
-        provider_from_env(environ)
-
-
-@pytest.mark.parametrize("value", ["", "openai", "Claude", "Gemini", API_KEY])
-def test_unknown_provider_fails_without_echo(
-    provider_from_env: ProviderFromEnv, value: str
-) -> None:
-    from llmgateway.main import ConfigError
-
-    with pytest.raises(
-        ConfigError, match=r"^LLMGATEWAY_PROVIDER must be 'mock', 'claude' or 'gemini'$"
-    ) as info:
-        provider_from_env({"LLMGATEWAY_PROVIDER": value, "ANTHROPIC_API_KEY": API_KEY})
-    if value:
-        assert value not in str(info.value)
-
-
-@pytest.mark.parametrize(
-    ("overrides", "message"),
-    [
-        ({"LLMGATEWAY_PROVIDER": "claude"}, "ANTHROPIC_API_KEY is not set"),
-        (
-            {"LLMGATEWAY_PROVIDER": API_KEY},
-            "LLMGATEWAY_PROVIDER must be 'mock', 'claude' or 'gemini'",
-        ),
-    ],
-    ids=["claude_without_key", "unknown_provider"],
-)
-def test_startup_fails_cleanly(overrides: dict[str, str], message: str) -> None:
-    env = {k: v for k, v in os.environ.items() if k != "ANTHROPIC_API_KEY"}
-    env.update(overrides)
-    # The real startup path: importing main, as uvicorn does.
-    result = subprocess.run(
-        [sys.executable, "-c", "import llmgateway.main"],
-        env=env,
-        capture_output=True,
-        text=True,
-        timeout=60,
-        check=False,
-    )
-    assert result.returncode == 1
-    assert message in result.stderr
-    assert "Traceback" not in result.stderr
-    assert API_KEY not in result.stderr
-    assert API_KEY not in result.stdout
+# Startup selection of Claude moved to test_main.py and test_router.py (D-044).
