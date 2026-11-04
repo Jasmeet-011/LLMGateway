@@ -18,6 +18,7 @@ Key design choices:
   seed reproduces the same success/failure sequence. One roll per call, in call
   order; under concurrency the sequence follows the order calls reach the roll.
 - Failed calls wait the configured latency too, because real failures take time.
+  Injected errors carry reason `injected` and no status (D-054).
 - `sleep` is injectable so tests run instantly and can check the delay.
 """
 
@@ -46,17 +47,18 @@ _FAILURE_TYPES: Final = frozenset(get_args(FailureType))
 
 def _injected_error(failure_type: FailureType) -> ProviderError:
     message = f"mock provider: injected {failure_type} failure"
+    # No HTTP status: nothing went over the network (D-054).
     match failure_type:
         case "timeout":
-            return ProviderTimeout(message)
+            return ProviderTimeout(message, reason="injected")
         case "rate_limited":
-            return ProviderRateLimited(message)
+            return ProviderRateLimited(message, reason="injected")
         case "unavailable":
-            return ProviderUnavailable(message)
+            return ProviderUnavailable(message, reason="injected")
         case "bad_request":
-            return ProviderBadRequest(message)
+            return ProviderBadRequest(message, reason="injected")
         case "auth":
-            return ProviderAuthError(message)
+            return ProviderAuthError(message, reason="injected")
 
 
 def _word_count(text: str) -> int:

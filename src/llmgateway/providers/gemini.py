@@ -29,8 +29,8 @@ Key design choices:
   includes thinking, is reported as Google sends it even above `max_tokens`. An
   empty answer with finish reason `max_tokens` is a success, not an error.
 - Error mapping by HTTP status, as for Claude (D-041): 401, 402 (billing) and 403
-  are auth errors; 429 is a rate limit with `retry-after` when numeric; 5xx
-  (including 504 `deadline_exceeded`) and connection errors are unavailable;
+  are auth errors; 429 is a rate limit with `retry-after` when numeric; 408
+  (D-053), 5xx (including 504 `deadline_exceeded`) and connection errors are unavailable;
   timeouts are timeouts; other 4xx are bad requests. One exception (D-048): Google
   answers an invalid key with 400, so a 400 body is read for its `ErrorInfo`
   reason `API_KEY_INVALID`, and only that machine-readable field, never the
@@ -42,6 +42,8 @@ Key design choices:
   not the expected JSON is unavailable.
 - Error messages are fixed strings. They never contain the provider's error text,
   the prompt, or the API key, and httpx exceptions are not chained onto them.
+- Every error carries the HTTP status when there was one and a fixed reason code
+  (D-054) for the router's attempt log; neither reaches the client.
 """
 
 import re
@@ -165,22 +167,38 @@ def _is_invalid_key(content: bytes) -> bool:
 def _status_error(response: httpx.Response) -> ProviderError:
     status = response.status_code
     if status in (401, 403):
-        return ProviderAuthError("gemini: authentication or permission failure")
-    # Google answers an invalid key with 400 INVALID_ARGUMENT, not 401 (D-048).
+        return ProviderAuthError(
+            "gemini: authentication or permission failure", status=status, reason="auth"
+        )
+    # Google answers an invalid key with 400 INVALID_ARGUMENT, not 401 (D-048). The
+    # reason is the constant compared against, never text taken from the body.
     if status == 400 and _is_invalid_key(response.content):
-        return ProviderAuthError("gemini: invalid API key")
+        return ProviderAuthError("gemini: invalid API key", status=status, reason="API_KEY_INVALID")
     if status == 402:
-        return ProviderAuthError("gemini: billing failure, prepay credit depleted")
+        return ProviderAuthError(
+            "gemini: billing failure, prepay credit depleted", status=status, reason="billing"
+        )
+    if status == 408:
+        # The request was not rejected, so sending it again may work (D-053).
+        return ProviderUnavailable(
+            "gemini: provider request timeout (HTTP 408)", status=status, reason="http_status"
+        )
     if status == 429:
         return ProviderRateLimited(
             "gemini: rate limited",
             retry_after_seconds=parse_retry_after(response.headers.get("retry-after")),
+            status=status,
+            reason="rate_limited",
         )
     if 400 <= status < 500:
-        return ProviderBadRequest(f"gemini: request rejected with HTTP {status}")
+        return ProviderBadRequest(
+            f"gemini: request rejected with HTTP {status}", status=status, reason="http_status"
+        )
     # 5xx, including 504 deadline_exceeded, and anything else unexpected (such as
     # a redirect, which httpx does not follow).
-    return ProviderUnavailable(f"gemini: provider failure with HTTP {status}")
+    return ProviderUnavailable(
+        f"gemini: provider failure with HTTP {status}", status=status, reason="http_status"
+    )
 
 
 def _request_body(request: ChatRequest) -> dict[str, Any]:
@@ -264,9 +282,11 @@ class GeminiAdapter:
     async def complete(self, request: ChatRequest) -> ProviderResult:
         # fullmatch, not match with "$", which would also accept a trailing newline.
         if MODEL_ID_PATTERN.fullmatch(request.model) is None:
-            raise ProviderBadRequest("gemini: invalid model ID")
+            raise ProviderBadRequest("gemini: invalid model ID", reason="local_check")
         if request.stop is not None and len(request.stop) > MAX_STOP_SEQUENCES:
-            raise ProviderBadRequest("gemini: at most 5 stop sequences are supported")
+            raise ProviderBadRequest(
+                "gemini: at most 5 stop sequences are supported", reason="local_check"
+            )
 
         failure: ProviderError | None = None
         try:
@@ -274,12 +294,15 @@ class GeminiAdapter:
                 f"{API_BASE}/{request.model}:generateContent", json=_request_body(request)
             )
         except httpx.TimeoutException:
-            failure = ProviderTimeout("gemini: request timed out")
+            failure = ProviderTimeout("gemini: request timed out", reason="timeout")
         except httpx.TransportError:
-            failure = ProviderUnavailable("gemini: connection failed")
+            failure = ProviderUnavailable("gemini: connection failed", reason="connection")
         except httpx.DecodingError:
             # Not a TransportError: the body's content-encoding could not be decoded.
-            failure = ProviderUnavailable("gemini: undecodable response body")
+            # httpx raises before the status is visible, so there is none (D-052).
+            failure = ProviderUnavailable(
+                "gemini: undecodable response body", reason="undecodable_body"
+            )
         # Raised here, not inside the except blocks, so the httpx exception is not
         # chained onto the provider error.
         if failure is not None:
@@ -291,9 +314,16 @@ class GeminiAdapter:
         try:
             body = _BODY.validate_json(response.content)
             if _is_blocked(body):
-                failure = ProviderBadRequest("gemini: prompt blocked")
+                failure = ProviderBadRequest(
+                    "gemini: prompt blocked", status=response.status_code, reason="prompt_blocked"
+                )
             else:
                 return _result(body)
         except (ValidationError, ValueError):
-            failure = ProviderUnavailable("gemini: malformed response body")
+            # The 2xx status tells the router this generation was billed (D-052).
+            failure = ProviderUnavailable(
+                "gemini: malformed response body",
+                status=response.status_code,
+                reason="malformed_body",
+            )
         raise failure

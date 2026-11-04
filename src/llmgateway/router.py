@@ -2,12 +2,26 @@
 
 Why it exists: clients name an alias, never a provider (D-010). The router owns
 the mapping from each alias to its ordered (provider instance, provider model)
-entries, and it is where timeouts, retries, the circuit breaker and fallback will
+entries, and it is where timeouts, retries, the circuit breaker and fallback
 live (M9 to M11), so the app and the adapters never need to know about them.
 
 Key design choices:
 
-- In M8 the router selects an alias's first entry; fallback down the list is M11.
+- The router selects an alias's first entry; fallback down the list is M11.
+- Retries happen here and nowhere else (D-032); adapters raise each failure once.
+  `complete` tries one entry up to `RetryPolicy.max_attempts` times (D-050):
+  - only `ProviderError`s with `retryable` set are retried, and never one whose
+    provider status is 2xx, because that generation was already billed (D-052);
+  - the wait is full jitter, `random() * min(max_delay, base_delay * 2**(n-1))`,
+    and at least the provider's `retry-after`; a `retry-after` over
+    `max_retry_after` is not waited for at all, the client gets it (D-051);
+  - each attempt runs under `min(attempt_timeout, time left)`, and the whole call
+    has a `total_timeout` deadline that no wait may reach.
+  Sleep, clock and random are injected, so tests check every wait exactly.
+- Every failed attempt writes one `attempt_failed` WARNING line with the alias,
+  instance, provider model, attempt number, provider status, fixed reason code,
+  error class and whether it retries (D-054). It never includes the adapter's
+  message, provider text, prompts or keys, and none of it reaches the client.
 - The adapter gets a copy of the request whose `model` is the entry's provider
   model, so the adapter interface (D-015) does not change (D-045). The copy is not
   re-validated; that is safe because the config already checked the model.
@@ -21,8 +35,12 @@ Key design choices:
 """
 
 import asyncio
+import logging
+import math
+import time
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
+from random import Random
 from types import MappingProxyType
 from typing import Protocol, runtime_checkable
 
@@ -35,15 +53,60 @@ from llmgateway.config import (
     GeminiProviderConfig,
     MockProviderConfig,
 )
-from llmgateway.providers.base import ProviderAdapter, ProviderResult
+from llmgateway.providers.base import (
+    ProviderAdapter,
+    ProviderError,
+    ProviderRateLimited,
+    ProviderResult,
+    ProviderTimeout,
+)
 from llmgateway.providers.claude import ClaudeAdapter
 from llmgateway.providers.gemini import GeminiAdapter
 from llmgateway.providers.mock import MockProvider
 from llmgateway.schema import ChatRequest
 
 Sleep = Callable[[float], Awaitable[None]]
+Clock = Callable[[], float]
+RandomSource = Callable[[], float]
+
+logger = logging.getLogger("llmgateway.router")
 
 _KEY_VARIABLES = {"claude": "ANTHROPIC_API_KEY", "gemini": "GEMINI_API_KEY"}
+
+# Keeps 2.0 ** exponent finite for any attempt count; the wait is capped long before.
+_MAX_EXPONENT = 1023
+
+
+def _is_number(value: object) -> bool:
+    return isinstance(value, int | float) and not isinstance(value, bool)
+
+
+@dataclass(frozen=True)
+class RetryPolicy:
+    """Retry and timeout settings for one router (D-050, D-051); seconds throughout."""
+
+    max_attempts: int = 3
+    base_delay: float = 0.2
+    max_delay: float = 2.0
+    max_retry_after: float = 5.0
+    attempt_timeout: float = 60.0
+    total_timeout: float = 90.0
+
+    def __post_init__(self) -> None:
+        if (
+            not isinstance(self.max_attempts, int)
+            or isinstance(self.max_attempts, bool)
+            or self.max_attempts < 1
+        ):
+            raise ValueError("max_attempts must be an int of at least 1")
+        for name in ("base_delay", "max_delay", "max_retry_after"):
+            value = getattr(self, name)
+            if not _is_number(value) or not math.isfinite(value) or value < 0:
+                raise ValueError(f"{name} must be a finite number >= 0")
+        for name in ("attempt_timeout", "total_timeout"):
+            value = getattr(self, name)
+            if not _is_number(value) or not math.isfinite(value) or value <= 0:
+                raise ValueError(f"{name} must be a finite number > 0")
 
 
 @runtime_checkable
@@ -65,7 +128,15 @@ class UnknownAlias(Exception):
 
 
 class Router:
-    def __init__(self, aliases: Mapping[str, Sequence[Route]]) -> None:
+    def __init__(
+        self,
+        aliases: Mapping[str, Sequence[Route]],
+        *,
+        policy: RetryPolicy | None = None,
+        sleep: Sleep = asyncio.sleep,
+        clock: Clock = time.monotonic,
+        random: RandomSource | None = None,
+    ) -> None:
         if not aliases:
             raise ValueError("a router needs at least one alias")
         routes: dict[str, tuple[Route, ...]] = {}
@@ -74,6 +145,11 @@ class Router:
                 raise ValueError("every alias needs at least one route")
             routes[alias] = tuple(entries)
         self._aliases = MappingProxyType(routes)
+        self._policy = policy if policy is not None else RetryPolicy()
+        self._sleep = sleep
+        self._clock = clock
+        # Jitter only, not security; the router owns its generator (D-050).
+        self._random = random if random is not None else Random().random  # noqa: S311
 
     def routes(self, alias: str) -> tuple[Route, ...]:
         try:
@@ -86,8 +162,88 @@ class Router:
         # The first entry only, until fallback (M11).
         return self.routes(alias)[0]
 
-    async def complete(self, route: Route, request: ChatRequest) -> ProviderResult:
-        return await route.adapter.complete(request.model_copy(update={"model": route.model}))
+    async def complete(
+        self, route: Route, request: ChatRequest, *, request_id: str | None = None
+    ) -> ProviderResult:
+        """Call the route's adapter, retrying per the policy; raises the last error."""
+        # The request's model is still the alias the client sent (D-045).
+        alias = request.model
+        routed = request.model_copy(update={"model": route.model})
+        deadline = self._clock() + self._policy.total_timeout
+        attempt = 0
+        while True:
+            attempt += 1
+            failure = await self._attempt(route, routed, deadline)
+            if isinstance(failure, ProviderResult):
+                return failure
+            wait = self._retry_wait(failure, attempt, deadline)
+            self._log_failure(request_id, alias, route, attempt, failure, retry=wait is not None)
+            if wait is None:
+                # Outside any except block, so nothing new is chained onto it.
+                raise failure
+            await self._sleep(wait)
+
+    async def _attempt(
+        self, route: Route, request: ChatRequest, deadline: float
+    ) -> ProviderResult | ProviderError:
+        timeout = asyncio.timeout(min(self._policy.attempt_timeout, deadline - self._clock()))
+        try:
+            async with timeout:
+                return await route.adapter.complete(request)
+        except ProviderError as exc:
+            return exc
+        except TimeoutError:
+            # Only our own timeout is ours to translate; an adapter's TimeoutError
+            # is a bug and propagates unchanged.
+            if not timeout.expired():
+                raise
+        # Built here, not in the except block, so the TimeoutError is not chained.
+        return ProviderTimeout("router: attempt timed out", reason="attempt_timeout")
+
+    def _retry_wait(self, error: ProviderError, attempt: int, deadline: float) -> float | None:
+        """Seconds to wait before the next attempt, or None to give up."""
+        policy = self._policy
+        if not error.retryable:
+            return None
+        # A 2xx means the provider generated and billed; a retry bills again (D-052).
+        if error.status is not None and 200 <= error.status <= 299:
+            return None
+        if attempt >= policy.max_attempts:
+            return None
+        bound = min(policy.max_delay, policy.base_delay * 2.0 ** min(attempt - 1, _MAX_EXPONENT))
+        wait = self._random() * bound
+        if isinstance(error, ProviderRateLimited) and error.retry_after_seconds is not None:
+            if error.retry_after_seconds > policy.max_retry_after:
+                return None
+            wait = max(wait, error.retry_after_seconds)
+        if self._clock() + wait >= deadline:
+            return None
+        return wait
+
+    def _log_failure(
+        self,
+        request_id: str | None,
+        alias: str,
+        route: Route,
+        attempt: int,
+        error: ProviderError,
+        *,
+        retry: bool,
+    ) -> None:
+        # Fixed fields only: never error.message, provider text, prompts or keys (D-054).
+        logger.warning(
+            "attempt_failed request_id=%s alias=%r provider=%s model=%r attempt=%d "
+            "status=%s reason=%s error=%s retry=%s",
+            request_id if request_id is not None else "-",
+            alias,
+            route.provider,
+            route.model,
+            attempt,
+            error.status if error.status is not None else "-",
+            error.reason if error.reason is not None else "-",
+            type(error).__name__,
+            "yes" if retry else "no",
+        )
 
     async def aclose(self) -> None:
         closed: set[int] = set()
@@ -118,8 +274,12 @@ def build_router(
     *,
     transport: httpx.AsyncBaseTransport | None = None,
     sleep: Sleep | None = None,
+    policy: RetryPolicy | None = None,
 ) -> Router:
-    """A router over adapters built from the config; raises ConfigError on a missing key."""
+    """A router over adapters built from the config; raises ConfigError on a missing key.
+
+    `sleep`, when given, is used by the mock instances and the router's backoff.
+    """
     # Every key first, so a missing one fails before any HTTP client is opened.
     used_types = {provider.type for provider in config.providers.values()}
     keys = {t: _api_key(environ, t) for t in sorted(used_types) if t in _KEY_VARIABLES}
@@ -146,5 +306,7 @@ def build_router(
                 Route(entry.provider, entry.model, adapters[entry.provider]) for entry in entries
             ]
             for alias, entries in config.aliases.items()
-        }
+        },
+        policy=policy,
+        sleep=sleep if sleep is not None else asyncio.sleep,
     )

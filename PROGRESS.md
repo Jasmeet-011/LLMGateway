@@ -881,6 +881,48 @@ Fix 1 pushed as cfff6cc and 4ce37cf.
 - D-053: 408 is a retryable `ProviderUnavailable` on both adapters (RFC 9110 section 15.5.9, read this session).
 - D-054 (the owner's addition): `ProviderError` gains `status` and a fixed `reason` code; one `attempt_failed` WARNING line per failed attempt on `llmgateway.router`, never sent to the client.
 - Pointer lines in D-034, D-035, D-038, D-041 and D-048.
+- Committed as 3a40c97, before any test was written.
+
+**Tests (tester, Mode 1).** Written from the spec commit, with no `src/` change (`git diff --stat -- src` empty when the tester finished and when the builder ran them).
+- New files: `tests/test_retries.py` and `tests/test_provider_errors.py`.
+- `tests/test_retries.py` covers:
+  - `RetryPolicy` defaults and validation; the exact signatures of `Router`, `complete` and `build_router`.
+  - Which errors are retried; the same exception object raised at the end.
+  - Backoff growth and cap; the exact jitter (`random() * bound`), including 0 and just below 1; no sleep before the first attempt or after the last.
+  - `retry-after`: the longer wait, exactly 5.0 retried, above 5.0 one call.
+  - The billed-2xx rule for statuses 200 to 299, against None, 199, 300, 408 and 5xx.
+  - The total deadline with a fake clock, including the `>=` boundary.
+  - The per-attempt timeout with real 0.02 s timeouts: `attempt_timeout`, nothing chained, `min(attempt_timeout, time left)`; an adapter's own `TimeoutError` propagates unchanged.
+  - The exact `attempt_failed` lines, with planted keys, prompts and provider text never logged.
+  - App-level request IDs, client bodies without reason or status, and the call count per outcome.
+- Adapter tests: status and reason for every Claude and Gemini row of FLOW.md section 13, 408 on both, and mock `injected`.
+- Existing tests changed, decided by the tester on D-050:
+  1. `tests/test_main.py::test_startup_with_mock_fallback_config_serves_its_aliases`: the seeded sequence now covers 6 mock calls (`F,T,T,F,T,T`). The four requests, all expected 502/200/200/502 before, are now all 200, and the unused `FALLBACK_FAIL` constant was removed.
+  2. Three `tests/test_router.py` M8 tests whose subject is not retries (the failing-mock, seeded-sequence and committed mock-fallback tests) now get `RetryPolicy(max_attempts=1)`, with their assertions unchanged.
+  3. Test helpers in `tests/test_app.py` and both adapter files inject a no-op sleep. The undecodable-body app tests use a handler that builds a fresh response per call, because re-reading one stream response raises `httpx.StreamConsumed`, which would turn into a 500 once retried.
+
+  No assertion was loosened, skipped or deleted.
+
+**Seen failing before any `src/` change** (builder's run, at 3a40c97 plus the new tests):
+- `uv run pytest`: stopped at 2 collection errors, `ImportError: cannot import name 'RetryPolicy' from 'llmgateway.router'` in `tests/test_retries.py` and `tests/test_router.py`.
+- With `--continue-on-collection-errors`: `198 failed, 855 passed, 5 deselected, 2 errors in 155.69s`. Grouped by the first exception line:
+  - 123 `AttributeError` (no `status` or `reason`);
+  - 54 `TypeError: Router.__init__() got an unexpected keyword argument`;
+  - 13 `TypeError` from a `ProviderError` class given `status` or `reason`;
+  - 6 `assert ... is ProviderUnavailable` failures on 408 (`ProviderBadRequest`);
+  - the test_main seeded sequence (502 where 200 is now expected);
+  - one `subprocess.TimeoutExpired` in `test_startup_with_gemini_config_without_gemini_key_fails_cleanly`. That test does not touch M9; it passed alone in 1.44 s, so the builder reads it as load during the long red run.
+
+  Every other failure is the missing M9 interface or behavior.
+
+**Implementation.**
+- `providers/base.py`: `status` and `reason` on every error class.
+- `claude.py` and `gemini.py`: status and reason on every raise, and 408 as `ProviderUnavailable`.
+- `mock.py`: `injected`.
+- `router.py`: `RetryPolicy`, the retry loop, the per-attempt timeout via `asyncio.timeout` with `expired()`, the deadline, and the attempt log; `build_router` passes `policy` and `sleep`.
+- `app.py`: passes the request ID.
+- Settled while implementing (D-054, D-050, FLOW.md section 5; the tester's report had flagged both as unspecified): a non-`ProviderError` exception writes no router line, and the router calls sleep once per retry even for a wait of 0.
+- `.\scripts\check.ps1`: PASS, 1259 passed, 5 deselected (the first run failed `ruff format --check` on `gemini.py`; reformatted).
 
 ## Agent Mistakes Log
 

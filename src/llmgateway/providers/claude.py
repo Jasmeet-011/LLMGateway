@@ -20,12 +20,15 @@ Key design choices:
   `ProviderBadRequest` before any network call, instead of being dropped silently.
 - `request.model` is sent as the Claude model ID. The router sets it to the alias
   entry's provider model from the config (D-045).
-- Error mapping (D-014, D-035, D-048): 401, 402 (billing) and 403 are auth
-  errors, because each is the gateway's account problem; 429 is a rate limit
-  with `retry-after` when numeric; 5xx (including 529 overloaded) and connection
-  errors are unavailable; timeouts are timeouts; other 4xx are bad requests. A 2xx
-  body that is not the expected JSON is unavailable, and so is a body whose
-  content-encoding cannot be decoded. Redirects are never followed (D-043).
+- Error mapping (D-014, D-035, D-048, D-053): 401, 402 (billing) and 403 are
+  auth errors, because each is the gateway's account problem; 429 is a rate limit
+  with `retry-after` when numeric; 408, 5xx (including 529 overloaded) and
+  connection errors are unavailable; timeouts are timeouts; other 4xx are bad
+  requests. A 2xx body that is not the expected JSON is unavailable, and so is a
+  body whose content-encoding cannot be decoded. Redirects are never followed
+  (D-043).
+- Every error carries the HTTP status when there was one and a fixed reason code
+  (D-054) for the router's attempt log; neither reaches the client.
 - Error messages are fixed strings. They never contain the provider's error text,
   the prompt, or the API key. Provider errors are raised outside the `except`
   block, so the httpx exception, whose request carries the key header, is not
@@ -90,21 +93,34 @@ class _Message(BaseModel):
 def _status_error(response: httpx.Response) -> ProviderError:
     status = response.status_code
     if status in (401, 403):
-        return ProviderAuthError("claude: authentication or permission failure")
+        return ProviderAuthError(
+            "claude: authentication or permission failure", status=status, reason="auth"
+        )
     if status == 402:
         # billing_error: the gateway's account, not the client's request (D-048).
-        return ProviderAuthError("claude: billing failure")
+        return ProviderAuthError("claude: billing failure", status=status, reason="billing")
+    if status == 408:
+        # The request was not rejected, so sending it again may work (D-053).
+        return ProviderUnavailable(
+            "claude: provider request timeout (HTTP 408)", status=status, reason="http_status"
+        )
     if status == 429:
         return ProviderRateLimited(
             "claude: rate limited",
             # Anthropic sends whole seconds.
             retry_after_seconds=parse_retry_after(response.headers.get("retry-after")),
+            status=status,
+            reason="rate_limited",
         )
     if 400 <= status < 500:
-        return ProviderBadRequest(f"claude: request rejected with HTTP {status}")
+        return ProviderBadRequest(
+            f"claude: request rejected with HTTP {status}", status=status, reason="http_status"
+        )
     # 5xx, including 529 overloaded, and anything else unexpected (such as a
     # redirect, which httpx does not follow).
-    return ProviderUnavailable(f"claude: provider failure with HTTP {status}")
+    return ProviderUnavailable(
+        f"claude: provider failure with HTTP {status}", status=status, reason="http_status"
+    )
 
 
 def _request_body(request: ChatRequest) -> dict[str, Any]:
@@ -170,18 +186,23 @@ class ClaudeAdapter:
 
     async def complete(self, request: ChatRequest) -> ProviderResult:
         if request.temperature is not None or request.top_p is not None:
-            raise ProviderBadRequest("claude: temperature and top_p are not supported")
+            raise ProviderBadRequest(
+                "claude: temperature and top_p are not supported", reason="local_check"
+            )
 
         failure: ProviderError | None = None
         try:
             response = await self._client.post(API_URL, json=_request_body(request))
         except httpx.TimeoutException:
-            failure = ProviderTimeout("claude: request timed out")
+            failure = ProviderTimeout("claude: request timed out", reason="timeout")
         except httpx.TransportError:
-            failure = ProviderUnavailable("claude: connection failed")
+            failure = ProviderUnavailable("claude: connection failed", reason="connection")
         except httpx.DecodingError:
             # Not a TransportError: the body's content-encoding could not be decoded.
-            failure = ProviderUnavailable("claude: undecodable response body")
+            # httpx raises before the status is visible, so there is none (D-052).
+            failure = ProviderUnavailable(
+                "claude: undecodable response body", reason="undecodable_body"
+            )
         # Raised here, not inside the except blocks, so the httpx exception is not
         # chained onto the provider error.
         if failure is not None:
@@ -193,5 +214,10 @@ class ClaudeAdapter:
         try:
             return _result(_Message.model_validate_json(response.content))
         except (ValidationError, ValueError):
-            failure = ProviderUnavailable("claude: malformed response body")
+            # The 2xx status tells the router this generation was billed (D-052).
+            failure = ProviderUnavailable(
+                "claude: malformed response body",
+                status=response.status_code,
+                reason="malformed_body",
+            )
         raise failure

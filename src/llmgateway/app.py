@@ -160,7 +160,8 @@ def create_app(
             )
         request.state.provider = route.provider
         request.state.provider_model = route.model
-        result = await gateway.complete(route, body)
+        # The router retries (D-050) and logs each failed attempt with this ID (D-054).
+        result = await gateway.complete(route, body, request_id=request_id_of(request))
         return ChatResponse(
             id=request_id_of(request),
             provider=route.adapter.name,

@@ -12,7 +12,10 @@ Key design choices:
   response because only it knows the gateway response ID and the requested alias.
 - Every error carries a `retryable` flag so callers classify failures without
   knowing which provider raised them. Error messages must never contain prompt
-  text, API keys or secrets, because they end up in logs.
+  text, API keys or secrets.
+- Every error also carries the provider's HTTP `status` (or None) and a fixed
+  `reason` code (D-054), which the router logs for each failed attempt so an
+  operator can tell, say, a bad key from a billing failure.
 - `parse_retry_after` is shared by the HTTP adapters, so a provider's
   `retry-after` header is read the same way for every provider.
 """
@@ -45,17 +48,34 @@ class ProviderAdapter(Protocol):
 
 
 class ProviderError(Exception):
-    """Base class for every failure an adapter reports."""
+    """Base class for every failure an adapter reports.
 
-    def __init__(self, message: str, *, retryable: bool = False) -> None:
+    `status` is the provider's HTTP status when a response arrived, else None.
+    `reason` is a fixed code from D-054's list, chosen by whoever classified the
+    failure; it is never text copied from a provider response, so it is safe to
+    log. Neither is ever sent to the client.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        retryable: bool = False,
+        status: int | None = None,
+        reason: str | None = None,
+    ) -> None:
         super().__init__(message)
         self.message = message
         self.retryable = retryable
+        self.status = status
+        self.reason = reason
 
 
 class ProviderTimeout(ProviderError):
-    def __init__(self, message: str) -> None:
-        super().__init__(message, retryable=True)
+    def __init__(
+        self, message: str, *, status: int | None = None, reason: str | None = None
+    ) -> None:
+        super().__init__(message, retryable=True, status=status, reason=reason)
 
 
 def parse_retry_after(value: str | None) -> float | None:
@@ -74,25 +94,38 @@ def parse_retry_after(value: str | None) -> float | None:
 
 
 class ProviderRateLimited(ProviderError):
-    def __init__(self, message: str, *, retry_after_seconds: float | None = None) -> None:
-        super().__init__(message, retryable=True)
+    def __init__(
+        self,
+        message: str,
+        *,
+        retry_after_seconds: float | None = None,
+        status: int | None = None,
+        reason: str | None = None,
+    ) -> None:
+        super().__init__(message, retryable=True, status=status, reason=reason)
         self.retry_after_seconds = retry_after_seconds
 
 
 class ProviderUnavailable(ProviderError):
     """The provider failed on its side (HTTP 5xx or equivalent)."""
 
-    def __init__(self, message: str) -> None:
-        super().__init__(message, retryable=True)
+    def __init__(
+        self, message: str, *, status: int | None = None, reason: str | None = None
+    ) -> None:
+        super().__init__(message, retryable=True, status=status, reason=reason)
 
 
 class ProviderBadRequest(ProviderError):
     """The request itself was rejected; sending it again cannot succeed."""
 
-    def __init__(self, message: str) -> None:
-        super().__init__(message, retryable=False)
+    def __init__(
+        self, message: str, *, status: int | None = None, reason: str | None = None
+    ) -> None:
+        super().__init__(message, retryable=False, status=status, reason=reason)
 
 
 class ProviderAuthError(ProviderError):
-    def __init__(self, message: str) -> None:
-        super().__init__(message, retryable=False)
+    def __init__(
+        self, message: str, *, status: int | None = None, reason: str | None = None
+    ) -> None:
+        super().__init__(message, retryable=False, status=status, reason=reason)
