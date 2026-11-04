@@ -323,7 +323,8 @@ async def test_client_reused_across_calls() -> None:
     ("status", "error_type"),
     [
         (400, ProviderBadRequest),
-        (402, ProviderBadRequest),
+        # 402 was ProviderBadRequest under D-035's "other 4xx" row; D-048 makes it auth.
+        (402, ProviderAuthError),
         (404, ProviderBadRequest),
         (409, ProviderBadRequest),
         (413, ProviderBadRequest),
@@ -351,11 +352,79 @@ async def test_http_status_mapping(status: int, error_type: type[ProviderError])
     assert len(recorder.requests) == 1
 
 
-# Every 4xx other than 401, 403 and 429 is a bad request, above 429 too.
+# Every 4xx other than 401, 402, 403 and 429 is a bad request, above 429 too.
 @pytest.mark.parametrize("status", [430, 431, 451, 499])
 @pytest.mark.asyncio
 async def test_upper_4xx_statuses_map_to_bad_request(status: int) -> None:
     recorder = Recorder(_error_response(status))
+    exc = await _failure(recorder)
+    assert type(exc) is ProviderBadRequest
+    assert exc.retryable is False
+    _assert_clean(exc)
+    assert len(recorder.requests) == 1
+
+
+# 402 billing_error: the gateway's account cannot pay, so it is an auth error,
+# not retryable, with its own fixed message naming billing (D-048). Mapping is by
+# status, so the body does not matter.
+@pytest.mark.parametrize(
+    "response",
+    [
+        httpx.Response(
+            402,
+            json={
+                "type": "error",
+                "error": {"type": "billing_error", "message": PROVIDER_TEXT},
+                "request_id": "req_123",
+            },
+        ),
+        _error_response(402),
+        httpx.Response(402, content=PROVIDER_TEXT.encode()),
+    ],
+    ids=["billing_error_body", "other_error_body", "non_json_body"],
+)
+@pytest.mark.asyncio
+async def test_402_is_auth_error_naming_billing(response: httpx.Response) -> None:
+    recorder = Recorder(response)
+    exc = await _failure(recorder)
+    assert type(exc) is ProviderAuthError
+    assert exc.retryable is False
+    assert "billing" in exc.message.lower()
+    _assert_clean(exc)
+    assert len(recorder.requests) == 1
+
+
+@pytest.mark.asyncio
+async def test_402_message_differs_from_401_message() -> None:
+    # Both map to provider_auth_error, so the adapter's message is what tells
+    # a billing failure from a bad key in the logs (D-048 risk note).
+    billing = await _failure(Recorder(_error_response(402)))
+    bad_key = await _failure(Recorder(_error_response(401)))
+    assert billing.message != bad_key.message
+
+
+# Gemini's invalid-key ErrorInfo (D-048) means nothing to Claude: Claude maps 400
+# by status alone and never reads its body.
+GEMINI_INVALID_KEY_BODY = {
+    "error": {
+        "code": 400,
+        "message": PROVIDER_TEXT,
+        "status": "INVALID_ARGUMENT",
+        "details": [
+            {
+                "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+                "reason": "API_KEY_INVALID",
+                "domain": "googleapis.com",
+                "metadata": {"service": "generativelanguage.googleapis.com"},
+            }
+        ],
+    }
+}
+
+
+@pytest.mark.asyncio
+async def test_400_with_gemini_invalid_key_body_stays_bad_request() -> None:
+    recorder = Recorder(httpx.Response(400, json=GEMINI_INVALID_KEY_BODY))
     exc = await _failure(recorder)
     assert type(exc) is ProviderBadRequest
     assert exc.retryable is False
@@ -650,6 +719,33 @@ async def test_app_maps_claude_rate_limit_to_503_with_retry_after(
     assert API_KEY not in response.text
     assert PROVIDER_TEXT not in caplog.text
     assert API_KEY not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_app_maps_claude_402_to_502_auth_error(caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level(logging.DEBUG)
+    body = {
+        "type": "error",
+        "error": {"type": "billing_error", "message": PROVIDER_TEXT},
+        "request_id": "req_123",
+    }
+    recorder = Recorder(httpx.Response(402, json=body))
+    async with _claude(recorder) as adapter, _client(adapter) as client:
+        response = await client.post(
+            "/v1/chat",
+            json={
+                "model": ALIAS,
+                "messages": [{"role": "user", "content": PROMPT_MARKER}],
+                "max_tokens": 32,
+            },
+        )
+    assert response.status_code == 502
+    assert ErrorBody.model_validate(response.json()).error.code == "provider_auth_error"
+    assert len(recorder.requests) == 1
+    for text in (response.text, caplog.text):
+        assert PROVIDER_TEXT not in text
+        assert API_KEY not in text
+        assert PROMPT_MARKER not in text
 
 
 @pytest.mark.asyncio

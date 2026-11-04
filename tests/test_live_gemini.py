@@ -70,10 +70,11 @@ async def test_real_gemini_request_through_app() -> None:
 
 @pytest.mark.asyncio
 async def test_invalid_gemini_key_is_provider_auth_error() -> None:
-    # Checks the unverified claim in D-041's risk note: that generateContent
-    # answers an invalid key with 401 or 403. If Google returns 400
-    # INVALID_ARGUMENT instead, this test fails with 400 provider_bad_request,
-    # and D-041 must be revisited. A fixed fake key, so no real key is needed.
+    # Google answers an invalid key with 400 INVALID_ARGUMENT and an ErrorInfo
+    # whose reason is API_KEY_INVALID (captured 2026-11-04, D-048), which the
+    # adapter maps to provider_auth_error. If Google moves that reason to another
+    # @type, domain or status, this test fails with 400 provider_bad_request and
+    # D-048 must be revisited. A fixed fake key, so no real key is needed.
     environ = {**os.environ, "GEMINI_API_KEY": INVALID_KEY}
     response = await _post_through_app(environ, max_tokens=16)
     assert response.status_code == 502, response.text

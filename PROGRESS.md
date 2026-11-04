@@ -674,6 +674,18 @@ No second round was needed: the verdict was PASS, and the fixes are docs plus a 
   - The M7 live tests are still unrun. The invalid-key test settles D-041.
 - If your shell still has `LLMGATEWAY_PROVIDER` set from the old README, startup now stops. Remove it, and set `LLMGATEWAY_CONFIG` instead.
 
+### 2026-11-04: line endings, live-test rule, two Gemini fixes
+
+No milestone this session.
+
+**Plan.** Start checks; chore 1 (`.gitattributes`, LF) in its own commit; chore 2 (CLAUDE.md live-test rule); push both. Then, from the owner's live run (3 passed, 2 failed), two fixes, each spec first (D-entry and FLOW.md), then tester Mode 1 tests seen failing, implementation, tester Mode 2 mutation checks, reviewer, push. Fix 1: Gemini answers an invalid key with 400; capture the body with one approved request, map only the `ErrorInfo` reason, and decide 402 on both adapters. Fix 2: `gemini-3.6-flash` spent the whole `max_tokens` on thinking; read Google's docs on thinking for `generateContent`, decide what `max_tokens` means and what the adapter sends.
+
+**Start checks.** HEAD 3b799d9 on `main`, clean tree, `git pull` up to date. `.\scripts\check.ps1`: PASS, 863 passed, 5 deselected. `tester` and `reviewer` are listed as agent types.
+
+**Chore 1 (472723e).** `.gitattributes` with `* text=auto eol=lf`. `git ls-files --eol` showed all 40 tracked files already LF in the index; `core.autocrlf=true` had checked 14 of them out as CRLF (`pyproject.toml`, `uv.lock`, 10 of the 12 files under `src/`, and `tests/test_mock_provider.py` and `tests/test_schema.py`). `git add --renormalize .` staged no content change, so the commit is the one new file. The 14 working copies were rewritten as LF; their blob hashes equal the index (checked on `pyproject.toml`, and `git diff` was empty). check.ps1 PASS, 863 passed. This closes the M8 mutation-harness CRLF issue (Agent Mistakes Log, last M8 row): every checkout is now LF, so exact multi-line mutations match.
+
+**Chore 2 (cd664b8).** CLAUDE.md, Conventions, Tests: the cheapest-models rule for live tests. Pushed with chore 1.
+
 ## Agent Mistakes Log
 
 Rows are taken only from what the git history and DECISIONS.md record. Where the history does not say who found a problem, the row says so.

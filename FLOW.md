@@ -227,14 +227,15 @@ Listed, not answered.
 
 Every failure an adapter sees becomes one `ProviderError` class (D-014), and `errors.py` maps that class to the client status and code (D-019). The client always gets the standard error body with a fixed message (D-023): never the provider's error text, the prompt, or the key.
 
-### Claude (`providers/claude.py`, D-033, D-035)
+### Claude (`providers/claude.py`, D-033, D-035, D-048)
 
 | Provider outcome | Error type | Retryable | Client status | Client code |
 | --- | --- | --- | --- | --- |
 | Request sets `temperature` or `top_p` (rejected before any network call) | `ProviderBadRequest` | no | 400 | `provider_bad_request` |
 | HTTP 401 or 403 | `ProviderAuthError` | no | 502 | `provider_auth_error` |
+| HTTP 402 `billing_error` (D-048) | `ProviderAuthError` | no | 502 | `provider_auth_error` |
 | HTTP 429 | `ProviderRateLimited`, `retry_after_seconds` from a numeric, finite, non-negative `retry-after`, else none | yes | 503, with `Retry-After` rounded up to whole seconds when known, never below 0 (D-038) | `provider_rate_limited` |
-| Any other HTTP 4xx (400, 402, 404, 409, 413, 422, ...) | `ProviderBadRequest` | no | 400 | `provider_bad_request` |
+| Any other HTTP 4xx (400, 404, 409, 413, 422, ...) | `ProviderBadRequest` | no | 400 | `provider_bad_request` |
 | HTTP 5xx, including 529 `overloaded_error` | `ProviderUnavailable` | yes | 502 | `provider_unavailable` |
 | Unexpected HTTP 3xx (redirects are never followed, D-043) | `ProviderUnavailable` | yes | 502 | `provider_unavailable` |
 | httpx timeout: connect, read, write or pool (D-034) | `ProviderTimeout` | yes | 504 | `provider_timeout` |
@@ -245,7 +246,7 @@ Every failure an adapter sees becomes one `ProviderError` class (D-014), and `er
 
 On success, `stop_reason` maps to `finish_reason`: `end_turn` to `stop`, `max_tokens` to `max_tokens`, `stop_sequence` to `stop_sequence`, and every other value, including ones added later, to `other` (D-035). The adapter never retries (D-032); the error is raised once, without the httpx exception chained to it.
 
-### Gemini (`providers/gemini.py`, D-039 to D-042)
+### Gemini (`providers/gemini.py`, D-039 to D-042, D-048)
 
 Request (D-039, D-040): `POST https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent` with the `x-goog-api-key` header. The body has `contents`, one `{"role", "parts": [{"text"}]}` entry per message with `assistant` sent as `model`; `systemInstruction: {"parts": [{"text"}]}` only when `system` is set; and `generationConfig` with `maxOutputTokens`, plus `stopSequences`, `temperature` and `topP` only when set.
 
@@ -254,8 +255,10 @@ Request (D-039, D-040): `POST https://generativelanguage.googleapis.com/v1beta/m
 | `model` does not fully match `[A-Za-z0-9][A-Za-z0-9._-]*` (rejected before any network call, D-042). Not reachable from a client since aliases: a config with such a Gemini model stops startup (D-046) | `ProviderBadRequest` | no | 400 | `provider_bad_request` |
 | More than 5 stop sequences (rejected before any network call, D-042) | `ProviderBadRequest` | no | 400 | `provider_bad_request` |
 | HTTP 401 or 403 | `ProviderAuthError` | no | 502 | `provider_auth_error` |
+| HTTP 400 whose JSON body has, in the list `error.details`, an object with `@type` `type.googleapis.com/google.rpc.ErrorInfo`, `reason` `API_KEY_INVALID` and `domain` `googleapis.com` (an invalid key; message text is never read, D-048) | `ProviderAuthError` | no | 502 | `provider_auth_error` |
+| HTTP 402, prepay credit depleted (D-048) | `ProviderAuthError` | no | 502 | `provider_auth_error` |
 | HTTP 429 | `ProviderRateLimited`, `retry_after_seconds` from a numeric, finite, non-negative `retry-after`, else none | yes | 503, with `Retry-After` rounded up to whole seconds when known, never below 0 (D-038) | `provider_rate_limited` |
-| Any other HTTP 4xx (400, 402, 404, 409, 413, 416, ...) | `ProviderBadRequest` | no | 400 | `provider_bad_request` |
+| Any other HTTP 4xx (any other 400, 404, 409, 413, 416, ...) | `ProviderBadRequest` | no | 400 | `provider_bad_request` |
 | HTTP 5xx, including 503 and 504 `deadline_exceeded` | `ProviderUnavailable` | yes | 502 | `provider_unavailable` |
 | Unexpected HTTP 3xx (redirects are never followed, D-043) | `ProviderUnavailable` | yes | 502 | `provider_unavailable` |
 | httpx timeout: connect, read, write or pool (D-034 values) | `ProviderTimeout` | yes | 504 | `provider_timeout` |

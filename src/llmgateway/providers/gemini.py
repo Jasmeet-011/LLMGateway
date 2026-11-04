@@ -23,11 +23,14 @@ Key design choices:
   Gemini's documented limit, are rejected before any network call too.
 - `temperature` and `top_p` are passed through when set (D-040). Google documents
   that Gemini 3.6 Flash and newer ignore them.
-- Error mapping by HTTP status only, as for Claude (D-041): 401 and 403 are auth
-  errors; 429 is a rate limit with `retry-after` when numeric; 5xx (including 504
-  `deadline_exceeded`) and connection errors are unavailable; timeouts are
-  timeouts; other 4xx are bad requests. The error body is never read. Redirects
-  are never followed, and an undecodable body is unavailable (D-043).
+- Error mapping by HTTP status, as for Claude (D-041): 401, 402 (billing) and 403
+  are auth errors; 429 is a rate limit with `retry-after` when numeric; 5xx
+  (including 504 `deadline_exceeded`) and connection errors are unavailable;
+  timeouts are timeouts; other 4xx are bad requests. One exception (D-048): Google
+  answers an invalid key with 400, so a 400 body is read for its `ErrorInfo`
+  reason `API_KEY_INVALID`, and only that machine-readable field, never the
+  message text. No other error body is read. Redirects are never followed, and an
+  undecodable body is unavailable (D-043).
 - On a 2xx (D-041): a blocked prompt is a bad request; otherwise the first
   candidate's non-thought text parts are the content, and thought tokens are
   counted as output tokens because Google bills them as output. A body that is
@@ -125,10 +128,41 @@ class _Response(BaseModel):
     response_id: Any = Field(default=None, alias="responseId")
 
 
+_ERROR_INFO_TYPE: Final = "type.googleapis.com/google.rpc.ErrorInfo"
+
+
+def _is_invalid_key(content: bytes) -> bool:
+    """Whether a 400 body carries Google's `API_KEY_INVALID` ErrorInfo (D-048).
+
+    Only the machine-readable (`@type`, `reason`, `domain`) triple is read; the
+    message text is never looked at. Any other shape is simply not a match.
+    """
+    try:
+        body = _BODY.validate_json(content)
+    except ValidationError:
+        return False
+    error = body.get("error")
+    details = error.get("details") if isinstance(error, dict) else None
+    if not isinstance(details, list):
+        return False
+    return any(
+        isinstance(detail, dict)
+        and detail.get("@type") == _ERROR_INFO_TYPE
+        and detail.get("reason") == "API_KEY_INVALID"
+        and detail.get("domain") == "googleapis.com"
+        for detail in details
+    )
+
+
 def _status_error(response: httpx.Response) -> ProviderError:
     status = response.status_code
     if status in (401, 403):
         return ProviderAuthError("gemini: authentication or permission failure")
+    # Google answers an invalid key with 400 INVALID_ARGUMENT, not 401 (D-048).
+    if status == 400 and _is_invalid_key(response.content):
+        return ProviderAuthError("gemini: invalid API key")
+    if status == 402:
+        return ProviderAuthError("gemini: billing failure, prepay credit depleted")
     if status == 429:
         return ProviderRateLimited(
             "gemini: rate limited",

@@ -611,7 +611,8 @@ async def test_prompt_feedback_without_block_reason_is_success() -> None:
     ("status", "error_type"),
     [
         (400, ProviderBadRequest),
-        (402, ProviderBadRequest),
+        # 402 was ProviderBadRequest under D-041's "other 4xx" row; D-048 makes it auth.
+        (402, ProviderAuthError),
         (404, ProviderBadRequest),
         (409, ProviderBadRequest),
         (413, ProviderBadRequest),
@@ -698,7 +699,8 @@ async def test_redirect_is_never_followed(status: int, location: str) -> None:
     assert [r.url.host for r in redirector.requests] == [GEMINI_HOST]
 
 
-# Every 4xx other than 401, 403 and 429 is a bad request, above 429 too.
+# Every 4xx other than 401, 402, 403 and 429 (and the invalid-key 400, D-048) is a
+# bad request, above 429 too.
 @pytest.mark.parametrize("status", [430, 431, 451, 499])
 @pytest.mark.asyncio
 async def test_upper_4xx_statuses_map_to_bad_request(status: int) -> None:
@@ -720,7 +722,9 @@ async def test_504_deadline_exceeded_is_unavailable_not_timeout() -> None:
     _assert_clean(exc)
 
 
-# The error body is never read: a non-JSON error body maps the same way.
+# Mapping is by status: a non-JSON error body maps the same way. Only a 400 body is
+# read, and only for the invalid-key ErrorInfo (D-048), so a non-JSON 400 stays a
+# bad request.
 @pytest.mark.parametrize(
     ("status", "error_type"),
     [(401, ProviderAuthError), (429, ProviderRateLimited), (400, ProviderBadRequest)],
@@ -1052,6 +1056,330 @@ async def test_deeply_nested_body_is_unavailable(content: bytes) -> None:
     assert exc.__context__ is None
 
 
+# Invalid key on HTTP 400, and 402 (D-048, FLOW.md section 13)
+
+# The body Google returned on 2026-11-04 for a generateContent request with an
+# invalid key, verbatim from D-048.
+INVALID_KEY_BODY = (
+    b'{"error": {"code": 400, "message": "API key not valid. Please pass a valid API key.",'
+    b' "status": "INVALID_ARGUMENT",\n'
+    b'  "details": [\n'
+    b'    {"@type": "type.googleapis.com/google.rpc.ErrorInfo", "reason": "API_KEY_INVALID",'
+    b' "domain": "googleapis.com",\n'
+    b'     "metadata": {"service": "generativelanguage.googleapis.com"}},\n'
+    b'    {"@type": "type.googleapis.com/google.rpc.LocalizedMessage", "locale": "en-US",\n'
+    b'     "message": "API key not valid. Please pass a valid API key."}]}}'
+)
+INVALID_KEY_HEADERS = {"content-type": "application/json; charset=UTF-8"}
+GOOGLE_KEY_MESSAGE = "API key not valid"
+ERROR_INFO_TYPE = "type.googleapis.com/google.rpc.ErrorInfo"
+
+
+def _invalid_key_body() -> dict[str, Any]:
+    body: dict[str, Any] = json.loads(INVALID_KEY_BODY)
+    return body
+
+
+def _error_info(**overrides: Any) -> dict[str, Any]:
+    info: dict[str, Any] = _invalid_key_body()["error"]["details"][0]
+    info.update(overrides)
+    return info
+
+
+def _localized_message() -> dict[str, Any]:
+    message: dict[str, Any] = _invalid_key_body()["error"]["details"][1]
+    return message
+
+
+def _with_details(details: Any) -> dict[str, Any]:
+    body = _invalid_key_body()
+    body["error"]["details"] = details
+    return body
+
+
+def _without_error_key(key: str) -> dict[str, Any]:
+    body = _invalid_key_body()
+    del body["error"][key]
+    return body
+
+
+def _json(body: Any) -> bytes:
+    return json.dumps(body).encode()
+
+
+def _assert_no_google_text(exc: ProviderError) -> None:
+    for text in (str(exc), repr(exc), exc.message):
+        assert GOOGLE_KEY_MESSAGE not in text
+        assert "Please pass a valid API key" not in text
+        assert "INVALID_ARGUMENT" not in text
+
+
+def test_invalid_key_body_constant_is_the_captured_body() -> None:
+    # Guards the fixture itself: the constant parses to D-048's captured shape.
+    body = _invalid_key_body()
+    assert body["error"]["code"] == 400
+    assert body["error"]["status"] == "INVALID_ARGUMENT"
+    assert [d["@type"] for d in body["error"]["details"]] == [
+        ERROR_INFO_TYPE,
+        "type.googleapis.com/google.rpc.LocalizedMessage",
+    ]
+    assert body["error"]["details"][0]["reason"] == "API_KEY_INVALID"
+    assert body["error"]["details"][0]["domain"] == "googleapis.com"
+
+
+@pytest.mark.asyncio
+async def test_captured_invalid_key_400_is_auth_error() -> None:
+    recorder = Recorder(httpx.Response(400, content=INVALID_KEY_BODY, headers=INVALID_KEY_HEADERS))
+    exc = await _failure(recorder)
+    assert type(exc) is ProviderAuthError
+    assert exc.retryable is False
+    _assert_clean(exc)
+    _assert_no_google_text(exc)
+    assert exc.__cause__ is None
+    assert exc.__context__ is None
+    # No retries in the adapter.
+    assert len(recorder.requests) == 1
+
+
+# The match is on (@type, reason, domain) of an object anywhere in error.details;
+# error.message, error.status, error.code and the other details are never read.
+@pytest.mark.parametrize(
+    "body",
+    [
+        _with_details([_error_info()]),
+        _with_details([_localized_message(), _error_info()]),
+        _with_details(["not an object", 5, None, ["nested"], _error_info()]),
+        _with_details([_without(_error_info(), "metadata")]),
+        {"error": {"details": [_error_info()]}},
+        {
+            "error": {
+                "code": 400,
+                "message": PROVIDER_TEXT,
+                "status": "SOME_STATUS",
+                "details": [_error_info(), {"@type": "x", "message": PROVIDER_TEXT}],
+            }
+        },
+    ],
+    ids=[
+        "error_info_only",
+        "error_info_second",
+        "error_info_after_non_objects",
+        "error_info_without_metadata",
+        "no_message_code_or_status",
+        "provider_text_in_message",
+    ],
+)
+@pytest.mark.asyncio
+async def test_invalid_key_error_info_on_400_is_auth_error(body: dict[str, Any]) -> None:
+    recorder = Recorder(httpx.Response(400, json=body))
+    exc = await _failure(recorder)
+    assert type(exc) is ProviderAuthError
+    assert exc.retryable is False
+    _assert_clean(exc)
+    _assert_no_google_text(exc)
+    assert len(recorder.requests) == 1
+
+
+# Every other 400 stays a bad request (D-048): a wrong reason, domain or @type, a
+# message that says "API key not valid" without a matching ErrorInfo, or a body
+# that is not shaped as error.details[...] = object.
+@pytest.mark.parametrize(
+    "content",
+    [
+        _json(_with_details([_error_info(reason="API_KEY_EXPIRED"), _localized_message()])),
+        _json(_with_details([_error_info(reason="BAD_REASON")])),
+        _json(_with_details([_error_info(reason="api_key_invalid")])),
+        _json(_with_details([_error_info(reason=["API_KEY_INVALID"])])),
+        _json(_with_details([_error_info(reason=None)])),
+        _json(_with_details([_without(_error_info(), "reason")])),
+        _json(_with_details([_error_info(domain="generativelanguage.googleapis.com")])),
+        _json(_with_details([_error_info(domain="example.com")])),
+        _json(_with_details([_without(_error_info(), "domain")])),
+        _json(
+            _with_details(
+                [_error_info(**{"@type": "type.googleapis.com/google.rpc.LocalizedMessage"})]
+            )
+        ),
+        _json(
+            _with_details([_error_info(**{"@type": "type.googleapis.com/google.rpc.BadRequest"})])
+        ),
+        _json(_with_details([_error_info(**{"@type": "google.rpc.ErrorInfo"})])),
+        _json(_with_details([_without(_error_info(), "@type")])),
+        _json(_with_details([_localized_message()])),
+        _json(_with_details([])),
+        _json(_with_details(_error_info())),
+        _json(_with_details(None)),
+        _json(_with_details(json.dumps(_error_info()))),
+        _json(_without_error_key("details")),
+        _json(_with_details([json.dumps(_error_info()), _localized_message()])),
+        _json(_with_details([[_error_info()]])),
+        _json(_with_details([{"detail": _error_info()}])),
+        _json({"error": [{"details": [_error_info()]}]}),
+        _json({"error": "API_KEY_INVALID"}),
+        _json({"error": None}),
+        _json({"details": [_error_info()]}),
+        _json([_invalid_key_body()]),
+        _json(json.dumps(_invalid_key_body())),
+        b"null",
+        b"API key not valid. Please pass a valid API key. API_KEY_INVALID googleapis.com",
+        b"",
+        INVALID_KEY_BODY[:-1],
+    ],
+    ids=[
+        "reason_expired",
+        "reason_other",
+        "reason_lowercase",
+        "reason_list",
+        "reason_null",
+        "reason_missing",
+        "domain_service_host",
+        "domain_other",
+        "domain_missing",
+        "type_localized_message",
+        "type_bad_request",
+        "type_without_prefix",
+        "type_missing",
+        "message_only_no_error_info",
+        "details_empty",
+        "details_object_not_list",
+        "details_null",
+        "details_string",
+        "details_missing",
+        "error_info_as_string",
+        "error_info_inside_inner_list",
+        "error_info_wrapped_in_object",
+        "error_is_list",
+        "error_is_string",
+        "error_null",
+        "details_at_top_level_without_error",
+        "body_json_array",
+        "body_json_string",
+        "body_json_null",
+        "body_not_json",
+        "body_empty",
+        "body_truncated",
+    ],
+)
+@pytest.mark.asyncio
+async def test_other_400_bodies_stay_bad_request(content: bytes) -> None:
+    recorder = Recorder(httpx.Response(400, content=content, headers=INVALID_KEY_HEADERS))
+    exc = await _failure(recorder)
+    assert type(exc) is ProviderBadRequest
+    assert exc.retryable is False
+    _assert_clean(exc)
+    _assert_no_google_text(exc)
+    assert exc.__cause__ is None
+    assert exc.__context__ is None
+    assert len(recorder.requests) == 1
+
+
+# The 400 body goes through the D-043 parser: nesting too deep to parse is a body
+# that cannot be read, so the 400 is a bad request, not a RecursionError (a 500),
+# even when a matching ErrorInfo sits next to the deep part.
+@pytest.mark.parametrize(
+    "content",
+    [
+        b"[" * DEPTH + b"]" * DEPTH,
+        b'{"a":' * DEPTH + b"1" + b"}" * DEPTH,
+        b'{"error": {"details": ['
+        + _json(_error_info())
+        + b", "
+        + b"[" * DEPTH
+        + b"]" * DEPTH
+        + b"]}}",
+    ],
+    ids=["nested_arrays", "nested_objects", "nested_next_to_error_info"],
+)
+@pytest.mark.asyncio
+async def test_deeply_nested_400_body_is_bad_request(content: bytes) -> None:
+    recorder = Recorder(httpx.Response(400, content=content))
+    exc = await _failure(recorder)
+    assert type(exc) is ProviderBadRequest
+    assert exc.retryable is False
+    _assert_clean(exc)
+    assert exc.__cause__ is None
+    assert exc.__context__ is None
+    assert len(recorder.requests) == 1
+
+
+# Only 400 reads the body (D-048): the invalid-key body on any other status maps
+# by status alone, as before.
+@pytest.mark.parametrize(
+    ("status", "error_type"),
+    [
+        (404, ProviderBadRequest),
+        (409, ProviderBadRequest),
+        (413, ProviderBadRequest),
+        (422, ProviderBadRequest),
+        (401, ProviderAuthError),
+        (403, ProviderAuthError),
+        (429, ProviderRateLimited),
+        (500, ProviderUnavailable),
+        (503, ProviderUnavailable),
+        (302, ProviderUnavailable),
+        (200, ProviderUnavailable),
+    ],
+)
+@pytest.mark.asyncio
+async def test_invalid_key_body_on_other_statuses_maps_by_status(
+    status: int, error_type: type[ProviderError]
+) -> None:
+    response = httpx.Response(status, content=INVALID_KEY_BODY, headers=INVALID_KEY_HEADERS)
+    recorder = Recorder(response)
+    exc = await _failure(recorder)
+    assert type(exc) is error_type
+    assert exc.retryable is (error_type in (ProviderRateLimited, ProviderUnavailable))
+    _assert_clean(exc)
+    _assert_no_google_text(exc)
+    assert len(recorder.requests) == 1
+
+
+# An undecodable 400 body is still ProviderUnavailable (D-043): httpx fails to
+# decode it before the adapter could look for an ErrorInfo.
+@pytest.mark.asyncio
+async def test_undecodable_400_body_is_unavailable() -> None:
+    recorder = Recorder(_undecodable(400))
+    exc = await _failure(recorder)
+    assert type(exc) is ProviderUnavailable
+    assert exc.retryable is True
+    _assert_clean(exc)
+    assert exc.__cause__ is None
+    assert exc.__context__ is None
+    assert len(recorder.requests) == 1
+
+
+# 402 is prepay credit or billing: the gateway's account cannot pay, so it is an
+# auth error, not retryable, with its own fixed message naming billing (D-048).
+@pytest.mark.parametrize(
+    "response",
+    [
+        _error_response(402),
+        httpx.Response(402, content=PROVIDER_TEXT.encode()),
+        httpx.Response(402, content=INVALID_KEY_BODY, headers=INVALID_KEY_HEADERS),
+    ],
+    ids=["json_body", "non_json_body", "invalid_key_body"],
+)
+@pytest.mark.asyncio
+async def test_402_is_auth_error_naming_billing(response: httpx.Response) -> None:
+    recorder = Recorder(response)
+    exc = await _failure(recorder)
+    assert type(exc) is ProviderAuthError
+    assert exc.retryable is False
+    assert "billing" in exc.message.lower()
+    _assert_clean(exc)
+    _assert_no_google_text(exc)
+    assert len(recorder.requests) == 1
+
+
+@pytest.mark.asyncio
+async def test_402_message_differs_from_401_message() -> None:
+    # Both map to provider_auth_error, so the adapter's message is what tells
+    # a billing failure from a bad key in the logs (D-048 risk note).
+    billing = await _failure(Recorder(_error_response(402)))
+    bad_key = await _failure(Recorder(_error_response(401)))
+    assert billing.message != bad_key.message
+
+
 # Through the app, via a Router with an alias (D-045)
 
 ALIAS = "fast"
@@ -1129,6 +1457,7 @@ async def test_app_maps_gemini_rate_limit_to_503_with_retry_after(
     [
         (401, 502, "provider_auth_error"),
         (403, 502, "provider_auth_error"),
+        (402, 502, "provider_auth_error"),
         (400, 400, "provider_bad_request"),
         (500, 502, "provider_unavailable"),
     ],
@@ -1142,6 +1471,35 @@ async def test_app_maps_gemini_errors(status: int, client_status: int, code: str
     assert ErrorBody.model_validate(response.json()).error.code == code
     assert PROVIDER_TEXT not in response.text
     assert API_KEY not in response.text
+
+
+@pytest.mark.asyncio
+async def test_app_maps_captured_invalid_key_400_to_502_auth_error(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.DEBUG)
+    recorder = Recorder(httpx.Response(400, content=INVALID_KEY_BODY, headers=INVALID_KEY_HEADERS))
+    async with _gemini(recorder) as adapter, _client(adapter) as client:
+        response = await client.post("/v1/chat", json=_chat_body())
+    assert response.status_code == 502
+    assert ErrorBody.model_validate(response.json()).error.code == "provider_auth_error"
+    assert len(recorder.requests) == 1
+    for text in (response.text, caplog.text):
+        assert GOOGLE_KEY_MESSAGE not in text
+        assert API_KEY not in text
+        assert PROMPT_MARKER not in text
+
+
+@pytest.mark.asyncio
+async def test_app_keeps_400_without_matching_error_info_as_bad_request() -> None:
+    # The message says "API key not valid", but there is no ErrorInfo to match.
+    body = _json(_with_details([_localized_message()]))
+    recorder = Recorder(httpx.Response(400, content=body, headers=INVALID_KEY_HEADERS))
+    async with _gemini(recorder) as adapter, _client(adapter) as client:
+        response = await client.post("/v1/chat", json=_chat_body())
+    assert response.status_code == 400
+    assert ErrorBody.model_validate(response.json()).error.code == "provider_bad_request"
+    assert GOOGLE_KEY_MESSAGE not in response.text
 
 
 @pytest.mark.asyncio

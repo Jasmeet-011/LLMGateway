@@ -20,7 +20,8 @@ Key design choices:
   `ProviderBadRequest` before any network call, instead of being dropped silently.
 - `request.model` is sent as the Claude model ID. The router sets it to the alias
   entry's provider model from the config (D-045).
-- Error mapping (D-014, D-035): 401 and 403 are auth errors; 429 is a rate limit
+- Error mapping (D-014, D-035, D-048): 401, 402 (billing) and 403 are auth
+  errors, because each is the gateway's account problem; 429 is a rate limit
   with `retry-after` when numeric; 5xx (including 529 overloaded) and connection
   errors are unavailable; timeouts are timeouts; other 4xx are bad requests. A 2xx
   body that is not the expected JSON is unavailable, and so is a body whose
@@ -90,6 +91,9 @@ def _status_error(response: httpx.Response) -> ProviderError:
     status = response.status_code
     if status in (401, 403):
         return ProviderAuthError("claude: authentication or permission failure")
+    if status == 402:
+        # billing_error: the gateway's account, not the client's request (D-048).
+        return ProviderAuthError("claude: billing failure")
     if status == 429:
         return ProviderRateLimited(
             "claude: rate limited",
