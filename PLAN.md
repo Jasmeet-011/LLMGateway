@@ -50,7 +50,7 @@ Worked in order. Status and evidence are in [PROGRESS.md](PROGRESS.md); this fil
 - **Proof:** tests with an injectable clock and sleeper covering backoff growth, jitter bounds, `retry-after`, the total deadline, and no retry on non-retryable errors.
 - **Dependencies allowed:** none.
 - **Open issues to settle:** retry counts, timeouts and backoff values (FLOW.md section 11); a cap on `retry-after`; retrying after a malformed or undecodable 2xx repeats a billed generation (D-035, D-043); HTTP 408 maps to a non-retryable `ProviderBadRequest` in both adapters.
-- **Settled:** D-050 (attempts, backoff, timeouts), D-051 (`retry-after` cap), D-052 (no retry after a billed 2xx), D-053 (408). Added by the owner for M9: a log line per failed attempt with the provider status and a fixed reason (D-054).
+- **Settled:** D-050 (attempts, backoff, timeouts), D-051 (`retry-after` cap), D-052 (no retry after a 2xx whose status the router sees), D-053 (408). Added by the owner for M9: a log line per failed attempt with the provider status and a fixed reason (D-054).
 
 ### M10 Circuit breaker
 
