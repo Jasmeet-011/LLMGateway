@@ -14,6 +14,7 @@ from typing import Any
 import httpx
 import pytest
 
+from llmgateway.breaker import BreakerPolicy
 from llmgateway.config import ConfigError, load_config, parse_config
 from llmgateway.providers.base import (
     ProviderAuthError,
@@ -693,7 +694,14 @@ async def test_each_mock_instance_waits_its_own_latency() -> None:
 @pytest.mark.asyncio
 async def test_each_mock_instance_has_its_own_seeded_sequence() -> None:
     text = _two_mocks("failure_rate = 0.5\nseed = 1", "failure_rate = 0.5\nseed = 2")
-    router = build_router(parse_config(text), {}, sleep=RecordingSleep(), policy=ONE_ATTEMPT)
+    # Not a breaker test: past 15 failures the default breaker would refuse (D-057).
+    router = build_router(
+        parse_config(text),
+        {},
+        sleep=RecordingSleep(),
+        policy=ONE_ATTEMPT,
+        breaker_policy=BreakerPolicy(window_size=2000, failure_threshold=2000),
+    )
     primary, secondary = router.routes("mock-fallback")
     # Interleaved calls: each instance's sequence must not depend on the other's.
     seen_primary: list[bool] = []

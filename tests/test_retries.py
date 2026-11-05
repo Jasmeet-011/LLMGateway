@@ -29,6 +29,7 @@ import httpx
 import pytest
 
 from llmgateway.app import create_app
+from llmgateway.breaker import BreakerPolicy
 from llmgateway.config import parse_config
 from llmgateway.errors import ErrorBody
 from llmgateway.providers.base import (
@@ -704,11 +705,17 @@ async def test_random_just_below_one_stays_below_the_bound() -> None:
 
 @pytest.mark.asyncio
 async def test_without_injected_random_waits_stay_within_the_bounds() -> None:
+    # Not a breaker test: past 15 failures the default breaker would refuse (D-057).
     clock = FakeClock()
     sleep = RecordingSleep(clock)
     adapter = ScriptedAdapter(_unavailable())
     route = Route(provider=INSTANCE, model=MODEL, adapter=adapter)
-    router = Router({ALIAS: [route]}, sleep=sleep, clock=clock)
+    router = Router(
+        {ALIAS: [route]},
+        sleep=sleep,
+        clock=clock,
+        breaker_policy=BreakerPolicy(window_size=2000, failure_threshold=2000),
+    )
     for _ in range(20):
         sleep.calls.clear()
         with pytest.raises(ProviderUnavailable):
@@ -846,11 +853,22 @@ async def test_backoff_bound_keeps_doubling_while_it_is_under_max_delay() -> Non
 async def test_more_attempts_than_a_float_exponent_can_hold_still_gives_the_capped_wait() -> None:
     # D-050 sets no upper limit on max_attempts, and the wait is at most max_delay
     # however large n gets. 2.0 ** 1024 overflows, so this runs past attempt 1025.
+    # Not a breaker test: past 15 failures the default breaker would refuse (D-057).
     attempts = 1030
     error = _unavailable()
     policy = RetryPolicy(max_attempts=attempts, base_delay=0.25, max_delay=4.0, total_timeout=1e9)
     adapter = ScriptedAdapter(error)
-    router, route, sleep = _setup(adapter, policy, random=SequenceRandom(0.5))
+    route = Route(provider=INSTANCE, model=MODEL, adapter=adapter)
+    clock = FakeClock()
+    sleep = RecordingSleep(clock)
+    router = Router(
+        {ALIAS: [route]},
+        policy=policy,
+        breaker_policy=BreakerPolicy(window_size=2000, failure_threshold=2000),
+        sleep=sleep,
+        clock=clock,
+        random=SequenceRandom(0.5),
+    )
     with pytest.raises(ProviderUnavailable) as info:
         await router.complete(route, _request())
     assert info.value is error
