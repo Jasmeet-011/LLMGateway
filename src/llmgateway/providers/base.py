@@ -16,6 +16,8 @@ Key design choices:
 - Every error also carries the provider's HTTP `status` (or None) and a fixed
   `reason` code (D-054), which the router logs for each failed attempt so an
   operator can tell, say, a bad key from a billing failure.
+- `ProviderCircuitOpen` is raised by the router, not by an adapter: no call was
+  made, so it is its own class and not a failure the provider reported (D-058).
 - `parse_retry_after` is shared by the HTTP adapters, so a provider's
   `retry-after` header is read the same way for every provider.
 """
@@ -103,6 +105,17 @@ class ProviderRateLimited(ProviderError):
         reason: str | None = None,
     ) -> None:
         super().__init__(message, retryable=True, status=status, reason=reason)
+        self.retry_after_seconds = retry_after_seconds
+
+
+class ProviderCircuitOpen(ProviderError):
+    """The router refused the call: the provider's breaker is not letting it through.
+
+    `retry_after_seconds` is the cooldown left, or None during a half-open probe.
+    """
+
+    def __init__(self, message: str, *, retry_after_seconds: float | None = None) -> None:
+        super().__init__(message, retryable=True, reason="circuit_open")
         self.retry_after_seconds = retry_after_seconds
 
 

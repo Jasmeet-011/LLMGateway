@@ -22,6 +22,15 @@ Key design choices:
   instance, provider model, attempt number, provider status, fixed reason code,
   error class and whether it retries (D-054). It never includes the adapter's
   message, provider text, prompts or keys, and none of it reaches the client.
+- Each config instance has its own circuit breaker (D-055). The router asks it
+  before every attempt, retries included, and reports every attempt's outcome
+  back, whatever ends it (D-056, D-058):
+  - refused before the first attempt, the request fails with
+    `ProviderCircuitOpen`, and no call or `attempt_failed` line is made;
+  - refused before a retry, the last failure is raised, because that is what
+    really happened; an open breaker also skips the wait;
+  - a cancellation or a bug reports a neutral outcome, or a probe that ended
+    that way would hold its slot and wedge the breaker half-open for good.
 - The adapter gets a copy of the request whose `model` is the entry's provider
   model, so the adapter interface (D-015) does not change (D-045). The copy is not
   re-validated; that is safe because the config already checked the model.
@@ -46,6 +55,7 @@ from typing import Protocol, runtime_checkable
 
 import httpx
 
+from llmgateway.breaker import BreakerPolicy, CircuitBreaker, Permit, counts_as_failure
 from llmgateway.config import (
     ClaudeProviderConfig,
     ConfigError,
@@ -55,6 +65,7 @@ from llmgateway.config import (
 )
 from llmgateway.providers.base import (
     ProviderAdapter,
+    ProviderCircuitOpen,
     ProviderError,
     ProviderRateLimited,
     ProviderResult,
@@ -133,9 +144,11 @@ class Router:
         aliases: Mapping[str, Sequence[Route]],
         *,
         policy: RetryPolicy | None = None,
+        breaker_policy: BreakerPolicy | None = None,
         sleep: Sleep = asyncio.sleep,
         clock: Clock = time.monotonic,
         random: RandomSource | None = None,
+        wall_clock: Clock = time.time,
     ) -> None:
         if not aliases:
             raise ValueError("a router needs at least one alias")
@@ -150,6 +163,19 @@ class Router:
         self._clock = clock
         # Jitter only, not security; the router owns its generator (D-050).
         self._random = random if random is not None else Random().random  # noqa: S311
+        limits = breaker_policy if breaker_policy is not None else BreakerPolicy()
+        # Keyed by instance, so aliases sharing an instance share its breaker (D-055).
+        self._breakers = {
+            route.provider: CircuitBreaker(
+                route.provider, limits, clock=clock, wall_clock=wall_clock
+            )
+            for entries in routes.values()
+            for route in entries
+        }
+
+    def breaker(self, provider: str) -> CircuitBreaker:
+        """The breaker of a config instance; raises KeyError for an unknown name."""
+        return self._breakers[provider]
 
     def routes(self, alias: str) -> tuple[Route, ...]:
         try:
@@ -170,13 +196,23 @@ class Router:
         alias = request.model
         routed = request.model_copy(update={"model": route.model})
         deadline = self._clock() + self._policy.total_timeout
+        breaker = self._breakers[route.provider]
         attempt = 0
+        failure: ProviderError | None = None
         while True:
+            permit = breaker.acquire()
+            if permit is None:
+                if failure is not None:
+                    raise failure
+                raise ProviderCircuitOpen(
+                    "router: circuit open", retry_after_seconds=breaker.retry_after()
+                )
             attempt += 1
-            failure = await self._attempt(route, routed, deadline)
-            if isinstance(failure, ProviderResult):
-                return failure
-            wait = self._retry_wait(failure, attempt, deadline)
+            outcome = await self._attempt(route, routed, deadline, breaker, permit)
+            if isinstance(outcome, ProviderResult):
+                return outcome
+            failure = outcome
+            wait = self._retry_wait(failure, attempt, deadline, breaker)
             self._log_failure(request_id, alias, route, attempt, failure, retry=wait is not None)
             if wait is None:
                 # Outside any except block, so nothing new is chained onto it.
@@ -184,24 +220,45 @@ class Router:
             await self._sleep(wait)
 
     async def _attempt(
-        self, route: Route, request: ChatRequest, deadline: float
+        self,
+        route: Route,
+        request: ChatRequest,
+        deadline: float,
+        breaker: CircuitBreaker,
+        permit: Permit,
     ) -> ProviderResult | ProviderError:
         timeout = asyncio.timeout(min(self._policy.attempt_timeout, deadline - self._clock()))
         try:
             async with timeout:
-                return await route.adapter.complete(request)
+                result = await route.adapter.complete(request)
         except ProviderError as exc:
-            return exc
+            failure = exc
         except TimeoutError:
             # Only our own timeout is ours to translate; an adapter's TimeoutError
             # is a bug and propagates unchanged.
             if not timeout.expired():
+                breaker.record_neutral(permit)
                 raise
-        # Returned, not raised: `complete` raises it outside any except block, so the
-        # TimeoutError is not chained onto it.
-        return ProviderTimeout("router: attempt timed out", reason="attempt_timeout")
+            # Returned, not raised: `complete` raises it outside any except block, so
+            # the TimeoutError is not chained onto it.
+            failure = ProviderTimeout("router: attempt timed out", reason="attempt_timeout")
+        except BaseException:
+            # A cancellation or a bug says nothing about the provider, but a probe
+            # must still give back its slot (D-058).
+            breaker.record_neutral(permit)
+            raise
+        else:
+            breaker.record_success(permit)
+            return result
+        if counts_as_failure(failure):
+            breaker.record_failure(permit)
+        else:
+            breaker.record_neutral(permit)
+        return failure
 
-    def _retry_wait(self, error: ProviderError, attempt: int, deadline: float) -> float | None:
+    def _retry_wait(
+        self, error: ProviderError, attempt: int, deadline: float, breaker: CircuitBreaker
+    ) -> float | None:
         """Seconds to wait before the next attempt, or None to give up."""
         policy = self._policy
         if not error.retryable:
@@ -210,6 +267,9 @@ class Router:
         if error.status is not None and 200 <= error.status <= 299:
             return None
         if attempt >= policy.max_attempts:
+            return None
+        # The next attempt would be refused, so do not wait for it (D-058).
+        if breaker.state == "open":
             return None
         bound = min(policy.max_delay, policy.base_delay * 2.0 ** min(attempt - 1, _MAX_EXPONENT))
         wait = self._random() * bound
@@ -276,6 +336,7 @@ def build_router(
     transport: httpx.AsyncBaseTransport | None = None,
     sleep: Sleep | None = None,
     policy: RetryPolicy | None = None,
+    breaker_policy: BreakerPolicy | None = None,
 ) -> Router:
     """A router over adapters built from the config; raises ConfigError on a missing key.
 
@@ -309,5 +370,6 @@ def build_router(
             for alias, entries in config.aliases.items()
         },
         policy=policy,
+        breaker_policy=breaker_policy,
         sleep=sleep if sleep is not None else asyncio.sleep,
     )

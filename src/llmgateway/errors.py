@@ -14,7 +14,8 @@ Key design choices:
   `input` and `ctx` fields are dropped because they echo what the client sent.
 - 429 is not used for provider rate limits (503 instead), so it stays free for
   the gateway's own limiter. A provider auth failure is the gateway's credential
-  problem, so it is a 502, never a 401.
+  problem, so it is a 502, never a 401. An open breaker is the gateway refusing,
+  not an upstream failure, so it is a 503 and not a 502 (D-058).
 - The request ID comes from the request state set by the middleware in `app`.
   Handlers for unexpected exceptions are not registered here: FastAPI runs
   `Exception` handlers outside user middleware, so the middleware handles them.
@@ -33,6 +34,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from llmgateway.providers.base import (
     ProviderAuthError,
     ProviderBadRequest,
+    ProviderCircuitOpen,
     ProviderError,
     ProviderRateLimited,
     ProviderTimeout,
@@ -80,6 +82,11 @@ _PROVIDER_ERRORS: Final[dict[type[ProviderError], tuple[int, str, str]]] = {
         503,
         "provider_rate_limited",
         "The provider is rate limiting the gateway.",
+    ),
+    ProviderCircuitOpen: (
+        503,
+        "provider_circuit_open",
+        "The provider is temporarily unavailable.",
     ),
     ProviderBadRequest: (400, "provider_bad_request", "The provider rejected the request."),
     ProviderAuthError: (
@@ -168,7 +175,10 @@ async def provider_error_handler(request: Request, exc: Exception) -> JSONRespon
         raise TypeError(f"unexpected exception type {type(exc).__name__}")
     status, code, message = provider_error_status(exc)
     headers = None
-    if isinstance(exc, ProviderRateLimited) and exc.retry_after_seconds is not None:
+    if (
+        isinstance(exc, ProviderRateLimited | ProviderCircuitOpen)
+        and exc.retry_after_seconds is not None
+    ):
         # Retry-After takes whole seconds; round up so clients never retry early.
         headers = {"Retry-After": str(max(0, math.ceil(exc.retry_after_seconds)))}
     return error_response(request_id_of(request), status, code, message, headers=headers)

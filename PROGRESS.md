@@ -1275,6 +1275,38 @@ Round 2 (delta 1066831..c551b28): **PASS**, no BLOCKING items, all round 1 items
 
 **M10 plan.** Write the spec first (D-055 to D-059, FLOW.md sections 5, 6, 8, 11 and 13, and pointer lines in the entries whose revisit conditions M10 fires). The tester then writes the tests from it, and the builder runs them and sees them fail before touching `src/`. Then `breaker.py`, the checks in `router.py`, `ProviderCircuitOpen` in `base.py` and its row in `errors.py`; mutation checks; review.
 
+**Spec.** cc786af: D-055 to D-059, FLOW.md sections 5, 6, 8, 10, 11 and 13, PLAN.md, and pointer lines in D-014, D-035, D-041, D-048, D-050, D-051 and D-054. The trip rule came from a seeded simulation, recorded in D-057 as arithmetic and not a measurement.
+
+**Tests (tester, Mode 1).** `tests/test_breaker.py`: 149 functions, 322 cases, each importing the new API at call time so it fails alone. No wall-clock dependence: fake clock, fake wall clock, recording sleep, `asyncio.Event` ordering. The one real timer is the router's own `attempt_timeout`, set to `1e-9`, so it is due on the first loop turn at any host speed. The tester also checked the tests against a throwaway reference in the scratchpad (by its report: all 322 pass there, and 65 injected bugs were caught).
+
+**Three existing tests changed, setup only.** The tester reported that three tests would fail under a correct breaker, because each runs past 15 failures on the default breaker while testing something else: `test_without_injected_random_waits_stay_within_the_bounds`, `test_more_attempts_than_a_float_exponent_can_hold_still_gives_the_capped_wait` and `test_each_mock_instance_has_its_own_seeded_sequence`. The tester proposed the fix and the builder applied it: each gets `BreakerPolicy(window_size=2000, failure_threshold=2000)`. No assertion changed, and the 1030 stands.
+
+**Spec gaps from the tester, settled in the entries.** `retry_after()` is never below 0 (D-057); a late neutral cannot free the probe slot (D-057); a subclass of a failure class counts (D-056); `ts` is truncated to the millisecond (D-059); the `ProviderCircuitOpen` constructor (D-058). Left open on purpose: recording one permit twice, because the router records each exactly once.
+
+**Seen failing before any `src/` change.** Two stages, `git diff --stat -- src` empty at cc786af.
+
+Stage 1, the real repo, `uv run pytest`: `325 failed, 1290 passed, 5 deselected in 86.98s`. That is the 322 new cases and the 3 tests above; no collection errors. Grouped by exception:
+- 318 `ModuleNotFoundError: No module named 'llmgateway.breaker'`;
+- 4 `AttributeError: 'Router' object has no attribute 'breaker'`;
+- 2 `KeyError: 'breaker_policy'`;
+- 1 `AttributeError: module 'llmgateway.providers.base' has no attribute 'ProviderCircuitOpen'`.
+
+A missing module could hide tests that assert nothing, so stage 2 ran in a scratch clone, never in the repo: the same tests against a stub with the whole interface and no behavior (the breaker always allows and never changes state, and `counts_as_failure` is always false). `273 failed, 289 passed` across `test_breaker.py`, `test_retries.py` and `test_router.py`. All 273 are in `test_breaker.py`, and all fail on assertions:
+- 207 `assert 'closed' == 'open'`;
+- 28 `DID NOT RAISE ValueError`;
+- 21 `assert False is True`;
+- 17 others: wrong log lines, call counts and `retry_after` values, and `DID NOT RAISE ProviderUnavailable`.
+
+The 49 `test_breaker.py` cases that pass on the stub assert what a do-nothing breaker already satisfies: defaults, signatures, neutral errors not counting, and a breaker staying closed. Mode 2 has to show they can fail. The three setup-changed tests pass on the stub, as they should.
+
+**Implementation.**
+- `breaker.py`: `BreakerPolicy`, `CircuitBreaker`, `Permit`, `counts_as_failure`.
+- `router.py`: one breaker per instance, `acquire` before every attempt, every outcome recorded (a cancellation or a bug as neutral), no retry while open, `Router.breaker`, `breaker_policy` and `wall_clock`.
+- `providers/base.py`: `ProviderCircuitOpen`. `errors.py`: 503 `provider_circuit_open` and its `Retry-After`.
+- `app.py` needed no change. README.md: the breaker, and the 503 on `mock-fallback`.
+
+`.\scripts\check.ps1` after the implementation: PASS, 1615 passed, 5 deselected in 86.85 s (the machine was still in Modern Standby); `ruff check` all checks passed; 36 files already formatted; mypy no issues in 28 source files.
+
 ## Agent Mistakes Log
 
 Rows are taken only from what the git history and DECISIONS.md record. Where the history does not say who found a problem, the row says so.
