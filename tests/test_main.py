@@ -7,7 +7,11 @@ shell may have set.
 
 Subprocess tests run the real startup path, `import llmgateway.main`, as uvicorn
 does, and check that a bad configuration exits with one clean line on stderr:
-no traceback, and none of the planted values.
+no traceback, and none of the planted values. They wait for the child with no
+timeout, and the probe child makes no real waits, so a result never depends on how
+long the host took: a limit here failed a healthy child when the laptop stalled
+coming out of Modern Standby (PROGRESS.md, Agent Mistakes Log). A child that really
+hangs blocks the run instead of failing it; the CI job's own limit ends that.
 """
 
 import importlib
@@ -259,9 +263,19 @@ def test_router_from_env_with_the_committed_mock_fallback_toml(
 STARTUP_VARS = ("LLMGATEWAY_PROVIDER", "LLMGATEWAY_CONFIG", "ANTHROPIC_API_KEY", "GEMINI_API_KEY")
 
 # Posts the same body for each alias to main.app, in order, one request at a time,
-# and prints [alias, status, model, error code] per request.
+# and prints [alias, status, model, error code] per request. asyncio.sleep is replaced
+# before main is imported, because build_router reads it then: the mock's latency and
+# the router's backoff return at once, so no attempt can reach the router's timeout.
 PROBE = """
 import asyncio, json, os
+
+yield_once = asyncio.sleep
+
+async def instant(seconds):
+    await yield_once(0)
+
+asyncio.sleep = instant
+
 import httpx
 import llmgateway.main as main
 
@@ -294,7 +308,6 @@ def _import_main(env: dict[str, str]) -> subprocess.CompletedProcess[str]:
         env=env,
         capture_output=True,
         text=True,
-        timeout=60,
         check=False,
     )
 
@@ -373,7 +386,6 @@ def _probe(env: dict[str, str], *aliases: str) -> list[list[object]]:
         env={**env, "PROBE_ALIASES": ",".join(aliases)},
         capture_output=True,
         text=True,
-        timeout=60,
         check=False,
     )
     assert result.returncode == 0, result.stderr
@@ -396,7 +408,7 @@ async def test_startup_with_mock_fallback_config_serves_its_aliases() -> None:
     # (fail, then 200), request 2 is call 3, request 3 is calls 4-5 (fail, then 200)
     # and request 4 is call 6: all four requests get 200. Before M9, requests 1 and
     # 4 got 502. The 502 path is covered in test_app.py and test_retries.py, where
-    # the backoff is injected; here it is real but short (two waits under 0.2 s).
+    # the backoff is injected; here PROBE makes it return at once.
     direct = MockProvider(failure_rate=0.3, failure_type="unavailable", seed=1)
     direct_ok: list[bool] = []
     for _ in range(6):

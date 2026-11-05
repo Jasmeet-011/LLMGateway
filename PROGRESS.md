@@ -1249,6 +1249,30 @@ Round 2 (delta 1066831..c551b28): **PASS**, no BLOCKING items, all round 1 items
 - Optional: rerun `uv run --env-file .env pytest -m live -v`. The 5-passed rerun predates M9's router and adapter changes. A passing run should cost the same as before, but a transient 5xx or a 429 can now make up to 3 real calls per request.
 - A client that disconnects does not stop the retries (D-050); M15 or M12 may need to act on it.
 
+### 2026-11-04: M11 disconnect scope, startup test fix, test audit, M10 Circuit breaker
+
+**Plan.** Start-of-session checks; the M11 docs edit; find and fix the startup test that timed out in M9; a reviewer audit of the M8 and M9 tests (report only); then M10 with strict test-first.
+
+**State check.** The snapshot at session start showed `router.py` modified and HEAD 8f61c69. That was stale: the live tree was clean at c5dcf53, level with origin, as the owner expected. `.\scripts\check.ps1` PASS: 1293 passed, 5 deselected.
+
+**Docs edit.** f511009: PLAN.md M11 scope and proof, a pointer line in D-050, and one clause in FLOW.md section 5, which CLAUDE.md requires alongside a D-entry change.
+
+**Startup test: why it timed out.** `test_startup_with_gemini_config_without_gemini_key_fails_cleanly` hit `subprocess.run(timeout=60)` in the M9 red run. The M9 reading, load from the long red run, was wrong:
+- The suite made no load. The same red state (src at 3a40c97, tests from d55ea21), rerun in a scratch clone on an awake machine, took 25.64 s with 197 failed; the one extra failure in the original 198 is this timeout.
+- The red run was 15:22:28 to 15:25:14 local. The System log has the laptop in Modern Standby (idle timeout) from 15:08:42 to 15:23:52. The agents kept running, throttled: every full run in that window took 96 to 156 s, and every awake run that day took 13 to 17 s.
+- The traceback's `endtime = 427553.765` plus the boot time (2026-10-30 21:38:55 UTC) puts the deadline at 15:24:49, so the child started at 15:23:49, three seconds before the wake, and stalled through it. `Intel-SST-OED` logged "insufficient system resources" at 15:23:53, and `nvlddmkm` logged event 153 at 15:25:02.
+- Not proven: what blocked that one child for the full 60 s. No stack was captured. The test's fault is proven: it failed on host timing, with nothing wrong in the code under test. Not ruled out: that the failure is related to the unclean reboot at 15:36.
+- Ruled out: WMI (`platform._wmi_query` is never called on this import) and slow imports (a steady 850 ms awake).
+
+**Fix.** `tests/test_main.py` only, no assertion changed. Both `subprocess.run` calls lose `timeout=60`, and PROBE replaces `asyncio.sleep` before importing main, so the mock latency and the backoff make no real waits and no attempt can reach the router's own 60 s timeout. These stay subprocess tests, because the exit code and the clean stderr are what they prove. Trade-off: a child that really hangs now blocks the run instead of failing it.
+
+**Evidence.**
+- A scratch pytest plugin froze the child with `NtSuspendProcess` for 65 s. Before the fix: `subprocess.TimeoutExpired ... timed out after 60 seconds`, 1 failed in 60.85 s. After: 1 passed in 66.54 s.
+- Full suite twice, then check.ps1: 1293 passed, 5 deselected each time (79.25 s, 78.15 s, 78.21 s), check.ps1 PASS. The machine went back into Modern Standby at 21:12:26, during these runs: one child import took 4436 ms against 850 ms awake. So these runs passed under the condition that broke the test.
+- Still able to fail, in a scratch clone: wrong prefix, `ConfigError` not caught, and exit 0 each failed 9 startup tests; no retries failed the seeded test. The tester repeats this in M10's Mode 2.
+
+**Not changed, same class of risk.** `tests/test_retries.py` has real-time limits: `GUARD_SECONDS = 2.0` at nine sites, and tests under a real `asyncio.timeout`. A host stall over 2 s inside one could fail it. They were not part of this fix.
+
 ## Agent Mistakes Log
 
 Rows are taken only from what the git history and DECISIONS.md record. Where the history does not say who found a problem, the row says so.
@@ -1279,3 +1303,4 @@ Rows are taken only from what the git history and DECISIONS.md record. Where the
 | 2026-11-04 | M9: the builder wrote in D-052 that a 2xx truncated by a flaky network is not retried. That is false for a body cut off partway: `client.post` reads the body before the adapter sees the status, so the failure has no status and is retried, and can bill twice. D-052 overstated its protection. | Reviewer round 1, SHOULD FIX 3, by reading the adapters and httpx's read order. | D-052's Decision and Risk now say the rule covers only a 2xx whose status is known. |
 | 2026-11-04 | M9: neither the builder's spec nor the Mode 1 tests covered cancellation, and FLOW.md's "any other exception is a bug" misdescribed it. A regression such as `except BaseException` would have passed every test, and the mutation list had no such mutant. | Reviewer round 1, SHOULD FIX 1. | D-050 and FLOW.md section 5 state it; four tests and 15 mutations added, all caught. |
 | 2026-11-04 | M9: the builder left two spec loose ends when writing D-050 to D-054: FLOW.md's glossary still described jitter as a small amount added to a growing wait, and D-043's revisit condition fired with no pointer line. D-050 also did not record that a client disconnect leaves the retries running. | Reviewer round 1, SHOULD FIX 2, 4 and 5. | Glossary rewritten, D-043 pointer added, disconnect recorded in D-050 and FLOW.md. |
+| 2026-11-04 | M9: the builder read a `subprocess.TimeoutExpired` in a startup test as load during the long red run, with nothing measured, and recorded that. It was wrong twice: the suite makes no such load (25.64 s for the same state on an awake machine), and 155.69 s against the usual 15 s was itself a signal nobody looked into. The cause was the test's own 60 s wall-clock limit meeting a host stall: the laptop was in Modern Standby, and the child started 3 s before the wake. | The owner asked for the cause. The rerun in a clone, the System log and the traceback's monotonic `endtime` placed the child in the timeline. | `timeout=60` removed from both `subprocess.run` calls in `tests/test_main.py`, and PROBE makes no real waits. A 65 s freeze of the child now passes; before the fix it failed at 60 s. |
