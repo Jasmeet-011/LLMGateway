@@ -2,9 +2,13 @@
 # and measured without keys. No real provider is called.
 # Use it with: $env:LLMGATEWAY_CONFIG = "config/mock-fallback.toml"
 #
-# Until M11, only the first entry is used, so mock-primary serves every request
-# and 30% of its attempts fail (measurement 4's injected failure rate); the router
-# retries them (D-050).
+# 30% of mock-primary's attempts fail (measurement 4's injected failure rate). The
+# router retries them (D-050), and a request whose attempts all fail moves to
+# mock-secondary (D-060).
+#
+# For an outage, set LLMGATEWAY_FAULTS (D-064). Measurement 8's is
+# $env:LLMGATEWAY_FAULTS = "mock-primary=1.0@60+30": 100% failure from 60 s after
+# the instance's first call, for 30 s.
 
 [providers.mock-primary]
 type = "mock"

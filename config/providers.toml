@@ -3,7 +3,8 @@
 # this file (D-044). Use it with: $env:LLMGATEWAY_CONFIG = "config/providers.toml"
 #
 # Each alias lists (provider instance, provider model) pairs in fallback order
-# (D-010). Until M11, only the first entry is used.
+# (D-010). A request moves to the next entry when one fails for anything but a
+# bad request (D-060).
 
 [providers.claude]
 type = "claude"

@@ -7,7 +7,18 @@ live (M9 to M11), so the app and the adapters never need to know about them.
 
 Key design choices:
 
-- The router selects an alias's first entry; fallback down the list is M11.
+- `serve` tries an alias's entries in order; `complete` is one entry. Everything
+  but a bad request moves to the next entry, because a timeout, an outage, a rate
+  limit, a dead key or a refusal is about one provider, and a bad request is about
+  the request (D-060). `falls_back` is the one place that rule lives. The client
+  gets the last failure that really happened, and a refusal only if every entry
+  refused.
+- One deadline covers the whole request, and a non-last entry must finish
+  `fallback_reserve` before it. Without that, a hung first entry would use the
+  whole 90 s on its timeout and its retry, and fallback would never run (D-061).
+- Before each retry and each move the router asks whether the client is still
+  there, so an abandoned request stops billing (D-062). The check comes before the
+  breaker, so a client that has gone cannot take a probe slot.
 - Retries happen here and nowhere else (D-032); adapters raise each failure once.
   `complete` tries one entry up to `RetryPolicy.max_attempts` times (D-050):
   - only `ProviderError`s with `retryable` set are retried, and never one whose
@@ -18,7 +29,8 @@ Key design choices:
   - each attempt runs under `min(attempt_timeout, time left)`, and the whole call
     has a `total_timeout` deadline that no wait may reach.
   Sleep, clock and random are injected, so tests check every wait exactly.
-- Every failed attempt writes one `attempt_failed` WARNING line with the alias,
+- Each move writes one `fallback_taken` WARNING line (D-061), and every failed
+  attempt writes one `attempt_failed` WARNING line with the alias,
   instance, provider model, attempt number, provider status, fixed reason code,
   error class and whether it retries (D-054). It never includes the adapter's
   message, provider text, prompts or keys, and none of it reaches the client.
@@ -40,6 +52,9 @@ Key design choices:
 - API keys are read from the environment here, only for the provider types the
   config uses, and checked before any adapter is built (D-044). Messages never
   contain a key.
+- `LLMGATEWAY_FAULTS` windows go to the mock instances it names, and each writes one
+  `fault_injection_on` line at startup, so a run with faults cannot pass unnoticed
+  (D-064).
 - The router owns its adapters: `aclose()` closes each one once, on app shutdown.
 """
 
@@ -62,14 +77,17 @@ from llmgateway.config import (
     GatewayConfig,
     GeminiProviderConfig,
     MockProviderConfig,
+    parse_faults,
 )
 from llmgateway.providers.base import (
     ProviderAdapter,
+    ProviderAuthError,
     ProviderCircuitOpen,
     ProviderError,
     ProviderRateLimited,
     ProviderResult,
     ProviderTimeout,
+    ProviderUnavailable,
 )
 from llmgateway.providers.claude import ClaudeAdapter
 from llmgateway.providers.gemini import GeminiAdapter
@@ -79,6 +97,7 @@ from llmgateway.schema import ChatRequest
 Sleep = Callable[[float], Awaitable[None]]
 Clock = Callable[[], float]
 RandomSource = Callable[[], float]
+IsDisconnected = Callable[[], Awaitable[bool]]
 
 logger = logging.getLogger("llmgateway.router")
 
@@ -102,6 +121,8 @@ class RetryPolicy:
     max_retry_after: float = 5.0
     attempt_timeout: float = 60.0
     total_timeout: float = 90.0
+    # Held back from a non-last entry for the entries after it (D-061).
+    fallback_reserve: float = 30.0
 
     def __post_init__(self) -> None:
         if (
@@ -110,7 +131,7 @@ class RetryPolicy:
             or self.max_attempts < 1
         ):
             raise ValueError("max_attempts must be an int of at least 1")
-        for name in ("base_delay", "max_delay", "max_retry_after"):
+        for name in ("base_delay", "max_delay", "max_retry_after", "fallback_reserve"):
             value = getattr(self, name)
             if not _is_number(value) or not math.isfinite(value) or value < 0:
                 raise ValueError(f"{name} must be a finite number >= 0")
@@ -132,6 +153,36 @@ class Route:
     provider: str
     model: str
     adapter: ProviderAdapter
+
+
+@dataclass(frozen=True)
+class Served:
+    """The entry that answered, and its answer."""
+
+    route: Route
+    result: ProviderResult
+
+
+class ClientDisconnected(Exception):
+    """The client left before a retry or fallback attempt (D-062). No provider failed."""
+
+
+def falls_back(error: ProviderError) -> bool:
+    """Whether the next entry could serve what this one could not (D-060)."""
+    return isinstance(
+        error,
+        ProviderTimeout
+        | ProviderUnavailable
+        | ProviderRateLimited
+        | ProviderAuthError
+        | ProviderCircuitOpen,
+    )
+
+
+def _retry_after_order(refusal: ProviderCircuitOpen) -> float:
+    # None, during a probe, says nothing about when to come back, so it sorts last.
+    seconds = refusal.retry_after_seconds
+    return math.inf if seconds is None else seconds
 
 
 class UnknownAlias(Exception):
@@ -185,17 +236,70 @@ class Router:
             raise UnknownAlias("model is not a configured alias") from None
 
     def select(self, alias: str) -> Route:
-        # The first entry only, until fallback (M11).
+        # The alias check and the first entry; `serve` goes down the list.
         return self.routes(alias)[0]
 
+    async def serve(
+        self,
+        request: ChatRequest,
+        *,
+        request_id: str | None = None,
+        is_disconnected: IsDisconnected | None = None,
+    ) -> Served:
+        """Try the alias's entries in order; raises what the client should see (D-060)."""
+        alias = request.model
+        entries = self.routes(alias)
+        deadline = self._clock() + self._policy.total_timeout
+        failure: ProviderError | None = None
+        refusals: list[ProviderCircuitOpen] = []
+        left: tuple[Route, ProviderError] | None = None
+        for index, route in enumerate(entries):
+            is_last = index == len(entries) - 1
+            limit = deadline if is_last else deadline - self._policy.fallback_reserve
+            if self._clock() >= limit:
+                continue
+            if left is not None:
+                if is_disconnected is not None and await is_disconnected():
+                    raise ClientDisconnected("client disconnected")
+                self._log_fallback(request_id, alias, left[0], left[1], route)
+            try:
+                result = await self.complete(
+                    route,
+                    request,
+                    request_id=request_id,
+                    deadline=limit,
+                    is_disconnected=is_disconnected,
+                )
+            except ProviderError as error:
+                if not falls_back(error):
+                    raise
+                left = (route, error)
+                if isinstance(error, ProviderCircuitOpen):
+                    refusals.append(error)
+                else:
+                    failure = error
+            else:
+                return Served(route, result)
+        # Outside any except block, so nothing new is chained onto it.
+        if failure is not None:
+            raise failure
+        raise min(refusals, key=_retry_after_order)
+
     async def complete(
-        self, route: Route, request: ChatRequest, *, request_id: str | None = None
+        self,
+        route: Route,
+        request: ChatRequest,
+        *,
+        request_id: str | None = None,
+        deadline: float | None = None,
+        is_disconnected: IsDisconnected | None = None,
     ) -> ProviderResult:
-        """Call the route's adapter, retrying per the policy; raises the last error."""
+        """Call one entry's adapter, retrying per the policy; raises the last error."""
         # The request's model is still the alias the client sent (D-045).
         alias = request.model
         routed = request.model_copy(update={"model": route.model})
-        deadline = self._clock() + self._policy.total_timeout
+        if deadline is None:
+            deadline = self._clock() + self._policy.total_timeout
         breaker = self._breakers[route.provider]
         attempt = 0
         failure: ProviderError | None = None
@@ -218,6 +322,10 @@ class Router:
                 # Outside any except block, so nothing new is chained onto it.
                 raise failure
             await self._sleep(wait)
+            # After the wait, when the client is most likely to have left, and before
+            # the breaker, so a client that has gone takes no probe slot (D-062).
+            if is_disconnected is not None and await is_disconnected():
+                raise ClientDisconnected("client disconnected")
 
     async def _attempt(
         self,
@@ -307,6 +415,28 @@ class Router:
             "yes" if retry else "no",
         )
 
+    def _log_fallback(
+        self,
+        request_id: str | None,
+        alias: str,
+        left: Route,
+        error: ProviderError,
+        to: Route,
+    ) -> None:
+        # Fixed fields only, as in `_log_failure` (D-061).
+        logger.warning(
+            "fallback_taken request_id=%s alias=%r from=%s from_model=%r to=%s to_model=%r "
+            "reason=%s error=%s",
+            request_id if request_id is not None else "-",
+            alias,
+            left.provider,
+            left.model,
+            to.provider,
+            to.model,
+            error.reason if error.reason is not None else "-",
+            type(error).__name__,
+        )
+
     async def aclose(self) -> None:
         closed: set[int] = set()
         for entries in self._aliases.values():
@@ -338,14 +468,17 @@ def build_router(
     sleep: Sleep | None = None,
     policy: RetryPolicy | None = None,
     breaker_policy: BreakerPolicy | None = None,
+    clock: Clock | None = None,
 ) -> Router:
     """A router over adapters built from the config; raises ConfigError on a missing key.
 
-    `sleep`, when given, is used by the mock instances and the router's backoff.
+    `sleep` and `clock`, when given, are used by the mock instances and the router.
     """
     # Every key first, so a missing one fails before any HTTP client is opened.
     used_types = {provider.type for provider in config.providers.values()}
     keys = {t: _api_key(environ, t) for t in sorted(used_types) if t in _KEY_VARIABLES}
+    faults = parse_faults(environ, config)
+    timer = clock if clock is not None else time.monotonic
 
     adapters: dict[str, ProviderAdapter] = {}
     for name, provider in config.providers.items():
@@ -357,11 +490,22 @@ def build_router(
                     failure_type=provider.failure_type,
                     seed=provider.seed,
                     sleep=sleep if sleep is not None else asyncio.sleep,
+                    fault=faults.get(name),
+                    clock=timer,
                 )
             case ClaudeProviderConfig():
                 adapters[name] = ClaudeAdapter(keys["claude"], transport=transport)
             case GeminiProviderConfig():
                 adapters[name] = GeminiAdapter(keys["gemini"], transport=transport)
+
+    for name, window in faults.items():
+        logger.warning(
+            "fault_injection_on provider=%s rate=%s start=%s duration=%s",
+            name,
+            window.rate,
+            window.start,
+            window.duration if window.duration is not None else "-",
+        )
 
     return Router(
         {
@@ -373,4 +517,5 @@ def build_router(
         policy=policy,
         breaker_policy=breaker_policy,
         sleep=sleep if sleep is not None else asyncio.sleep,
+        clock=timer,
     )

@@ -1848,6 +1848,20 @@ Stage 2, a scratch clone, never the repo: the same tests against a stub with the
 
 153 new cases pass on the stub: they assert what a do-nothing version already satisfies, including the 21 that pass on M10's code. Mode 2 has to show they can fail. The 7 changed existing tests pass on the stub, as they should.
 
+**Implementation.**
+- `router.py`: `Router.serve`, `Served`, `falls_back`, `ClientDisconnected`, `fallback_reserve`, the `fallback_taken` line, `complete`'s `deadline` and `is_disconnected`, `build_router`'s `clock`, the `fault_injection_on` line.
+- `providers/mock.py`: `FaultWindow`, and `MockProvider`'s `fault` and `clock`. `config.py`: `parse_faults`. `schema.py`: `provider_instance`. `app.py`: calls `serve`, and turns `ClientDisconnected` into 499.
+- README.md, `config/mock-fallback.toml` and `config/providers.toml` updated.
+
+First run: 2350 of 2351 passed. `test_each_rule_has_its_own_message` failed, fairly: `parse_faults` gave one combined message for the rate and the duration, where D-064 says the message names the rule. Fixed in the code, using `FaultWindow`'s fixed messages; the test is unchanged.
+
+`.\scripts\check.ps1` after that: PASS, 2351 passed, 5 deselected in 26.31 s; `ruff check` all checks passed; 39 files already formatted; mypy no issues in 30 source files.
+
+**Real server, real socket, mocks only** (a scratch script; no provider called, and not part of the suite). With `config/mock-fallback.toml` and `LLMGATEWAY_FAULTS=mock-primary=1.0`, the ASGI tests' fake `receive` replaced by uvicorn's real one:
+- the startup line `fault_injection_on provider=mock-primary rate=1.0 start=0.0 duration=-`;
+- a connected client: three `attempt_failed` lines, one `fallback_taken`, then 200 with `provider_instance` `mock-secondary`;
+- a client that closed the socket right after sending: one `attempt_failed`, then the request line with `status=499`, with no second attempt and no `fallback_taken`.
+
 ## Agent Mistakes Log
 
 Rows are taken only from what the git history and DECISIONS.md record. Where the history does not say who found a problem, the row says so.

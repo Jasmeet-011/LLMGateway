@@ -13,6 +13,7 @@ Key design choices:
   mock-only default when that is unset (D-044). API keys come only from the
   environment: `ANTHROPIC_API_KEY` and `GEMINI_API_KEY`, each required only when
   the config uses that provider type.
+- `LLMGATEWAY_FAULTS` is read through the same environment, unset by default (D-064).
 - Bad configuration stops the process at import, before uvicorn serves anything,
   with a `SystemExit` message and no traceback. The messages never echo the
   values that were set, so a key pasted into the wrong variable is not printed.

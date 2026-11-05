@@ -20,12 +20,18 @@ Key design choices:
 - Failed calls wait the configured latency too, because real failures take time.
   Injected errors carry reason `injected` and no status (D-054).
 - `sleep` is injectable so tests run instantly and can check the delay.
+- A `FaultWindow` raises the failure rate for a stretch of time, counted from the
+  instance's first call, because the configured rate is fixed for the process and
+  measurement 8 needs an outage mid-run (D-064). It changes the rate and not the
+  roll, so the seeded sequence does not shift.
 """
 
 import asyncio
 import math
 import random
+import time
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from typing import Final, Literal, get_args
 
 from llmgateway.providers.base import (
@@ -41,6 +47,7 @@ from llmgateway.schema import ChatRequest, Provider, Usage
 
 FailureType = Literal["timeout", "rate_limited", "unavailable", "bad_request", "auth"]
 Sleep = Callable[[float], Awaitable[None]]
+Clock = Callable[[], float]
 
 _FAILURE_TYPES: Final = frozenset(get_args(FailureType))
 
@@ -61,6 +68,37 @@ def _injected_error(failure_type: FailureType) -> ProviderError:
             return ProviderAuthError(message, reason="injected")
 
 
+def _is_number(value: object) -> bool:
+    return isinstance(value, int | float) and not isinstance(value, bool)
+
+
+@dataclass(frozen=True)
+class FaultWindow:
+    """A failure rate for a stretch of time after the first call (D-064); seconds."""
+
+    rate: float
+    start: float = 0.0
+    # None means no end.
+    duration: float | None = None
+
+    def __post_init__(self) -> None:
+        # Written this way so NaN is rejected too.
+        if not _is_number(self.rate) or not 0.0 <= self.rate <= 1.0:
+            raise ValueError("rate must be a number between 0 and 1")
+        if not _is_number(self.start) or not math.isfinite(self.start) or self.start < 0:
+            raise ValueError("start must be a finite number >= 0")
+        duration = self.duration
+        if duration is not None and (
+            not _is_number(duration) or not math.isfinite(duration) or duration <= 0
+        ):
+            raise ValueError("duration must be None or a finite number > 0")
+
+    def is_active(self, elapsed: float) -> bool:
+        if elapsed < self.start:
+            return False
+        return self.duration is None or elapsed < self.start + self.duration
+
+
 def _word_count(text: str) -> int:
     return len(text.split())
 
@@ -76,6 +114,8 @@ class MockProvider:
         failure_type: FailureType = "unavailable",
         seed: int | None = None,
         sleep: Sleep = asyncio.sleep,
+        fault: FaultWindow | None = None,
+        clock: Clock = time.monotonic,
     ) -> None:
         if isinstance(latency_ms, bool) or not isinstance(latency_ms, int | float):
             raise ValueError("latency_ms must be a number")
@@ -95,6 +135,9 @@ class MockProvider:
         self._failure_rate = float(failure_rate)
         self._failure_type: FailureType = failure_type
         self._sleep = sleep
+        self._fault = fault
+        self._clock = clock
+        self._fault_origin: float | None = None
         # Failure injection only, not security: a seeded PRNG is the point.
         self._rng = random.Random(seed)  # noqa: S311
         self.call_count = 0
@@ -103,8 +146,10 @@ class MockProvider:
         self.call_count += 1
         # Captured before awaiting, so concurrent calls keep distinct IDs.
         call_number = self.call_count
+        if self._fault is not None and self._fault_origin is None:
+            self._fault_origin = self._clock()
         await self._sleep(self._latency_ms / 1000)
-        if self._rng.random() < self._failure_rate:
+        if self._rng.random() < self._current_rate():
             raise _injected_error(self._failure_type)
 
         last_user = next(m for m in reversed(request.messages) if m.role == "user")
@@ -126,3 +171,11 @@ class MockProvider:
             usage=usage,
             provider_response_id=f"mock-{call_number}",
         )
+
+    def _current_rate(self) -> float:
+        fault = self._fault
+        if fault is None or self._fault_origin is None:
+            return self._failure_rate
+        if fault.is_active(self._clock() - self._fault_origin):
+            return max(self._failure_rate, fault.rate)
+        return self._failure_rate

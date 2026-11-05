@@ -11,8 +11,12 @@ Key design choices:
   router is built from its config in `main` (D-044).
 - `model` must be a configured alias (D-045): otherwise 400 `unknown_model`, with
   the value not echoed and no provider called, before the `stream=true` 501. The
-  response's `model` is the provider model that served, and `provider` is that
-  instance's provider type.
+  response's `model` is the provider model that served, `provider` is that
+  instance's provider type, and `provider_instance` is its config name (D-063).
+- `Router.serve` owns fallback. The app only passes it `request.is_disconnected` and
+  turns `ClientDisconnected` into a 499 nobody reads, so the request line says what
+  happened (D-062). The line names the entry that served, or on a failure the
+  alias's first entry (D-060).
 - The app owns its router: on shutdown its lifespan calls `router.aclose()`,
   which closes each adapter's HTTP client.
 - A small pure ASGI middleware, not `BaseHTTPMiddleware`, assigns the request ID,
@@ -52,7 +56,7 @@ from llmgateway.errors import (
     validation_error_handler,
 )
 from llmgateway.providers.base import ProviderError
-from llmgateway.router import Router, UnknownAlias, build_router
+from llmgateway.router import ClientDisconnected, Router, UnknownAlias, build_router
 from llmgateway.schema import ChatRequest, ChatResponse
 
 logger = logging.getLogger("llmgateway.request")
@@ -148,7 +152,7 @@ def create_app(
     async def chat(body: ChatRequest, request: Request) -> ChatResponse:
         request.state.model = body.model
         try:
-            route = gateway.select(body.model)
+            first = gateway.select(body.model)
         except UnknownAlias:
             # Fixed message: the alias is client text and is not echoed (D-045).
             raise GatewayError(
@@ -158,13 +162,25 @@ def create_app(
             raise GatewayError(
                 501, "streaming_not_implemented", "Streaming is not implemented yet."
             )
+        request.state.provider = first.provider
+        request.state.provider_model = first.model
+        # The router retries and falls back (D-050, D-060), and logs both with this ID.
+        try:
+            served = await gateway.serve(
+                body,
+                request_id=request_id_of(request),
+                is_disconnected=request.is_disconnected,
+            )
+        except ClientDisconnected:
+            raise GatewayError(499, "client_disconnected", "The client disconnected.") from None
+        route = served.route
+        result = served.result
         request.state.provider = route.provider
         request.state.provider_model = route.model
-        # The router retries (D-050) and logs each failed attempt with this ID (D-054).
-        result = await gateway.complete(route, body, request_id=request_id_of(request))
         return ChatResponse(
             id=request_id_of(request),
             provider=route.adapter.name,
+            provider_instance=route.provider,
             model=route.model,
             content=result.content,
             finish_reason=result.finish_reason,

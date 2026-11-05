@@ -22,6 +22,10 @@ Key design choices:
   as `<invalid name>`.
 - `LLMGATEWAY_PROVIDER` (D-036) is rejected rather than ignored, so a stale
   variable cannot leave the gateway on a provider the owner did not expect.
+- `LLMGATEWAY_FAULTS` (D-064) is the one setting not in the file, because the same
+  config must serve a baseline run and a failure run. It can only name mock
+  instances, which is what keeps it out of production: a config with no mock
+  cannot start with it set, so it can never fail a real provider's traffic.
 """
 
 import re
@@ -33,16 +37,23 @@ from typing import Annotated, Any, Final, Literal
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from llmgateway.providers.gemini import MODEL_ID_PATTERN
-from llmgateway.providers.mock import FailureType
+from llmgateway.providers.mock import FailureType, FaultWindow
 
 CONFIG_ENV: Final = "LLMGATEWAY_CONFIG"
 RETIRED_PROVIDER_ENV: Final = "LLMGATEWAY_PROVIDER"
+FAULTS_ENV: Final = "LLMGATEWAY_FAULTS"
 
 # Provider and alias names. 128 is ChatRequest.model's cap (D-030), so every alias
 # can be requested.
 NAME_PATTERN: Final = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 MAX_NAME_LENGTH: Final = 128
 MAX_MODEL_LENGTH: Final = 128
+
+# One LLMGATEWAY_FAULTS entry: <instance>=<rate>, optionally @<start>+<duration>.
+_NUMBER: Final = r"[0-9]+(?:\.[0-9]+)?"
+_FAULT_ENTRY: Final = re.compile(
+    rf"({NAME_PATTERN.pattern})=({_NUMBER})(?:@({_NUMBER})\+({_NUMBER}))?"
+)
 
 DEFAULT_CONFIG: Final = """\
 # Built-in default (D-044): the mock provider only, so no keys are needed.
@@ -206,6 +217,41 @@ def parse_config(text: str) -> GatewayConfig:
             raise ConfigError(f"providers.{name}: is not used by any alias")
 
     return GatewayConfig(providers=providers, aliases=aliases)
+
+
+def parse_faults(environ: Mapping[str, str], config: GatewayConfig) -> dict[str, FaultWindow]:
+    """The fault windows in LLMGATEWAY_FAULTS, by instance; empty when unset (D-064)."""
+    value = environ.get(FAULTS_ENV)
+    if value is None:
+        return {}
+    if not value.strip():
+        raise ConfigError(f"{FAULTS_ENV} is set but empty")
+    faults: dict[str, FaultWindow] = {}
+    for position, entry in enumerate(value.split(","), start=1):
+        location = f"{FAULTS_ENV}: entry {position}"
+        match = _FAULT_ENTRY.fullmatch(entry)
+        if match is None:
+            raise ConfigError(
+                f"{location} must be <instance>=<rate> or <instance>=<rate>@<start>+<duration>"
+            )
+        name, rate, start, duration = match.groups()
+        provider = config.providers.get(name)
+        if provider is None:
+            raise ConfigError(f"{location} names an instance that is not in the config")
+        if provider.type != "mock":
+            raise ConfigError(f"{location} must name a mock instance")
+        if name in faults:
+            raise ConfigError(f"{location} repeats an instance")
+        try:
+            faults[name] = FaultWindow(
+                float(rate),
+                float(start) if start is not None else 0.0,
+                float(duration) if duration is not None else None,
+            )
+        except ValueError as exc:
+            # FaultWindow's messages are fixed text that states the rule, never a value.
+            raise ConfigError(f"{location}: {exc}") from None
+    return faults
 
 
 def load_config(environ: Mapping[str, str]) -> GatewayConfig:
