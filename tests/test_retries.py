@@ -342,6 +342,7 @@ def test_retry_policy_is_a_frozen_dataclass() -> None:
         "max_retry_after",
         "attempt_timeout",
         "total_timeout",
+        "fallback_reserve",
     }
     policy = RetryPolicy()
     with pytest.raises(dataclasses.FrozenInstanceError):

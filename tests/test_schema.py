@@ -28,6 +28,7 @@ def _response(**overrides: Any) -> dict[str, Any]:
     body: dict[str, Any] = {
         "id": "r1",
         "provider": "mock",
+        "provider_instance": "mock",
         "model": "mock-1",
         "content": "hello",
         "finish_reason": "stop",
@@ -242,6 +243,8 @@ def test_stream_json_bool_accepted_json_string_rejected() -> None:
 
 
 def test_response_json_round_trip() -> None:
+    # Through **extras until the field exists, so mypy accepts this file before M11.
+    extras: dict[str, Any] = {"provider_instance": "mock"}
     resp = ChatResponse(
         id="r1",
         provider="mock",
@@ -249,6 +252,7 @@ def test_response_json_round_trip() -> None:
         content="hello",
         finish_reason="stop",
         usage=Usage(input_tokens=3, output_tokens=2),
+        **extras,
     )
     assert ChatResponse.model_validate_json(resp.model_dump_json()) == resp
     assert resp.usage.total_tokens == 5

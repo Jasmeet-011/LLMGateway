@@ -2,8 +2,8 @@
 
 In-process tests call `router_from_env` with an explicit environment. Importing
 `llmgateway.main` builds its module-level app from `os.environ`, so the fixture
-first removes LLMGATEWAY_PROVIDER and LLMGATEWAY_CONFIG, which the developer's
-shell may have set.
+first removes LLMGATEWAY_PROVIDER, LLMGATEWAY_CONFIG and LLMGATEWAY_FAULTS, which the
+developer's shell may have set.
 
 Subprocess tests run the real startup path, `import llmgateway.main`, as uvicorn
 does, and check that a bad configuration exits with one clean line on stderr:
@@ -66,6 +66,7 @@ RouterFromEnv = Callable[[Mapping[str, str]], Router]
 def main_module(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
     monkeypatch.delenv("LLMGATEWAY_PROVIDER", raising=False)
     monkeypatch.delenv("LLMGATEWAY_CONFIG", raising=False)
+    monkeypatch.delenv("LLMGATEWAY_FAULTS", raising=False)
     return importlib.import_module("llmgateway.main")
 
 
@@ -262,7 +263,13 @@ def test_router_from_env_with_the_committed_mock_fallback_toml(
 
 # The real startup path, in a subprocess
 
-STARTUP_VARS = ("LLMGATEWAY_PROVIDER", "LLMGATEWAY_CONFIG", "ANTHROPIC_API_KEY", "GEMINI_API_KEY")
+STARTUP_VARS = (
+    "LLMGATEWAY_PROVIDER",
+    "LLMGATEWAY_CONFIG",
+    "LLMGATEWAY_FAULTS",
+    "ANTHROPIC_API_KEY",
+    "GEMINI_API_KEY",
+)
 
 # Posts the same body for each alias to main.app, in order, one request at a time,
 # and prints [alias, status, model, error code] per request. asyncio.sleep is replaced
@@ -441,9 +448,11 @@ FALLBACK_OK = ["mock-fallback", 200, "mock-a", None]
 
 @pytest.mark.asyncio
 async def test_startup_with_mock_fallback_config_serves_its_aliases() -> None:
-    # mock-primary (failure_rate 0.3, seed 1) serves every request until M11. Its
-    # seeded sequence is fixed (D-016): fail, succeed, succeed, fail, succeed,
-    # succeed. Checked against a MockProvider built directly with the file's settings.
+    # mock-primary (failure_rate 0.3, seed 1) serves all four requests here: each of
+    # its two failures is retried on that entry and the retry succeeds, so nothing
+    # moves to mock-secondary (D-060). Its seeded sequence is fixed (D-016): fail,
+    # succeed, succeed, fail, succeed, succeed. Checked against a MockProvider built
+    # directly with the file's settings.
     # Since M9 the router retries the injected (retryable) failures with the default
     # policy (D-050), so through the real startup path request 1 is calls 1-2
     # (fail, then 200), request 2 is call 3, request 3 is calls 4-5 (fail, then 200)
