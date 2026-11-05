@@ -61,8 +61,8 @@ Worked in order. Status and evidence are in [PROGRESS.md](PROGRESS.md); this fil
 
 ### M11 Provider fallback and fault injection
 
-- **Scope:** fallback down the alias list (D-010) for non-streaming requests; streams get the pre-first-byte rule in M12. Per-provider fault injection switched by an environment variable, off by default.
-- **Proof:** inject failures on one provider and the other serves; the response says which provider served; with one mock at 100% failure, every request is served by the other.
+- **Scope:** fallback down the alias list (D-010) for non-streaming requests; streams get the pre-first-byte rule in M12. Per-provider fault injection switched by an environment variable, off by default. Before each retry or fallback attempt, the router checks whether the client is still connected and stops if it is gone, so an abandoned request does not keep billing (D-050's open risk).
+- **Proof:** inject failures on one provider and the other serves; the response says which provider served; with one mock at 100% failure, every request is served by the other; a client that disconnects after a failed attempt gets no further retry or fallback attempt.
 - **Dependencies allowed:** none.
 - **Open issues to settle:** whether non-retryable errors fall back (FLOW.md section 5, D-033); the fault-injection variables and how they are kept out of production, and whether they are still needed beyond the per-instance mock settings in the config (D-044); how the response says which provider served when two entries share a type, such as two mocks (D-045 reports the provider model and type only); how measurement 8's outage window (100% failure for a fixed time mid-run) is injected, since the mock's failure rate is fixed (D-016); D-049 treats a 200 with empty content and finish reason `max_tokens` as a success that does not fall back, to be confirmed or revisited here; whether auth errors, which now include 402 and a Gemini invalid key (D-048), fall back; whether fallback entries share the 90 s deadline and how attempts are numbered across entries (D-050); whether a billed malformed 2xx, which the router does not retry, falls back (D-052).
 
