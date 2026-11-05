@@ -124,7 +124,7 @@ stateDiagram-v2
 ```
 
 - **Closed:** the normal state. Calls go through. The window holds the last 20 success and failure outcomes; 15 failures in it open the breaker, even before it is full.
-- **Open:** the provider is treated as down. Calls are not sent; the router moves straight to the next entry in the alias list, and with none left the client gets 503 `provider_circuit_open` with `Retry-After` set to the cooldown left, rounded up (D-058). This protects a struggling provider and saves the time a doomed call would take.
+- **Open:** the provider is treated as down. Calls are not sent. From M11 the router moves straight to the next entry in the alias list. Until then, and from then on with no entry left, the client gets 503 `provider_circuit_open` with `Retry-After` set to the cooldown left, rounded up (D-058). This protects a struggling provider and saves the time a doomed call would take.
 - **HalfOpen:** the first request at or after the cooldown is the probe, and there is one at a time; every other request is refused, with no `Retry-After`. A success closes the breaker and empties the window. A failure reopens it and restarts the full cooldown. Nothing moves the breaker with no traffic: there is no timer.
 
 | Outcome of an adapter call | Breaker |
@@ -213,6 +213,7 @@ src/llmgateway/
 | Postgres | Hashed API keys, managed with SQLAlchemy and Alembic |
 | Redis | Rate limit token buckets, updated by a Lua script using Redis server time (D-002) |
 | Redis | Cached responses, keyed by a hash of the normalized request, model, params, and caller (D-003) |
+| Process memory | Circuit breaker state, one per config instance in each worker, lost on restart (D-055) |
 | To be decided | Usage and cost records; spend cap counters and coalescing state (stretch, D-031) |
 | Never stored | Plaintext API keys: only hashes are kept, compared in constant time (CLAUDE.md) |
 | Never logged | Prompts, response content, API keys, secrets (CLAUDE.md) |

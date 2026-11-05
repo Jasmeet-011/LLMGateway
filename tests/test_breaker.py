@@ -58,6 +58,7 @@ from llmgateway.providers.base import (
     ProviderUnavailable,
 )
 from llmgateway.providers.claude import ClaudeAdapter
+from llmgateway.providers.gemini import GeminiAdapter
 from llmgateway.router import RetryPolicy, Route, Router, build_router
 from llmgateway.schema import ChatRequest, Provider, Usage
 
@@ -73,6 +74,9 @@ RESPONSE_MARKER = "secret-response-text-marker"
 ADAPTER_MESSAGE = "adapter-message-marker"
 PROVIDER_TEXT = "provider-error-text-marker"
 ANTHROPIC_KEY = "sk-ant-breaker-test-key-marker"
+GEMINI_KEY = "gemini-breaker-test-key-marker"
+SYSTEM_MARKER = "secret-system-prompt-marker"
+REQUEST_ID_MARKER = "gw_marker"
 
 COOLDOWN = 30.0
 CLOCK_START = 100.0
@@ -2898,9 +2902,21 @@ async def test_a_real_claude_failure_keeps_key_prompt_and_provider_text_out_of_t
     finally:
         await adapter.aclose()
     lines = _state_lines(caplog)
+    # Markers before the exact line: after it they could never fail, and this way a
+    # leak is named. "claude:" is how this adapter's messages start; ADAPTER_MESSAGE
+    # only comes from fake adapters, so it cannot appear here.
+    for line in lines:
+        for marker in (
+            ANTHROPIC_KEY,
+            PROMPT_MARKER,
+            PROVIDER_TEXT,
+            ADAPTER_MESSAGE,
+            "claude:",
+            MODEL,
+            ALIAS,
+        ):
+            assert marker not in line
     assert lines == [TRIPPED]
-    for marker in (ANTHROPIC_KEY, PROMPT_MARKER, PROVIDER_TEXT, ADAPTER_MESSAGE, MODEL, ALIAS):
-        assert marker not in lines[0]
 
 
 @pytest.mark.asyncio
@@ -2911,9 +2927,140 @@ async def test_a_failed_probe_keeps_adapter_text_and_request_details_out_of_the_
     gateway = Gateway(ScriptedAdapter(_unavailable()), _tripwire())
     gateway.trip_and_wait_out_the_cooldown()
     with pytest.raises(ProviderUnavailable):
-        await gateway.router.complete(gateway.route, _request(), request_id="gw_marker")
+        await gateway.router.complete(gateway.route, _request(), request_id=REQUEST_ID_MARKER)
     lines = _state_lines(caplog)
-    assert lines == [TRIPPED, COOLDOWN_OVER, PROBE_FAILED]
+    # Before the exact lines, for the same reason as above.
     for line in lines:
-        for marker in (PROMPT_MARKER, ADAPTER_MESSAGE, "gw_marker", MODEL):
+        for marker in (PROMPT_MARKER, ADAPTER_MESSAGE, REQUEST_ID_MARKER, MODEL):
             assert marker not in line
+    assert lines == [TRIPPED, COOLDOWN_OVER, PROBE_FAILED]
+
+
+# Never logged anywhere, by any logger. The router's own line legitimately carries the
+# alias, the model and the request ID (D-054), so those are checked on the breaker's
+# lines only.
+SECRETS = (
+    ANTHROPIC_KEY,
+    GEMINI_KEY,
+    PROMPT_MARKER,
+    SYSTEM_MARKER,
+    RESPONSE_MARKER,
+    PROVIDER_TEXT,
+    ADAPTER_MESSAGE,
+)
+REQUEST_DETAILS = (MODEL, ALIAS, REQUEST_ID_MARKER)
+
+
+@pytest.fixture
+def watched(
+    caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+) -> pytest.LogCaptureFixture:
+    """Captures every level, with both keys in the environment as in production."""
+    caplog.set_level(logging.DEBUG)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", ANTHROPIC_KEY)
+    monkeypatch.setenv("GEMINI_API_KEY", GEMINI_KEY)
+    return caplog
+
+
+def _assert_nothing_leaked(caplog: pytest.LogCaptureFixture) -> None:
+    # caplog.text has each formatted line and any traceback. A record's fields hold what
+    # the message does not show, such as `extra`, which a structured handler would write.
+    written = caplog.text + "".join(str(vars(record)) for record in caplog.records)
+    for marker in SECRETS:
+        assert marker not in written
+    for line in _state_lines(caplog):
+        for marker in REQUEST_DETAILS:
+            assert marker not in line
+
+
+def _full_request() -> ChatRequest:
+    """A request with every part that must stay out of the logs, the system prompt too."""
+    return ChatRequest.model_validate(
+        {
+            "model": ALIAS,
+            "system": SYSTEM_MARKER,
+            "messages": [{"role": "user", "content": PROMPT_MARKER}],
+            "max_tokens": 16,
+        }
+    )
+
+
+async def _complete_fully(gateway: Gateway) -> None:
+    """One request carrying everything, ignoring how it ends."""
+    with contextlib.suppress(ProviderError):
+        await gateway.router.complete(gateway.route, _full_request(), request_id=REQUEST_ID_MARKER)
+
+
+@pytest.mark.parametrize("make_error", FAILURES)
+@pytest.mark.asyncio
+async def test_a_trip_leaks_nothing_whatever_failure_caused_it(
+    watched: pytest.LogCaptureFixture, make_error: ErrorFactory
+) -> None:
+    gateway = Gateway(ScriptedAdapter(make_error()), _tripwire())
+    await _complete_fully(gateway)
+    _assert_nothing_leaked(watched)
+    assert _state_lines(watched) == [TRIPPED]
+
+
+@pytest.mark.parametrize("make_error", FAILURES)
+@pytest.mark.asyncio
+async def test_a_failed_probe_leaks_nothing_whatever_failure_ended_it(
+    watched: pytest.LogCaptureFixture, make_error: ErrorFactory
+) -> None:
+    gateway = Gateway(ScriptedAdapter(make_error()), _tripwire())
+    gateway.trip_and_wait_out_the_cooldown()
+    await _complete_fully(gateway)
+    _assert_nothing_leaked(watched)
+    assert _state_lines(watched) == [TRIPPED, COOLDOWN_OVER, PROBE_FAILED]
+
+
+@pytest.mark.parametrize("make_error", NEUTRAL_PROVIDER_ERRORS)
+@pytest.mark.asyncio
+async def test_a_neutral_outcome_leaks_nothing_and_writes_no_line_of_its_own(
+    watched: pytest.LogCaptureFixture, make_error: ErrorFactory
+) -> None:
+    gateway = Gateway(ScriptedAdapter(make_error()), _tripwire())
+    gateway.trip_and_wait_out_the_cooldown()
+    await _complete_fully(gateway)
+    _assert_nothing_leaked(watched)
+    assert _state_lines(watched) == [TRIPPED, COOLDOWN_OVER]
+
+
+@pytest.mark.asyncio
+async def test_a_passed_probe_leaks_nothing_including_the_response(
+    watched: pytest.LogCaptureFixture,
+) -> None:
+    gateway = Gateway(ScriptedAdapter(RESULT), _tripwire())
+    gateway.trip_and_wait_out_the_cooldown()
+    await _complete_fully(gateway)
+    _assert_nothing_leaked(watched)
+    assert _state_lines(watched) == [TRIPPED, COOLDOWN_OVER, PROBE_PASSED]
+
+
+@pytest.mark.parametrize("status", [500, 401], ids=["provider_failure", "auth_failure"])
+@pytest.mark.parametrize(
+    "make_adapter",
+    [
+        pytest.param(
+            lambda transport: ClaudeAdapter(ANTHROPIC_KEY, transport=transport), id="claude"
+        ),
+        pytest.param(lambda transport: GeminiAdapter(GEMINI_KEY, transport=transport), id="gemini"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_a_real_adapter_failure_leaks_neither_its_key_nor_the_providers_text(
+    watched: pytest.LogCaptureFixture,
+    make_adapter: Callable[[httpx.MockTransport], ClaudeAdapter | GeminiAdapter],
+    status: int,
+) -> None:
+    def answer(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(status, json={"error": {"message": PROVIDER_TEXT}})
+
+    adapter = make_adapter(httpx.MockTransport(answer))
+    gateway = Gateway(adapter, _tripwire())
+    try:
+        await _complete_fully(gateway)
+    finally:
+        await adapter.aclose()
+    _assert_nothing_leaked(watched)
+    assert _state_lines(watched) == [TRIPPED]

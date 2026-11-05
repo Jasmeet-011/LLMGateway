@@ -268,7 +268,8 @@ class Router:
             return None
         if attempt >= policy.max_attempts:
             return None
-        # The next attempt would be refused, so do not wait for it (D-058).
+        # An open breaker ends this request's retries, even with the cooldown over:
+        # the probe belongs to the next request (D-058).
         if breaker.state == "open":
             return None
         bound = min(policy.max_delay, policy.base_delay * 2.0 ** min(attempt - 1, _MAX_EXPONENT))

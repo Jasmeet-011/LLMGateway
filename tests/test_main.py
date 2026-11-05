@@ -11,8 +11,9 @@ no traceback, and none of the planted values. They wait for the child with no
 timeout, and the probe child makes no real waits, so a result never depends on how
 long the host took: a limit here failed a healthy child when the laptop stalled
 coming out of Modern Standby (PROGRESS.md, Agent Mistakes Log). A child that really
-hangs blocks the run instead of failing it. Nothing ends that until M13's CI job
-brings its own time limit (PLAN.md).
+hangs blocks the run instead of failing it, which cannot give a false pass. M13's
+CI job brings its own time limit (PLAN.md); a local run has none and is stopped
+by hand.
 """
 
 import importlib
