@@ -90,15 +90,15 @@ flowchart TD
     D -->|yes| OK[Return result]
     D -->|no| L[Log the failed attempt]
     L --> E{Retryable and not a billed 2xx}
-    E -->|no| Z{Bad request}
+    E -->|no| Z{Falls back}
     E -->|yes| F{Attempts left, retry-after at most 5 s, wait ends before the 90 s deadline, breaker not open}
     F -->|yes| G[Wait: full jitter backoff, at least retry-after]
     G --> CG{Client gone}
     CG -->|no| B
     CG -->|yes| GONE[Stop, status 499]
     F -->|no| Z
-    Z -->|yes| FAIL[Return error to client]
-    Z -->|no| N{More entries with time left}
+    Z -->|no| FAIL[Return error to client]
+    Z -->|yes| N{More entries with time left}
     N -->|yes| CF{Client gone}
     CF -->|no| FT[Log fallback_taken]
     FT --> A
@@ -120,9 +120,9 @@ Fallback rules (D-060 to D-062):
 - Moves to the next entry: `ProviderTimeout`, `ProviderUnavailable` (including a billed malformed 2xx, which is not retried), `ProviderRateLimited` (including a `retry-after` over 5 s), `ProviderAuthError` and `ProviderCircuitOpen`. `router.falls_back` is the one place this lives.
 - Ends the request: `ProviderBadRequest`, any other `ProviderError` subclass, a bug, and a cancellation. An empty `max_tokens` answer is a success (D-049).
 - When no entry serves, the client gets the last failure that really happened. Only when every entry refused does it get 503 `provider_circuit_open`, with the smallest `Retry-After`.
-- One deadline covers the whole request. A non-last entry must finish 30 s before it (`fallback_reserve`), so a hung first entry stops at 60 s and the next one has 30 s. An entry whose limit has passed is skipped.
+- One deadline covers the whole request. A non-last entry must finish 30 s before it (`fallback_reserve`), so a hung first entry stops at 60 s and the next one has 30 s. An entry whose limit has been reached is skipped, with no check, no call and no line.
 - Attempts number from 1 for each entry, with up to 3 per entry. Each move writes one `fallback_taken` line to `llmgateway.router` at WARNING with the request ID, alias, the instance and model left and reached, the reason code and the error class.
-- Before each retry, after its wait, and before each move, the router awaits `is_disconnected`. If the client has gone it raises `ClientDisconnected`: no call, no breaker check and no `fallback_taken` line, and the request line says `status=499`. There is no check before a request's first attempt.
+- Before each retry, after its wait, and before each move from an entry that failed or refused, the router awaits `is_disconnected`. If the client has gone it raises `ClientDisconnected`: no call, no breaker check and no `fallback_taken` line, and the request line says `status=499`. There is no check before the first entry tried.
 
 **Streaming rule:** a streaming request can only fall back **before the first byte is sent** to the client. After that, the client has already received part of one provider's answer, and switching providers would splice two different answers together. A failure mid-stream ends the stream with an error instead.
 
