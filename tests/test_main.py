@@ -11,7 +11,8 @@ no traceback, and none of the planted values. They wait for the child with no
 timeout, and the probe child makes no real waits, so a result never depends on how
 long the host took: a limit here failed a healthy child when the laptop stalled
 coming out of Modern Standby (PROGRESS.md, Agent Mistakes Log). A child that really
-hangs blocks the run instead of failing it; the CI job's own limit ends that.
+hangs blocks the run instead of failing it. Nothing ends that until M13's CI job
+brings its own time limit (PLAN.md).
 """
 
 import importlib
@@ -377,6 +378,45 @@ def test_startup_with_gemini_config_without_gemini_key_fails_cleanly(tmp_path: P
     path = _write(tmp_path / MARKER, GEMINI_CONFIG)
     result = _import_main(_env(LLMGATEWAY_CONFIG=str(path), ANTHROPIC_API_KEY=ANTHROPIC_KEY))
     _assert_clean_failure(result, ("GEMINI_API_KEY",), (ANTHROPIC_KEY, MARKER, str(path)))
+
+
+def test_startup_failure_prints_exactly_the_prefix_and_the_config_errors_message(
+    router_from_env: RouterFromEnv,
+) -> None:
+    # FLOW.md: `llmgateway: configuration error: <message>`, the message itself and
+    # nothing around it, so a repr of the exception would not do.
+    message = _config_error(router_from_env, {"LLMGATEWAY_PROVIDER": "mock"})
+    result = _import_main(_env(LLMGATEWAY_PROVIDER="mock"))
+    assert result.stderr == f"{PREFIX} {message}\n"
+
+
+# Makes load_config fail with something other than a ConfigError, before main imports it.
+STARTUP_BUG = """
+import llmgateway.config as config
+
+def broken(environ):
+    raise RuntimeError("startup-bug-marker")
+
+config.load_config = broken
+
+import llmgateway.main
+"""
+
+
+def test_a_bug_during_startup_is_not_reported_as_a_configuration_error() -> None:
+    # Only bad configuration gets the clean line; a bug keeps its traceback.
+    # STARTUP_BUG is the fixed script above, not outside input.
+    result = subprocess.run(  # noqa: S603
+        [sys.executable, "-c", STARTUP_BUG],
+        env=_env(),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 1, result.stderr
+    assert PREFIX not in result.stderr
+    assert "Traceback" in result.stderr
+    assert "startup-bug-marker" in result.stderr
 
 
 def _probe(env: dict[str, str], *aliases: str) -> list[list[object]]:

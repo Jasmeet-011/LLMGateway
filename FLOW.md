@@ -326,7 +326,7 @@ Every response, including errors, carries `x-request-id` (D-020).
 
 ### Configuration errors (startup, `config.py`, `router.py`, `main.py`, D-044, D-046)
 
-These never reach a client: the process exits at import with `llmgateway: configuration error: <message>` and no traceback, before uvicorn serves anything. The message names the environment variable or the location in the file (for example `aliases.fast[1].provider`) and the rule broken. It never contains a value from the file, the config path, or any environment value.
+These never reach a client: the process exits at import with `llmgateway: configuration error: <message>` and no traceback, before uvicorn serves anything. The message names the environment variable or the location in the file (for example `aliases.fast[1].provider`) and the rule broken. It never contains a value from the file, the config path, or any environment value. Only a `ConfigError` gets this line: a bug during startup keeps its traceback and is not reported as a configuration error.
 
 | Outcome | Startup |
 | --- | --- |

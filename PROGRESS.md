@@ -1307,6 +1307,415 @@ The 49 `test_breaker.py` cases that pass on the stub assert what a do-nothing br
 
 `.\scripts\check.ps1` after the implementation: PASS, 1615 passed, 5 deselected in 86.85 s (the machine was still in Modern Standby); `ruff check` all checks passed; 36 files already formatted; mypy no issues in 28 source files.
 
+**Mutation checks (tester, Mode 2).** 350 mutations in four scratch clones at 4541bc3, none left applied. The builder recounted the table and the raw file: 350 rows, 20 survivors, 22 equivalent, 392 mutant runs and 22 pristine controls, all as reported.
+
+| Outcome | Count |
+| --- | --- |
+| Caught at first | 308 |
+| Caught only after a new test | 20 |
+| Equivalent | 22 |
+| **Total** | **350** |
+
+| File | Caught at first | After new test | Equivalent | Total |
+| --- | --- | --- | --- | --- |
+| breaker.py | 179 | 13 | 17 | 209 |
+| router.py | 84 | 3 | 4 | 91 |
+| base.py | 9 | 2 | 0 | 11 |
+| errors.py | 16 | 0 | 0 | 16 |
+| main.py | 20 | 2 | 1 | 23 |
+
+Of the 308: 300 by the targeted tests, 6 only by the full suite (S02, S07, S08, S11, S12, S16), and 2 by hanging (H01, H02; see below).
+- Run integrity: 22 pristine control runs, 0 failed. No row was caught only by a real-time guard test, and no mutation hit a collection error. Every first-pass survivor also ran the full suite. No reboot interrupted the run.
+- The 49 cases that passed on the stub, and all 322 original cases, each failed under at least one mutant, so none of them asserts nothing.
+- The S rows and M rows repeat the startup test's checks, as promised above: the configuration-error tests fail for M01 to M06, M12, M14, M16 and M21, and every subprocess startup test failed at least once.
+
+New tests, 21 cases in 11 functions, all from the 20 survivors except one neutral-subclass test added for symmetry, which no mutant here isolates. Removed lines: 3, no assertion. Two were the stale docstring sentence saying the spec leaves `ts` rounding open, and one was an inline `random=` moved to a `Gateway` attribute.
+
+Ten of the 20 rested on inference from the spec. The builder accepted all four behaviors and put them in the spec, so no test is ahead of it: a rejected value is blamed on its own setting (B038, B039, B059 to B061) and `Permit` is frozen (B065), both in D-057; no jitter is drawn for a skipped wait (R088 to R090), in D-058; a bug at startup keeps its traceback (M15), in FLOW.md.
+
+Equivalent mutants. All 22 still survive the final tests. The rows marked (diff) also passed a differential check against the original: exhaustive to depth 6 or 7 plus random walks, 787,802 operations each, comparing verdicts, state, `retry_after` and every log line; controls B133, B190, B212 and B213 all reported a difference.
+
+| ID | Why it is equivalent |
+| --- | --- |
+| B072 | `int` equals `floor` for any non-negative time; 604,000 instants, 0 differences. |
+| B074 | Three decimals never cross a second when rounded to microseconds; same 604,000 instants. |
+| B097, B232, B233 | Generations are only compared for equality. (diff) |
+| B101 | `_reopens_at` is read only while open, and `_open` always writes it first. (diff) |
+| B102 | `_probe_out` is read only in half-open, reached only through `_open`, which writes False. (diff) |
+| B143, B144 | The state goes to closed, where the flag is unread, and `_open` resets it first. Removing both resets is caught: B213. (diff) |
+| B145, B202 | The two `window.clear()` calls cover for each other. Removing both is caught: B212. (diff) |
+| B170 | The count rises by at most 1 per outcome and the breaker opens at the threshold, so it cannot exceed it. (diff) |
+| B181 | While closed the write is False over False; while open no current permit exists. (diff) |
+| B196 | A permit never carries a generation above the current one. (diff) |
+| B235 | No permit is issued in the open generation, so older permits are already stale. (diff) |
+| B236, B237 | At most one half-open permit is outstanding, and it causes the move. Conditional: both differ if a permit is recorded twice, which the router does not do, and R068 pins that. (diff) |
+| R030 | Differs only in a string nothing reads. |
+| R032 | `attempt` is read only after an attempt ran; a refusal raises first. |
+| R086, R087 | Every branch above the new position returns None with no side effect. |
+| M13 | A `SystemExit` message prints with no traceback, so the context never shows. |
+
+What the run showed and did not fix:
+- **H01, H02: a child that hangs blocks `tests/test_main.py` for good.** Only the harness's 900 s limit ended each run. This is the known cost of 8a7ad33. No limit was added, because that would bring back the wall-clock failure. PLAN.md's M13 now gives the CI job a time limit, and the test docstring no longer says one exists today.
+- **The seeded startup test bites only partly.** It passes with the seed ignored (S07) and with a mock that never fails (S08), so it cannot tell "failed then retried" from "never failed"; other tests catch both. Instrumented once, PROBE made 8 waits through the replaced sleep and no real ones, but nothing asserts that, so losing the replacement would only make the test slower.
+- **B075 (local time instead of UTC) is host-dependent.** It failed 45 tests here on Eastern time. Those fixed-text assertions cannot catch it on a UTC host, and CI hosts are often UTC (unverified).
+- Five writes are redundant (B143, B144, B145, B181, B202): one of each pair is enough. Left as they are.
+- Scratch clones give false mypy failures: `uv sync` there left out 84 zero-byte files, so mypy reports 619 errors on pristine tests. Cause unverified. Package versions match and the 1615-test baseline matches, so the mutation results stand. mypy was run from the real repo's environment.
+
+| ID | Mutation | File | Test that failed (n) | Reverted |
+| --- | --- | --- | --- | --- |
+| B001 | counts_as_failure: ProviderTimeout removed | breaker.py | test_counts_as_failure_is_true_for_each_failure_row[timeout] (10) | yes |
+| B002 | counts_as_failure: ProviderUnavailable removed | breaker.py | test_counts_as_failure_is_true_for_each_failure_row[unavailable_503] (70) | yes |
+| B003 | counts_as_failure: ProviderAuthError removed | breaker.py | test_counts_as_failure_is_true_for_each_failure_row[401] (19) | yes |
+| B004 | counts_as_failure: every ProviderError counts | breaker.py | test_counts_as_failure_is_false_for_each_neutral_provider_error[rate_limited_no_hint] (50) | yes |
+| B005 | counts_as_failure: nothing counts | breaker.py | test_counts_as_failure_is_true_for_each_failure_row[timeout] (99) | yes |
+| B006 | counts_as_failure: negated | breaker.py | test_counts_as_failure_is_true_for_each_failure_row[timeout] (139) | yes |
+| B007 | counts_as_failure: by the retryable flag | breaker.py | test_counts_as_failure_is_true_for_each_failure_row[401] (48) | yes |
+| B008 | counts_as_failure: exact class, subclasses no longer count | breaker.py | survived; new test: test_a_subclass_of_a_failure_class_counts[OddTimeout] (3) | yes |
+| B009 | counts_as_failure: rate limits also count | breaker.py | test_counts_as_failure_is_false_for_each_neutral_provider_error[rate_limited_no_hint] (20) | yes |
+| B010 | counts_as_failure: bad requests also count | breaker.py | test_counts_as_failure_is_false_for_each_neutral_provider_error[bad_request_400] (17) | yes |
+| B011 | counts_as_failure: ProviderCircuitOpen also counts | breaker.py | test_a_refusal_is_not_an_outcome (1) | yes |
+| B012 | counts_as_failure: status 429 counts whatever the class | breaker.py | test_counts_as_failure_is_false_for_each_neutral_provider_error[rate_limited_no_hint] (18) | yes |
+| B013 | counts_as_failure: status 400 counts whatever the class | breaker.py | test_counts_as_failure_is_false_for_each_neutral_provider_error[bad_request_400] (6) | yes |
+| B014 | counts_as_failure: any 5xx status counts whatever the class | breaker.py | test_the_rule_ignores_status_and_reason[rate_limited_with_a_503] (3) | yes |
+| B015 | counts_as_failure: 402 stops counting | breaker.py | test_counts_as_failure_is_true_for_each_failure_row[402_billing] (3) | yes |
+| B016 | counts_as_failure: the router's attempt_timeout stops counting | breaker.py | test_counts_as_failure_is_true_for_each_failure_row[timeout_with_the_router_reason] (5) | yes |
+| B017 | counts_as_failure: a malformed 2xx stops counting | breaker.py | test_counts_as_failure_is_true_for_each_failure_row[unavailable_malformed_2xx] (4) | yes |
+| B018 | counts_as_failure: non-retryable errors stop counting | breaker.py | test_counts_as_failure_is_true_for_each_failure_row[401] (20) | yes |
+| B020 | _is_int: bool accepted | breaker.py | test_breaker_policy_rejects_each_bad_value[window_true] (2) | yes |
+| B021 | _is_int: floats accepted | breaker.py | test_breaker_policy_rejects_each_bad_value[window_float] (2) | yes |
+| B022 | _is_int: anything that is not a bool accepted | breaker.py | test_breaker_policy_rejects_each_bad_value[window_float] (6) | yes |
+| B030 | default window_size 19 | breaker.py | test_breaker_policy_defaults_are_the_d057_values (2) | yes |
+| B031 | default window_size 21 | breaker.py | test_breaker_policy_defaults_are_the_d057_values (4) | yes |
+| B032 | default failure_threshold 14 | breaker.py | test_breaker_policy_defaults_are_the_d057_values (12) | yes |
+| B033 | default failure_threshold 16 | breaker.py | test_breaker_policy_defaults_are_the_d057_values (12) | yes |
+| B034 | default cooldown 29.0 | breaker.py | test_breaker_policy_defaults_are_the_d057_values (2) | yes |
+| B035 | default cooldown 31.0 | breaker.py | test_breaker_policy_defaults_are_the_d057_values (2) | yes |
+| B036 | BreakerPolicy not frozen | breaker.py | test_breaker_policy_is_a_frozen_dataclass (1) | yes |
+| B037 | window_size: int clause removed | breaker.py | test_breaker_policy_rejects_each_bad_value[window_true] (4) | yes |
+| B038 | window_size: minimum clause removed | breaker.py | survived; new test: test_a_rejected_policy_value_is_blamed_on_its_own_setting[window_zero] (2) | yes |
+| B039 | window_size: < 1 becomes < 0 | breaker.py | survived; new test: test_a_rejected_policy_value_is_blamed_on_its_own_setting[window_zero] (1) | yes |
+| B040 | window_size: < 1 becomes <= 1 | breaker.py | test_breaker_policy_accepts_the_boundary_values[smallest_window] (142) | yes |
+| B041 | window_size: or becomes and | breaker.py | test_breaker_policy_rejects_each_bad_value[window_true] (4) | yes |
+| B042 | failure_threshold: int clause removed | breaker.py | test_breaker_policy_rejects_each_bad_value[threshold_true] (4) | yes |
+| B043 | failure_threshold: minimum clause removed | breaker.py | test_breaker_policy_rejects_each_bad_value[threshold_zero] (2) | yes |
+| B044 | failure_threshold: < 1 becomes < 0 | breaker.py | test_breaker_policy_rejects_each_bad_value[threshold_zero] (1) | yes |
+| B045 | failure_threshold: < 1 becomes <= 1 | breaker.py | test_breaker_policy_accepts_the_boundary_values[smallest_window] (143) | yes |
+| B046 | failure_threshold: upper bound clause removed | breaker.py | test_breaker_policy_rejects_each_bad_value[threshold_over_the_default_window] (3) | yes |
+| B047 | failure_threshold: > window becomes >= window | breaker.py | test_breaker_policy_accepts_the_boundary_values[smallest_window] (167) | yes |
+| B048 | failure_threshold: first or becomes and | breaker.py | test_breaker_policy_rejects_each_bad_value[threshold_zero] (6) | yes |
+| B049 | failure_threshold: second or becomes and | breaker.py | test_breaker_policy_rejects_each_bad_value[threshold_zero] (5) | yes |
+| B050 | failure_threshold: upper bound off by one | breaker.py | test_breaker_policy_rejects_each_bad_value[threshold_over_the_default_window] (3) | yes |
+| B051 | cooldown: number clause removed | breaker.py | test_breaker_policy_rejects_each_bad_value[cooldown_string] (2) | yes |
+| B052 | cooldown: int rejected | breaker.py | test_breaker_policy_accepts_the_boundary_values[cooldown_int] (1) | yes |
+| B053 | cooldown: float rejected | breaker.py | test_breaker_policy_defaults_are_the_d057_values (254) | yes |
+| B054 | cooldown: bool clause removed | breaker.py | test_breaker_policy_rejects_each_bad_value[cooldown_true] (1) | yes |
+| B055 | cooldown: isfinite clause removed | breaker.py | test_breaker_policy_rejects_each_bad_value[cooldown_inf] (2) | yes |
+| B056 | cooldown: <= 0 becomes < 0 | breaker.py | test_breaker_policy_rejects_each_bad_value[cooldown_zero_int] (2) | yes |
+| B057 | cooldown: > 0 clause removed | breaker.py | test_breaker_policy_rejects_each_bad_value[cooldown_zero_int] (4) | yes |
+| B058 | cooldown: <= 0 becomes <= 1 | breaker.py | test_breaker_policy_accepts_the_boundary_values[cooldown_small] (3) | yes |
+| B059 | window_size error message changed | breaker.py | survived; new test: test_a_rejected_policy_value_is_blamed_on_its_own_setting[window_zero] (2) | yes |
+| B060 | failure_threshold error message changed | breaker.py | survived; new test: test_a_rejected_policy_value_is_blamed_on_its_own_setting[threshold_zero] (2) | yes |
+| B061 | cooldown error message changed | breaker.py | survived; new test: test_a_rejected_policy_value_is_blamed_on_its_own_setting[cooldown_zero] (1) | yes |
+| B062 | window_size raises TypeError | breaker.py | test_breaker_policy_rejects_each_bad_value[window_zero] (7) | yes |
+| B063 | failure_threshold raises TypeError | breaker.py | test_breaker_policy_rejects_each_bad_value[threshold_zero] (10) | yes |
+| B064 | cooldown raises TypeError | breaker.py | test_breaker_policy_rejects_each_bad_value[cooldown_zero_int] (11) | yes |
+| B065 | Permit not frozen | breaker.py | survived; new test: test_a_permit_cannot_be_rewritten_to_pass_as_current (1) | yes |
+| B070 | _timestamp: floor becomes round | breaker.py | survived; new test: test_ts_is_truncated_to_the_millisecond_and_never_carries_into_the_next_second[over_half_a_millisecond] (3) | yes |
+| B071 | _timestamp: floor becomes ceil | breaker.py | survived; new test: test_ts_is_truncated_to_the_millisecond_and_never_carries_into_the_next_second[just_over_a_millisecond] (4) | yes |
+| B072 | _timestamp: floor becomes int | breaker.py | none: equivalent | yes |
+| B073 | _timestamp: * 1000 becomes * 100 | breaker.py | test_closed_to_open_writes_its_exact_line (44) | yes |
+| B074 | _timestamp: // becomes / | breaker.py | none: equivalent | yes |
+| B075 | _timestamp: UTC dropped, local time | breaker.py | test_closed_to_open_writes_its_exact_line (45) | yes |
+| B076 | _timestamp: an hour off UTC | breaker.py | test_closed_to_open_writes_its_exact_line (45) | yes |
+| B077 | _timestamp: seconds not taken from whole milliseconds | breaker.py | survived; new test: test_ts_is_truncated_to_the_millisecond_and_never_carries_into_the_next_second[carry_at_a_microsecond] (1) | yes |
+| B078 | _timestamp: no millisecond padding | breaker.py | test_a_full_cycle_writes_one_line_per_change_in_order (37) | yes |
+| B079 | _timestamp: padding width 2 | breaker.py | test_a_full_cycle_writes_one_line_per_change_in_order (37) | yes |
+| B080 | _timestamp: padding width 4 | breaker.py | test_closed_to_open_writes_its_exact_line (45) | yes |
+| B081 | _timestamp: % 1000 becomes % 100 | breaker.py | test_closed_to_open_writes_its_exact_line (9) | yes |
+| B082 | _timestamp: Z becomes +00:00 | breaker.py | test_closed_to_open_writes_its_exact_line (45) | yes |
+| B083 | _timestamp: T becomes a space | breaker.py | test_closed_to_open_writes_its_exact_line (45) | yes |
+| B084 | _timestamp: 12 hour clock | breaker.py | test_closed_to_open_writes_its_exact_line (44) | yes |
+| B085 | _timestamp: day and month swapped | breaker.py | test_closed_to_open_writes_its_exact_line (44) | yes |
+| B086 | _timestamp: two digit year | breaker.py | test_closed_to_open_writes_its_exact_line (45) | yes |
+| B087 | _timestamp: comma before the fraction | breaker.py | test_closed_to_open_writes_its_exact_line (45) | yes |
+| B090 | clock default time.time | breaker.py | test_circuit_breaker_takes_provider_policy_and_keyword_only_clocks (1) | yes |
+| B091 | wall_clock default time.monotonic | breaker.py | test_circuit_breaker_takes_provider_policy_and_keyword_only_clocks (1) | yes |
+| B092 | injected clock ignored | breaker.py | test_retry_after_is_the_cooldown_left_while_open (128) | yes |
+| B093 | injected wall_clock ignored | breaker.py | test_closed_to_open_writes_its_exact_line (45) | yes |
+| B094 | provider name ignored | breaker.py | test_closed_to_open_writes_its_exact_line (45) | yes |
+| B095 | starts open | breaker.py | test_a_new_breaker_is_closed_and_allows_calls (143) | yes |
+| B096 | starts half_open | breaker.py | test_a_new_breaker_is_closed_and_allows_calls (123) | yes |
+| B097 | generation starts at 1 | breaker.py | none: equivalent | yes |
+| B098 | window unbounded | breaker.py | test_the_window_drops_its_oldest_outcome_so_old_failures_age_out (5) | yes |
+| B099 | window one too long | breaker.py | test_the_window_drops_its_oldest_outcome_so_old_failures_age_out (4) | yes |
+| B100 | window one too short | breaker.py | test_a_success_does_not_reset_the_failures_in_the_window (157) | yes |
+| B101 | _reopens_at starts huge | breaker.py | none: equivalent | yes |
+| B102 | _probe_out starts True | breaker.py | none: equivalent | yes |
+| B103 | state always closed | breaker.py | test_14_failures_do_not_open_and_the_15th_does (212) | yes |
+| B104 | reading state moves the breaker to half_open | breaker.py | test_with_no_traffic_the_breaker_stays_open_however_long_it_waits (3) | yes |
+| B105 | provider and policy can be keywords only: clocks become positional | breaker.py | test_circuit_breaker_takes_provider_policy_and_keyword_only_clocks (1) | yes |
+| B110 | acquire: open check inverted | breaker.py | test_a_closed_breaker_allows_any_number_of_calls_at_once (190) | yes |
+| B111 | acquire: open check removed | breaker.py | test_an_open_breaker_refuses_calls (123) | yes |
+| B112 | acquire: cooldown < becomes <= | breaker.py | test_the_cooldown_runs_from_opening_not_from_when_the_call_started (115) | yes |
+| B113 | acquire: cooldown < becomes > | breaker.py | test_an_open_breaker_refuses_calls (38) | yes |
+| B114 | acquire: cooldown ends a second early | breaker.py | test_the_cooldown_runs_from_opening_not_from_when_the_call_started (9) | yes |
+| B115 | acquire: cooldown never ends | breaker.py | test_the_cooldown_runs_from_opening_not_from_when_the_call_started (117) | yes |
+| B116 | acquire: an open breaker gives a permit | breaker.py | test_an_open_breaker_refuses_calls (36) | yes |
+| B117 | acquire: refusal extends the cooldown | breaker.py | test_the_cooldown_runs_from_opening_not_from_when_the_call_started (11) | yes |
+| B118 | acquire: no move to half_open | breaker.py | test_exactly_the_cooldown_moves_to_half_open_and_that_call_is_the_probe (92) | yes |
+| B119 | acquire: wrong reason code | breaker.py | test_open_to_half_open_writes_its_exact_line (27) | yes |
+| B120 | acquire: moves to closed after the cooldown | breaker.py | test_exactly_the_cooldown_moves_to_half_open_and_that_call_is_the_probe (68) | yes |
+| B121 | acquire: the first probe does not take the slot (elif) | breaker.py | test_long_after_the_cooldown_the_first_call_still_becomes_the_probe (28) | yes |
+| B122 | acquire: half_open check inverted | breaker.py | test_a_closed_breaker_allows_any_number_of_calls_at_once (141) | yes |
+| B123 | acquire: _probe_out check inverted | breaker.py | test_the_cooldown_runs_from_opening_not_from_when_the_call_started (117) | yes |
+| B124 | acquire: second probe allowed | breaker.py | test_long_after_the_cooldown_the_first_call_still_becomes_the_probe (45) | yes |
+| B125 | acquire: _probe_out write removed | breaker.py | test_long_after_the_cooldown_the_first_call_still_becomes_the_probe (45) | yes |
+| B126 | acquire: _probe_out written False | breaker.py | test_long_after_the_cooldown_the_first_call_still_becomes_the_probe (45) | yes |
+| B127 | acquire: permit generation + 1 | breaker.py | test_14_failures_do_not_open_and_the_15th_does (224) | yes |
+| B128 | acquire: permit generation - 1 | breaker.py | test_14_failures_do_not_open_and_the_15th_does (224) | yes |
+| B129 | acquire: permit generation always 0 | breaker.py | test_a_passed_probe_closes_the_breaker (98) | yes |
+| B130 | retry_after: a number while half_open too | breaker.py | test_retry_after_is_none_while_half_open (5) | yes |
+| B131 | retry_after: state check inverted | breaker.py | test_a_new_breaker_is_closed_and_allows_calls (48) | yes |
+| B132 | retry_after: 0.0 instead of None | breaker.py | test_a_new_breaker_is_closed_and_allows_calls (7) | yes |
+| B133 | retry_after: clamp removed | breaker.py | survived; new test: test_retry_after_is_never_below_zero_once_the_cooldown_has_passed (1) | yes |
+| B134 | retry_after: clamp at 1.0 | breaker.py | test_retry_after_is_the_cooldown_left_while_open (1) | yes |
+| B135 | retry_after: max becomes min | breaker.py | test_retry_after_is_the_cooldown_left_while_open (41) | yes |
+| B136 | retry_after: always the full cooldown | breaker.py | test_retry_after_is_the_cooldown_left_while_open (13) | yes |
+| B137 | retry_after: abs instead of a clamp | breaker.py | survived; new test: test_retry_after_is_never_below_zero_once_the_cooldown_has_passed (1) | yes |
+| B138 | retry_after: rounded up | breaker.py | test_retry_after_is_the_cooldown_left_while_open (2) | yes |
+| B139 | retry_after: from the wall clock | breaker.py | test_retry_after_is_the_cooldown_left_while_open (41) | yes |
+| B140 | record_success: generation check removed | breaker.py | test_a_late_success_cannot_stand_in_for_the_probe (5) | yes |
+| B141 | record_success: generation check inverted | breaker.py | test_the_window_drops_its_oldest_outcome_so_old_failures_age_out (61) | yes |
+| B142 | record_success: half_open check inverted | breaker.py | test_the_failures_need_not_be_consecutive (58) | yes |
+| B143 | record_success: _probe_out write removed | breaker.py | none: equivalent | yes |
+| B144 | record_success: _probe_out written True | breaker.py | none: equivalent | yes |
+| B145 | record_success: window not cleared on close | breaker.py | none: equivalent | yes |
+| B146 | record_success: wrong reason code | breaker.py | test_half_open_to_closed_writes_its_exact_line (6) | yes |
+| B147 | record_success: moves to open | breaker.py | test_a_passed_probe_closes_the_breaker (52) | yes |
+| B148 | record_success: no move | breaker.py | test_a_passed_probe_closes_the_breaker (53) | yes |
+| B149 | record_success: appends a failure | breaker.py | test_the_failures_need_not_be_consecutive (7) | yes |
+| B150 | record_success: append removed | breaker.py | test_the_window_drops_its_oldest_outcome_so_old_failures_age_out (5) | yes |
+| B151 | record_success: a success resets the window | breaker.py | test_the_failures_need_not_be_consecutive (3) | yes |
+| B160 | record_failure: generation check removed | breaker.py | test_a_late_failure_cannot_stand_in_for_the_probe (9) | yes |
+| B161 | record_failure: generation check inverted | breaker.py | test_14_failures_do_not_open_and_the_15th_does (224) | yes |
+| B162 | record_failure: half_open check inverted | breaker.py | test_14_failures_do_not_open_and_the_15th_does (90) | yes |
+| B163 | record_failure: wrong reason code | breaker.py | test_half_open_to_open_writes_its_exact_line (7) | yes |
+| B164 | record_failure: return after probe_failed removed | breaker.py | test_router_full_cycle_writes_the_timeline_and_nothing_else (5) | yes |
+| B165 | record_failure: a failed probe closes | breaker.py | test_a_failed_probe_reopens_the_breaker (29) | yes |
+| B166 | record_failure: a failed probe moves without restarting the cooldown | breaker.py | test_a_failed_probe_reopens_the_breaker (20) | yes |
+| B167 | record_failure: appends a success | breaker.py | test_14_failures_do_not_open_and_the_15th_does (224) | yes |
+| B168 | record_failure: append removed | breaker.py | test_14_failures_do_not_open_and_the_15th_does (224) | yes |
+| B169 | record_failure: >= becomes > | breaker.py | test_14_failures_do_not_open_and_the_15th_does (220) | yes |
+| B170 | record_failure: >= becomes == | breaker.py | none: equivalent | yes |
+| B171 | record_failure: sum becomes len | breaker.py | test_the_failures_need_not_be_consecutive (7) | yes |
+| B172 | record_failure: threshold hard coded to 15 | breaker.py | test_a_success_does_not_reset_the_failures_in_the_window (214) | yes |
+| B173 | record_failure: threshold off by one | breaker.py | test_14_failures_do_not_open_and_the_15th_does (39) | yes |
+| B174 | record_failure: needs a full window | breaker.py | test_14_failures_do_not_open_and_the_15th_does (59) | yes |
+| B175 | record_failure: wrong reason code threshold | breaker.py | test_closed_to_open_writes_its_exact_line (39) | yes |
+| B176 | record_failure: consecutive failures instead of a rate | breaker.py | test_the_failures_need_not_be_consecutive (3) | yes |
+| B180 | record_neutral: generation check removed | breaker.py | test_a_late_neutral_does_not_free_the_probe_slot (16) | yes |
+| B181 | record_neutral: half_open check removed | breaker.py | none: equivalent | yes |
+| B182 | record_neutral: and becomes or | breaker.py | test_a_late_neutral_does_not_free_the_probe_slot (16) | yes |
+| B183 | record_neutral: generation check inverted | breaker.py | test_a_neutral_probe_frees_the_slot_and_stays_half_open (56) | yes |
+| B184 | record_neutral: half_open check inverted | breaker.py | test_a_neutral_probe_frees_the_slot_and_stays_half_open (40) | yes |
+| B185 | record_neutral: _probe_out written True | breaker.py | test_a_neutral_probe_frees_the_slot_and_stays_half_open (40) | yes |
+| B186 | record_neutral: _probe_out write removed | breaker.py | test_a_neutral_probe_frees_the_slot_and_stays_half_open (40) | yes |
+| B187 | record_neutral: a neutral probe reopens | breaker.py | test_retry_after_is_none_while_half_open (41) | yes |
+| B188 | record_neutral: a neutral probe closes | breaker.py | test_a_neutral_probe_frees_the_slot_and_stays_half_open (25) | yes |
+| B189 | record_neutral: enters the window as a success while closed | breaker.py | test_neutral_outcomes_are_not_added_to_the_window (16) | yes |
+| B190 | record_neutral: enters the window as a failure while closed | breaker.py | survived; new test: test_neutral_outcomes_before_any_failure_leave_the_full_threshold_to_reach (1) | yes |
+| B195 | _is_current: == becomes != | breaker.py | test_14_failures_do_not_open_and_the_15th_does (224) | yes |
+| B196 | _is_current: == becomes >= | breaker.py | none: equivalent | yes |
+| B197 | _is_current: == becomes <= | breaker.py | test_a_late_success_cannot_stand_in_for_the_probe (30) | yes |
+| B198 | _is_current: always True | breaker.py | test_a_late_success_cannot_stand_in_for_the_probe (30) | yes |
+| B199 | _is_current: always False | breaker.py | test_14_failures_do_not_open_and_the_15th_does (224) | yes |
+| B200 | _open: _probe_out write removed | breaker.py | test_a_failed_probe_restarts_the_full_cooldown_from_when_it_failed (7) | yes |
+| B201 | _open: _probe_out written True | breaker.py | test_the_cooldown_runs_from_opening_not_from_when_the_call_started (117) | yes |
+| B202 | _open: window not cleared on open | breaker.py | none: equivalent | yes |
+| B203 | _open: cooldown runs from the old end | breaker.py | test_an_open_breaker_refuses_calls (57) | yes |
+| B204 | _open: + becomes - | breaker.py | test_an_open_breaker_refuses_calls (58) | yes |
+| B205 | _open: cooldown hard coded to 30 | breaker.py | test_app_a_cooldown_under_a_second_still_sends_a_whole_retry_after (1) | yes |
+| B206 | _open: cooldown doubled | breaker.py | test_retry_after_is_the_cooldown_left_while_open (133) | yes |
+| B207 | _open: cooldown not restarted on probe_failed | breaker.py | test_a_failed_probe_reopens_the_breaker (20) | yes |
+| B208 | _open: cooldown grows on probe_failed | breaker.py | test_a_failed_probe_restarts_the_full_cooldown_from_when_it_failed (23) | yes |
+| B209 | _open: cooldown from the wall clock | breaker.py | test_retry_after_is_the_cooldown_left_while_open (136) | yes |
+| B210 | _open: moves to half_open | breaker.py | test_14_failures_do_not_open_and_the_15th_does (224) | yes |
+| B211 | _open: reason ignored | breaker.py | test_half_open_to_open_writes_its_exact_line (7) | yes |
+| B212 | _open: window and probe writes both removed from _open and close (clear pair) | breaker.py | test_a_passed_probe_empties_the_window (4) | yes |
+| B213 | both _probe_out resets removed (_open and record_success) | breaker.py | test_a_failed_probe_restarts_the_full_cooldown_from_when_it_failed (7) | yes |
+| B215 | log level info | breaker.py | test_every_line_goes_to_the_breaker_logger_at_warning (1) | yes |
+| B216 | log level error | breaker.py | test_every_line_goes_to_the_breaker_logger_at_warning (1) | yes |
+| B217 | logger name llmgateway.router | breaker.py | test_closed_to_open_writes_its_exact_line (43) | yes |
+| B218 | line head changed | breaker.py | test_closed_to_open_writes_its_exact_line (45) | yes |
+| B219 | field ts renamed | breaker.py | test_closed_to_open_writes_its_exact_line (45) | yes |
+| B220 | field provider renamed | breaker.py | test_closed_to_open_writes_its_exact_line (45) | yes |
+| B221 | field from renamed | breaker.py | test_closed_to_open_writes_its_exact_line (45) | yes |
+| B222 | field to renamed | breaker.py | test_closed_to_open_writes_its_exact_line (45) | yes |
+| B223 | field reason renamed | breaker.py | test_closed_to_open_writes_its_exact_line (45) | yes |
+| B224 | ts from the monotonic clock | breaker.py | test_closed_to_open_writes_its_exact_line (45) | yes |
+| B225 | provider field fixed text | breaker.py | test_closed_to_open_writes_its_exact_line (45) | yes |
+| B226 | from and to swapped | breaker.py | test_closed_to_open_writes_its_exact_line (45) | yes |
+| B227 | from field repeats to | breaker.py | test_closed_to_open_writes_its_exact_line (45) | yes |
+| B228 | to field repeats from | breaker.py | test_closed_to_open_writes_its_exact_line (45) | yes |
+| B229 | reason field repeats to | breaker.py | test_closed_to_open_writes_its_exact_line (45) | yes |
+| B230 | state not changed | breaker.py | test_14_failures_do_not_open_and_the_15th_does (220) | yes |
+| B231 | generation not bumped | breaker.py | test_a_late_success_cannot_stand_in_for_the_probe (30) | yes |
+| B232 | generation += 2 | breaker.py | none: equivalent | yes |
+| B233 | generation -= 1 | breaker.py | none: equivalent | yes |
+| B234 | generation not bumped on the move to open | breaker.py | test_router_an_old_failure_cannot_restart_the_cooldown (3) | yes |
+| B235 | generation not bumped on the move to half_open | breaker.py | none: equivalent | yes |
+| B236 | generation not bumped on the move to closed | breaker.py | none: equivalent | yes |
+| B237 | generation not bumped on probe_failed | breaker.py | none: equivalent | yes |
+| B238 | generation not bumped on threshold_hit | breaker.py | test_router_an_old_failure_cannot_restart_the_cooldown (3) | yes |
+| B239 | state set before the line, from equals to | breaker.py | test_closed_to_open_writes_its_exact_line (45) | yes |
+| B240 | the line is written twice | breaker.py | test_closed_to_open_writes_its_exact_line (46) | yes |
+| B241 | no line for cooldown_over | breaker.py | test_open_to_half_open_writes_its_exact_line (28) | yes |
+| B242 | a refusal writes a line | breaker.py | test_a_refusal_writes_no_line (4) | yes |
+| R001 | Router wall_clock default time.monotonic | router.py | test_router_takes_keyword_only_breaker_policy_and_wall_clock (1) | yes |
+| R002 | Router ignores breaker_policy | router.py | test_router_counts_a_failed_attempt_of_a_request_that_then_succeeded (155) | yes |
+| R003 | Router default is not BreakerPolicy() | router.py | test_router_without_a_breaker_policy_uses_the_d057_defaults (9) | yes |
+| R004 | breaker built without the injected clock | router.py | test_router_without_a_breaker_policy_uses_the_d057_defaults (89) | yes |
+| R005 | breaker built without the injected wall_clock | router.py | test_router_uses_its_clock_for_the_breaker_and_its_wall_clock_for_the_line (31) | yes |
+| R006 | clock and wall_clock swapped | router.py | test_router_without_a_breaker_policy_uses_the_d057_defaults (94) | yes |
+| R007 | breaker named after the model | router.py | test_router_uses_its_clock_for_the_breaker_and_its_wall_clock_for_the_line (31) | yes |
+| R008 | breaker named after the provider type | router.py | test_router_uses_its_clock_for_the_breaker_and_its_wall_clock_for_the_line (31) | yes |
+| R010 | one breaker shared by every instance | router.py | test_two_mock_instances_do_not_share_a_breaker (4) | yes |
+| R011 | one breaker per route (instance, model), accessor returns the first | router.py | test_two_aliases_on_one_instance_share_its_breaker (2) | yes |
+| R012 | one breaker per alias and instance, accessor returns the first | router.py | test_build_router_two_aliases_on_one_instance_share_its_breaker (1) | yes |
+| R013 | one breaker per provider type | router.py | test_two_mock_instances_do_not_share_a_breaker (4) | yes |
+| R014 | breakers only for each alias's first entry | router.py | test_an_instance_used_only_as_a_later_alias_entry_still_has_a_breaker (10) | yes |
+| R015 | breaker() returns None for an unknown name | router.py | test_router_breaker_raises_key_error_for_anything_but_an_instance_name[missing] (6) | yes |
+| R016 | a new breaker for every request | router.py | test_router_14_failed_attempts_do_not_open_and_the_15th_does (155) | yes |
+| R020 | acquire only before the first attempt | router.py | test_a_retry_refused_after_the_wait_raises_the_same_failure_object (6) | yes |
+| R021 | a refused first attempt still calls the adapter | router.py | test_router_refuses_just_under_the_cooldown (44) | yes |
+| R022 | a refused retry still calls the adapter | router.py | test_a_retry_refused_after_the_wait_raises_the_same_failure_object (5) | yes |
+| R023 | refusal check inverted | router.py | test_router_14_failed_attempts_do_not_open_and_the_15th_does (297) | yes |
+| R024 | a refused retry raises ProviderCircuitOpen | router.py | test_a_retry_refused_after_the_wait_raises_the_same_failure_object (5) | yes |
+| R025 | failure check inverted on refusal | router.py | test_router_refuses_just_under_the_cooldown (49) | yes |
+| R026 | a refused retry raises a copy, not the same object | router.py | test_a_retry_refused_after_the_wait_raises_the_same_failure_object (5) | yes |
+| R027 | refusal carries no retry_after_seconds | router.py | test_router_failed_probe_reopens_and_restarts_the_full_cooldown (13) | yes |
+| R028 | refusal carries a fixed retry_after_seconds | router.py | test_router_lets_one_probe_through_and_refuses_the_others (10) | yes |
+| R029 | refusal carries the retry policy's max_retry_after | router.py | test_router_lets_one_probe_through_and_refuses_the_others (15) | yes |
+| R030 | refusal message text changed | router.py | none: equivalent | yes |
+| R031 | a refused first attempt raises ProviderTimeout | router.py | test_router_refuses_just_under_the_cooldown (44) | yes |
+| R032 | attempt counted before acquire | router.py | none: equivalent | yes |
+| R033 | the first failure is kept instead of the last | router.py | test_a_retry_refused_after_a_later_attempt_raises_that_attempts_failure (5) | yes |
+| R034 | acquire before the wait, not after it | router.py | test_router_a_cancel_during_the_wait_after_a_neutral_probe_leaves_the_slot_free (7) | yes |
+| R040 | non-expired TimeoutError: neutral removed (wedge) | router.py | test_router_each_neutral_row_on_the_probe_frees_the_slot_and_stays_half_open[adapter_timeout_error] (2) | yes |
+| R041 | non-expired TimeoutError: records a failure | router.py | test_router_each_neutral_row_stays_out_of_the_window[adapter_timeout_error] (3) | yes |
+| R042 | non-expired TimeoutError: records a success | router.py | test_router_each_neutral_row_stays_out_of_the_window[adapter_timeout_error] (2) | yes |
+| R043 | an adapter's TimeoutError becomes a ProviderTimeout | router.py | test_router_each_neutral_row_stays_out_of_the_window[adapter_timeout_error] (5) | yes |
+| R044 | expired check inverted | router.py | test_router_each_neutral_row_stays_out_of_the_window[adapter_timeout_error] (14) | yes |
+| R045 | the router's own timeout propagates raw | router.py | test_router_attempt_timeout_counts_as_a_failure (9) | yes |
+| R046 | attempt timeout is a plain ProviderError, so neutral | router.py | test_router_attempt_timeout_counts_as_a_failure (8) | yes |
+| R047 | attempt timeout reason changed | router.py | test_router_attempt_timeout_counts_as_a_failure (7) | yes |
+| R048 | except BaseException becomes except Exception (cancel wedges) | router.py | test_router_each_neutral_row_on_the_probe_frees_the_slot_and_stays_half_open[cancelled] (7) | yes |
+| R049 | except BaseException becomes except CancelledError (bugs wedge) | router.py | test_router_each_neutral_row_on_the_probe_frees_the_slot_and_stays_half_open[runtime_error] (7) | yes |
+| R050 | except BaseException misses other BaseExceptions | router.py | test_router_each_neutral_row_on_the_probe_frees_the_slot_and_stays_half_open[other_base_exception] (2) | yes |
+| R051 | except BaseException block removed | router.py | test_router_each_neutral_row_on_the_probe_frees_the_slot_and_stays_half_open[runtime_error] (12) | yes |
+| R052 | BaseException: neutral removed (wedge) | router.py | test_router_each_neutral_row_on_the_probe_frees_the_slot_and_stays_half_open[runtime_error] (12) | yes |
+| R053 | BaseException: records a failure | router.py | test_router_each_neutral_row_stays_out_of_the_window[runtime_error] (17) | yes |
+| R054 | BaseException: records a success | router.py | test_router_each_neutral_row_stays_out_of_the_window[runtime_error] (12) | yes |
+| R055 | BaseException: swallowed | router.py | test_router_each_neutral_row_stays_out_of_the_window[runtime_error] (26) | yes |
+| R056 | success not recorded | router.py | test_router_window_drops_its_oldest_outcome (41) | yes |
+| R057 | success recorded as neutral | router.py | test_router_window_drops_its_oldest_outcome (41) | yes |
+| R058 | success recorded as a failure | router.py | test_router_window_drops_its_oldest_outcome (43) | yes |
+| R059 | classification inverted | router.py | test_router_14_failed_attempts_do_not_open_and_the_15th_does (103) | yes |
+| R060 | classification by retryable | router.py | test_router_each_failure_row_counts[401] (32) | yes |
+| R061 | every ProviderError recorded as a failure | router.py | test_router_each_neutral_row_stays_out_of_the_window[rate_limited_no_hint] (34) | yes |
+| R062 | every ProviderError recorded as neutral | router.py | test_router_14_failed_attempts_do_not_open_and_the_15th_does (78) | yes |
+| R063 | failure branch: nothing recorded | router.py | test_router_14_failed_attempts_do_not_open_and_the_15th_does (78) | yes |
+| R064 | failure branch: records a success | router.py | test_router_14_failed_attempts_do_not_open_and_the_15th_does (78) | yes |
+| R065 | neutral branch: nothing recorded (wedge) | router.py | test_router_each_neutral_row_on_the_probe_frees_the_slot_and_stays_half_open[rate_limited_no_hint] (21) | yes |
+| R066 | neutral branch: records a failure | router.py | test_router_each_neutral_row_stays_out_of_the_window[rate_limited_no_hint] (34) | yes |
+| R067 | neutral branch: records a success | router.py | test_router_each_neutral_row_stays_out_of_the_window[rate_limited_no_hint] (21) | yes |
+| R068 | failure recorded twice | router.py | test_router_14_failed_attempts_do_not_open_and_the_15th_does (28) | yes |
+| R069 | outcome recorded after the wait decision and the line, not before | router.py | test_router_attempt_timeout_on_the_probe_reopens_the_breaker (4) | yes |
+| R080 | open check removed | router.py | test_router_attempt_timeout_on_the_probe_reopens_the_breaker (7) | yes |
+| R081 | open check inverted | router.py | test_router_counts_each_attempt_so_five_requests_of_three_attempts_open_it (78) | yes |
+| R082 | checks half_open instead | router.py | test_router_attempt_timeout_on_the_probe_reopens_the_breaker (10) | yes |
+| R083 | stops on anything but closed | router.py | test_router_a_cancel_during_the_wait_after_a_neutral_probe_leaves_the_slot_free (3) | yes |
+| R084 | checks closed | router.py | test_router_counts_each_attempt_so_five_requests_of_three_attempts_open_it (75) | yes |
+| R086 | position: open check first in the function | router.py | none: equivalent | yes |
+| R087 | position: open check before the attempts check | router.py | none: equivalent | yes |
+| R088 | position: open check after the jitter draw | router.py | survived; new test: test_a_trip_draws_no_jitter_for_the_wait_it_skips (1) | yes |
+| R089 | position: open check after the rate limit block | router.py | survived; new test: test_a_trip_draws_no_jitter_for_the_wait_it_skips (1) | yes |
+| R090 | position: open check last in the function | router.py | survived; new test: test_a_trip_draws_no_jitter_for_the_wait_it_skips (1) | yes |
+| R091 | open check after the line, so the line says retry=yes | router.py | test_router_attempt_timeout_on_the_probe_reopens_the_breaker (7) | yes |
+| R092 | line always says retry=yes | router.py | test_router_attempt_timeout_on_the_probe_reopens_the_breaker (23) | yes |
+| R100 | build_router does not pass breaker_policy on | router.py | test_build_router_passes_the_breaker_policy_on (3) | yes |
+| R101 | build_router passes None | router.py | test_build_router_passes_the_breaker_policy_on (3) | yes |
+| R102 | build_router always passes a fixed policy | router.py | test_build_router_passes_the_breaker_policy_on (3) | yes |
+| R103 | build_router default is an instance, not None | router.py | test_build_router_takes_a_keyword_only_breaker_policy (1) | yes |
+| R104 | Router default is an instance, not None | router.py | test_router_takes_keyword_only_breaker_policy_and_wall_clock (1) | yes |
+| P01 | ProviderCircuitOpen is a ProviderTimeout | base.py | test_circuit_open_is_a_new_provider_error_and_not_a_failure_class (2) | yes |
+| P02 | ProviderCircuitOpen is a ProviderRateLimited | base.py | test_circuit_open_is_a_new_provider_error_and_not_a_failure_class (1) | yes |
+| P03 | ProviderCircuitOpen is a ProviderUnavailable | base.py | test_circuit_open_is_a_new_provider_error_and_not_a_failure_class (2) | yes |
+| P04 | retryable False | base.py | test_a_refused_first_attempt_raises_circuit_open_with_its_fields (2) | yes |
+| P05 | reason changed | base.py | test_a_refused_first_attempt_raises_circuit_open_with_its_fields (2) | yes |
+| P06 | reason dropped | base.py | test_a_refused_first_attempt_raises_circuit_open_with_its_fields (2) | yes |
+| P07 | status 503 set | base.py | test_a_refused_first_attempt_raises_circuit_open_with_its_fields (2) | yes |
+| P08 | retry_after_seconds default 0.0 | base.py | survived; new test: test_circuit_open_takes_retry_after_seconds_by_keyword_defaulting_to_none (1) | yes |
+| P09 | retry_after_seconds not stored | base.py | test_router_failed_probe_reopens_and_restarts_the_full_cooldown (13) | yes |
+| P10 | retry_after_seconds positional allowed | base.py | survived; new test: test_circuit_open_takes_retry_after_seconds_by_keyword_defaulting_to_none (1) | yes |
+| E01 | status 502 | errors.py | test_app_refusal_is_503_with_retry_after_rounded_up[just_opened] (14) | yes |
+| E02 | status 429 | errors.py | test_app_refusal_is_503_with_retry_after_rounded_up[just_opened] (14) | yes |
+| E03 | code provider_unavailable | errors.py | test_app_refusal_body_is_exactly_the_fixed_error (5) | yes |
+| E04 | message of provider_unavailable | errors.py | test_app_refusal_body_is_exactly_the_fixed_error (2) | yes |
+| E05 | row removed | errors.py | test_app_refusal_is_503_with_retry_after_rounded_up[just_opened] (14) | yes |
+| E06 | Retry-After only for rate limits | errors.py | test_app_refusal_is_503_with_retry_after_rounded_up[just_opened] (11) | yes |
+| E07 | Retry-After only for an open circuit | errors.py | test_provider_rate_limit_sends_retry_after (8) | yes |
+| E08 | None check removed | errors.py | test_app_refusal_during_a_probe_is_503_with_no_retry_after (2) | yes |
+| E09 | None check inverted | errors.py | test_app_refusal_is_503_with_retry_after_rounded_up[just_opened] (21) | yes |
+| E10 | floor instead of ceil | errors.py | test_app_refusal_is_503_with_retry_after_rounded_up[a_quarter_in] (9) | yes |
+| E11 | round instead of ceil | errors.py | test_app_refusal_is_503_with_retry_after_rounded_up[half] (6) | yes |
+| E12 | no whole seconds | errors.py | test_app_refusal_is_503_with_retry_after_rounded_up[just_opened] (17) | yes |
+| E13 | clamp removed | errors.py | test_provider_retry_after_rounded_up[-2-0] (1) | yes |
+| E14 | clamp at 1 | errors.py | test_provider_retry_after_rounded_up[0-0] (2) | yes |
+| E15 | header renamed | errors.py | test_app_refusal_is_503_with_retry_after_rounded_up[just_opened] (19) | yes |
+| E16 | ProviderCircuitOpen imported row maps through a parent: 503 row points at rate limit code | errors.py | test_app_refusal_body_is_exactly_the_fixed_error (5) | yes |
+| M01 | prefix changed | main.py | test_startup_with_invalid_toml_fails_cleanly (9) | yes |
+| M02 | ConfigError not caught | main.py | test_startup_with_invalid_toml_fails_cleanly (9) | yes |
+| M03 | exit 0 with the message on stderr | main.py | test_startup_with_invalid_toml_fails_cleanly (9) | yes |
+| M04 | exit 1 with no message | main.py | test_startup_with_invalid_toml_fails_cleanly (9) | yes |
+| M05 | exit 2 with the message on stderr | main.py | test_startup_with_invalid_toml_fails_cleanly (9) | yes |
+| M06 | detail dropped from the message | main.py | test_startup_with_invalid_config_fails_cleanly_and_names_the_location (8) | yes |
+| M07 | repr of the error | main.py | survived; new test: test_startup_failure_prints_exactly_the_prefix_and_the_config_errors_message (1) | yes |
+| M08 | message echoes the config path | main.py | test_startup_with_invalid_toml_fails_cleanly (6) | yes |
+| M09 | message echoes the Gemini key | main.py | test_startup_with_invalid_config_fails_cleanly_and_names_the_location (2) | yes |
+| M10 | message echoes the Anthropic key | main.py | test_startup_with_gemini_config_without_gemini_key_fails_cleanly (1) | yes |
+| M11 | message echoes LLMGATEWAY_PROVIDER | main.py | test_startup_with_llmgateway_provider_set_fails_cleanly[planted-marker-value] (1) | yes |
+| M12 | message on stdout | main.py | test_startup_with_invalid_toml_fails_cleanly (9) | yes |
+| M13 | from None removed | main.py | none: equivalent | yes |
+| M14 | ConfigError re-raised with a traceback | main.py | test_startup_with_invalid_toml_fails_cleanly (9) | yes |
+| M15 | except ConfigError widened to Exception | main.py | survived; new test: test_a_bug_during_startup_is_not_reported_as_a_configuration_error (1) | yes |
+| M16 | traceback printed before the clean exit | main.py | test_startup_with_invalid_toml_fails_cleanly (9) | yes |
+| M17 | keys taken from os.environ, not the argument | main.py | test_claude_config_builds_a_claude_adapter (4) | yes |
+| M18 | config path taken from os.environ, not the argument | main.py | test_llmgateway_provider_set_to_any_value_stops_without_echo[mock] (31) | yes |
+| M19 | module router ignores the environment | main.py | test_startup_with_invalid_toml_fails_cleanly (10) | yes |
+| M20 | app built without the configured router | main.py | test_startup_with_mock_fallback_config_serves_its_aliases (1) | yes |
+| M21 | configuration error swallowed: starts with the default router | main.py | test_startup_with_invalid_toml_fails_cleanly (9) | yes |
+| S01 | max_attempts default 1 | router.py | test_startup_with_mock_fallback_config_serves_its_aliases (1) | yes |
+| S02 | max_attempts default 2 | router.py | full suite only: test_app_maps_claude_408_to_502_provider_unavailable_after_retries (9) | yes |
+| S03 | retryable check inverted | router.py | test_startup_with_mock_fallback_config_serves_its_aliases (1) | yes |
+| S04 | ProviderUnavailable not retryable | base.py | test_startup_with_mock_fallback_config_serves_its_aliases (1) | yes |
+| S05 | no retry at all | router.py | test_startup_with_mock_fallback_config_serves_its_aliases (1) | yes |
+| S06 | build_router pins one attempt | router.py | test_startup_with_mock_fallback_config_serves_its_aliases (1) | yes |
+| S07 | mock seed ignored | router.py | full suite only: test_each_mock_instance_has_its_own_seeded_sequence (2) | yes |
+| S08 | mock failure rate ignored, never fails | router.py | full suite only: test_build_router_passes_the_breaker_policy_on (14) | yes |
+| S09 | mock failure rate raised | router.py | test_startup_with_mock_fallback_config_serves_its_aliases (2) | yes |
+| S10 | mock failure type forced to bad_request | router.py | test_startup_with_mock_fallback_config_serves_its_aliases (1) | yes |
+| S11 | the backoff wait removed | router.py | full suite only: test_router_a_cancel_during_the_wait_after_a_neutral_probe_leaves_the_slot_free (53) | yes |
+| S12 | attempts check off by one | router.py | full suite only: test_router_14_failed_attempts_do_not_open_and_the_15th_does (63) | yes |
+| S13 | select takes the last entry | router.py | test_startup_with_mock_fallback_config_serves_its_aliases (1) | yes |
+| S14 | breaker trips on the first failure by default | breaker.py | test_startup_with_mock_fallback_config_serves_its_aliases (1) | yes |
+| S15 | every retry refused | router.py | test_startup_with_mock_fallback_config_serves_its_aliases (1) | yes |
+| S16 | request's model not replaced by the provider model | router.py | full suite only: test_same_request_is_routed_to_mock_claude_and_gemini_by_alias (10) | yes |
+| H01 | configuration-error path hangs in the child | main.py | caught-by-hang: 901 s limit, no result | yes |
+| H02 | import of main hangs on the success path | main.py | caught-by-hang: 901 s limit, no result | yes |
+
+`(n)` is the number of failing tests, and the name is the first of them. Full names are in the tester's raw file. Three descriptions are clumsy but match that file: B105 makes the clocks positional, B212 removes both `window.clear()` calls, E16 uses the rate-limit code.
+
 ## Agent Mistakes Log
 
 Rows are taken only from what the git history and DECISIONS.md record. Where the history does not say who found a problem, the row says so.
@@ -1338,3 +1747,11 @@ Rows are taken only from what the git history and DECISIONS.md record. Where the
 | 2026-11-04 | M9: neither the builder's spec nor the Mode 1 tests covered cancellation, and FLOW.md's "any other exception is a bug" misdescribed it. A regression such as `except BaseException` would have passed every test, and the mutation list had no such mutant. | Reviewer round 1, SHOULD FIX 1. | D-050 and FLOW.md section 5 state it; four tests and 15 mutations added, all caught. |
 | 2026-11-04 | M9: the builder left two spec loose ends when writing D-050 to D-054: FLOW.md's glossary still described jitter as a small amount added to a growing wait, and D-043's revisit condition fired with no pointer line. D-050 also did not record that a client disconnect leaves the retries running. | Reviewer round 1, SHOULD FIX 2, 4 and 5. | Glossary rewritten, D-043 pointer added, disconnect recorded in D-050 and FLOW.md. |
 | 2026-11-04 | M9: the builder read a `subprocess.TimeoutExpired` in a startup test as load during the long red run, with nothing measured, and recorded that. It was wrong twice: the suite makes no such load (25.64 s for the same state on an awake machine), and 155.69 s against the usual 15 s was itself a signal nobody looked into. The cause was the test's own 60 s wall-clock limit meeting a host stall: the laptop was in Modern Standby, and the child started 3 s before the wake. | The owner asked for the cause. The rerun in a clone, the System log and the traceback's monotonic `endtime` placed the child in the timeline. | `timeout=60` removed from both `subprocess.run` calls in `tests/test_main.py`, and PROBE makes no real waits. A 65 s freeze of the child now passes; before the fix it failed at 60 s. |
+| 2026-11-04 | M10: the builder's first attempt to write the spec used a bash heredoc whose apostrophes broke the quoting. Nothing was written. This is the M8 mistake again, one milestone after logging it. | The Bash tool's "unexpected EOF" error. | The text moved to a script written with the Write tool. Doc edits in this session used that route from then on. |
+| 2026-11-04 | M10: the builder's spec did not see that a default breaker would break three M9 tests that run past 15 failures while testing something else. | The tester, in Mode 1. | The tester proposed a setup-only `BreakerPolicy(window_size=2000, failure_threshold=2000)`; no assertion changed. |
+| 2026-11-04 | M10: the builder's `m10_impl.py` asserted that an import line was unique in `test_router.py`. It was not (a local import at line 557), so the script stopped on its last step with `src/` and `test_retries.py` already edited. The script had no way to run all or nothing. | The script's own exactly-once assert. | The last edit was finished by a separate script, and `git diff` was read before committing. |
+| 2026-11-04 | M10: the Mode 1 helper `Gateway.refused()` hung on three injected bugs instead of failing, so a real regression would have stalled the suite. | The tester's own check against its throwaway reference. | `GatedAdapter` raises during a refusal, so those bugs fail at once. |
+| 2026-11-04 | M10: the Mode 1 tests missed 20 mutants. Ten were real gaps in behavior the spec states: subclass counting, `ts` truncation (three mutants), the `retry_after` clamp (two), a neutral entering the window as a failure, the constructor signature (two), and the exact stderr format. The test docstring also went stale when D-059 was amended. | The first mutation pass. | New tests; all 20 caught on re-run; docstring corrected. |
+| 2026-11-04 | M10: the builder's spec left four tested behaviors unwritten: a rejected value blamed on its own setting, `Permit` frozen, no jitter drawn for a skipped wait, and a startup bug keeping its traceback. Ten mutants had nothing explicit to be judged against. | The tester, in Mode 2. | The builder accepted all four and wrote them into D-057, D-058 and FLOW.md. |
+| 2026-11-04 | The docstring the builder wrote in 8a7ad33 said the CI job's own limit ends a hung child. The repo has no CI yet, so nothing ends it. | The tester, in Mode 2, with mutants H01 and H02, which only its 900 s harness limit stopped. | Docstring corrected, and a job time limit added to PLAN.md's M13. |
+| 2026-11-04 | M10 Mode 2, the tester's own, none affecting the results: the first differential run imported a `src/` a worker was mutating; `exhaustive()` returned its count before running, so it under-reported operations; a shell escape broke a `\n` in a new `test_main.py` line, a syntax error in the real repo's file. | A timeout with no output, the count not matching, and pytest collection. | Differential isolated and re-run, and every quoted number is from the fixed run; the test line fixed. |

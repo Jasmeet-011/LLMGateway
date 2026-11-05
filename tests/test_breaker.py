@@ -27,8 +27,8 @@ and values from the new API are typed `Any`, so mypy needs no `type: ignore`.
 
 Exact-time checks use dyadic values, which every correct way of computing a
 remaining cooldown gives as the same float, so the tests can compare with `==`.
-Log timestamps use whole or dyadic milliseconds, because the spec does not say
-whether a value between two milliseconds is rounded or truncated.
+Log timestamps use whole or dyadic milliseconds, so the expected text is exact.
+Values between two milliseconds are truncated (D-059), which has its own test.
 """
 
 import asyncio
@@ -309,6 +309,26 @@ class OddProviderError(ProviderError):
     """A `ProviderError` subclass the outcome table does not name."""
 
 
+class OddTimeout(ProviderTimeout):
+    """A subclass of a failure class, which counts as its parent does (D-056)."""
+
+
+class OddUnavailable(ProviderUnavailable):
+    """A subclass of a failure class, which counts as its parent does (D-056)."""
+
+
+class OddAuthError(ProviderAuthError):
+    """A subclass of a failure class, which counts as its parent does (D-056)."""
+
+
+class OddRateLimited(ProviderRateLimited):
+    """A subclass of a neutral class, which stays neutral as its parent does (D-056)."""
+
+
+class OddBadRequest(ProviderBadRequest):
+    """A subclass of a neutral class, which stays neutral as its parent does (D-056)."""
+
+
 class Interrupted(BaseException):
     """An exception that an `except Exception` around the adapter call would miss."""
 
@@ -372,6 +392,7 @@ class Gateway:
         self.clock = FakeClock(CLOCK_START)
         self.wall = FakeClock(WALL_START)
         self.sleep = RecordingSleep(self.clock)
+        self.random = SequenceRandom(0.5)
         self.route = Route(provider=INSTANCE, model=MODEL, adapter=adapter)
         extras: dict[str, Any] = {"breaker_policy": self.policy, "wall_clock": self.wall}
         router_sleep: Callable[[float], Awaitable[None]] = self.sleep
@@ -382,7 +403,7 @@ class Gateway:
             policy=retry,
             sleep=router_sleep,
             clock=self.clock,
-            random=SequenceRandom(0.5),
+            random=self.random,
             **extras,
         )
 
@@ -700,6 +721,26 @@ def test_breaker_policy_accepts_the_boundary_values(kwargs: dict[str, Any]) -> N
         assert getattr(policy, name) == value
 
 
+@pytest.mark.parametrize(
+    ("kwargs", "setting"),
+    [
+        ({"window_size": 0, "failure_threshold": 1}, "window_size"),
+        ({"window_size": -1, "failure_threshold": 1}, "window_size"),
+        ({"failure_threshold": 0}, "failure_threshold"),
+        ({"failure_threshold": 21}, "failure_threshold"),
+        ({"cooldown": 0}, "cooldown"),
+    ],
+    ids=["window_zero", "window_negative", "threshold_zero", "threshold_high", "cooldown_zero"],
+)
+def test_a_rejected_policy_value_is_blamed_on_its_own_setting(
+    kwargs: dict[str, Any], setting: str
+) -> None:
+    # D-057 gives each setting its own rule. window_size=0 also breaks the threshold's
+    # upper bound, so the error must come from the window's rule, not from that one.
+    with pytest.raises(ValueError, match=f"^{setting}"):
+        _policy(**kwargs)
+
+
 # counts_as_failure: the one place the outcome rule lives (D-056)
 
 
@@ -717,6 +758,17 @@ def test_counts_as_failure_is_false_for_each_neutral_provider_error(
     error = make_error()
     assert isinstance(error, ProviderError)
     assert _counts_as_failure(error) is False
+
+
+@pytest.mark.parametrize("error_class", [OddTimeout, OddUnavailable, OddAuthError])
+def test_a_subclass_of_a_failure_class_counts(error_class: type[ProviderError]) -> None:
+    # D-056: classified with `isinstance`, as errors.py resolves a subclass.
+    assert _counts_as_failure(error_class(ADAPTER_MESSAGE)) is True
+
+
+@pytest.mark.parametrize("error_class", [OddRateLimited, OddBadRequest])
+def test_a_subclass_of_a_neutral_class_stays_neutral(error_class: type[ProviderError]) -> None:
+    assert _counts_as_failure(error_class(ADAPTER_MESSAGE)) is False
 
 
 def test_the_rule_reverses_the_retryable_flag_on_the_real_classes() -> None:
@@ -902,6 +954,17 @@ def test_neutral_outcomes_are_not_added_to_the_window() -> None:
     assert rig.breaker.state == "open"
 
 
+def test_neutral_outcomes_before_any_failure_leave_the_full_threshold_to_reach() -> None:
+    # Neutrals first: a window that took them as failures would open on the first
+    # real one, and one that took them as successes would still need three.
+    rig = Rig()
+    rig.neutral(4)
+    rig.fail(2)
+    assert rig.breaker.state == "closed"
+    rig.fail()
+    assert rig.breaker.state == "open"
+
+
 def test_outcomes_of_calls_that_overlapped_all_count_while_the_state_is_unchanged() -> None:
     rig = Rig()
     permits = [rig.permit() for _ in range(3)]
@@ -930,6 +993,17 @@ def test_retry_after_is_the_cooldown_left_while_open() -> None:
     assert rig.breaker.retry_after() == 19.5
     rig.clock.advance(19.25)
     assert rig.breaker.retry_after() == 0.25
+
+
+def test_retry_after_is_never_below_zero_once_the_cooldown_has_passed() -> None:
+    # Reachable with no traffic: nothing moves the breaker until the next acquire (D-057).
+    rig = Rig()
+    rig.trip()
+    rig.clock.advance(COOLDOWN)
+    assert rig.breaker.retry_after() == 0.0
+    rig.clock.advance(1.0)
+    assert rig.breaker.state == "open"
+    assert rig.breaker.retry_after() == 0.0
 
 
 def test_the_cooldown_runs_from_opening_not_from_when_the_call_started() -> None:
@@ -1219,6 +1293,13 @@ def test_a_late_success_from_before_the_trip_is_not_counted_after_recovery() -> 
     assert rig.breaker.state == "open"
 
 
+def test_a_permit_cannot_be_rewritten_to_pass_as_current() -> None:
+    # D-057: a result counts only under the generation its call was allowed in.
+    permit = Rig().permit()
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        permit.generation = permit.generation + 1
+
+
 def test_a_permit_from_an_earlier_probe_cannot_decide_the_current_one() -> None:
     rig = Rig()
     rig.trip()
@@ -1336,6 +1417,34 @@ def test_ts_is_utc_to_the_millisecond_from_the_wall_clock(
     caplog.set_level(logging.DEBUG)
     rig = Rig()
     rig.wall.now = wall_seconds
+    rig.trip()
+    assert _state_lines(caplog) == [_state_line("closed", "open", "threshold_hit", ts=ts)]
+
+
+@pytest.mark.parametrize(
+    ("fraction", "ts"),
+    [
+        (127 / 1024, "2026-11-04T21:00:00.124Z"),
+        (255 / 2048, "2026-11-04T21:00:00.124Z"),
+        (4095 / 4096, "2026-11-04T21:00:00.999Z"),
+        (1 - 2**-21, "2026-11-04T21:00:00.999Z"),
+    ],
+    ids=[
+        "just_over_a_millisecond",
+        "over_half_a_millisecond",
+        "carry_to_the_next_second",
+        "carry_at_a_microsecond",
+    ],
+)
+def test_ts_is_truncated_to_the_millisecond_and_never_carries_into_the_next_second(
+    caplog: pytest.LogCaptureFixture, fraction: float, ts: str
+) -> None:
+    # D-059: truncated. Each fraction is dyadic, so WALL_START + fraction is exact. The
+    # last is within half a microsecond of the next second, where anything that rounds
+    # the seconds separately from the milliseconds would write 21:00:01.
+    caplog.set_level(logging.DEBUG)
+    rig = Rig()
+    rig.wall.now = WALL_START + fraction
     rig.trip()
     assert _state_lines(caplog) == [_state_line("closed", "open", "threshold_hit", ts=ts)]
 
@@ -2075,6 +2184,15 @@ async def test_router_an_attempt_cancelled_late_does_not_free_the_probe_slot() -
 # Refusal and retries (D-058)
 
 
+def test_circuit_open_takes_retry_after_seconds_by_keyword_defaulting_to_none() -> None:
+    # D-058: ProviderCircuitOpen(message, *, retry_after_seconds=None).
+    parameter = inspect.signature(_circuit_open()).parameters["retry_after_seconds"]
+    assert parameter.kind is inspect.Parameter.KEYWORD_ONLY
+    assert parameter.default is None
+    error: Any = _circuit_open()(ADAPTER_MESSAGE)
+    assert error.retry_after_seconds is None
+
+
 def test_circuit_open_is_a_new_provider_error_and_not_a_failure_class() -> None:
     cls = _circuit_open()
     assert issubclass(cls, ProviderError)
@@ -2252,6 +2370,16 @@ async def test_a_trip_on_the_first_attempt_means_no_wait_and_no_retry(
         TRIPPED,
         _attempt_line(1, 503, "http_status", "ProviderUnavailable", "no"),
     ]
+
+
+@pytest.mark.asyncio
+async def test_a_trip_draws_no_jitter_for_the_wait_it_skips() -> None:
+    # D-058: with the breaker open the wait is skipped, so nothing is computed for it.
+    adapter = ScriptedAdapter(_unavailable(), RESULT)
+    gateway = Gateway(adapter, _tripwire(), retry=DYADIC)
+    with pytest.raises(ProviderUnavailable):
+        await gateway.call()
+    assert gateway.random.calls == 0
 
 
 @pytest.mark.asyncio
