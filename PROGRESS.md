@@ -1813,6 +1813,10 @@ Rows caught at first show the committed tests' result, then the count with the n
 - Optional: rerun `uv run --env-file .env pytest -m live -v`. M10 adds no live test, and every real call now passes through the breaker.
 - The test audit's merges are left for a later session (report only, as asked).
 
+### 2026-11-05: M11 Provider fallback and fault injection
+
+**Plan.** The owner said "continue" after M10's report, read as starting M11. Spec first: D-060 to D-064, FLOW.md, PLAN.md, and pointer lines in the entries whose questions M11 settles. Then the tester writes the tests from the spec, and the builder runs them and sees them fail before any `src/` change, as in M10, with a no-behavior stub stage. Then `Router.serve`, the disconnect check, `provider_instance`, `LLMGATEWAY_FAULTS`; mutation checks with leak mutants in the list from the start; review. M11 allows no dependency. Schema change: `ChatResponse.provider_instance` (D-063).
+
 ## Agent Mistakes Log
 
 Rows are taken only from what the git history and DECISIONS.md record. Where the history does not say who found a problem, the row says so.

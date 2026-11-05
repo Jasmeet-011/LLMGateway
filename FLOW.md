@@ -76,9 +76,9 @@ Why each check sits where it does:
 9. **Store in cache only if deterministic and non-streaming** (D-003). Sampled output should not be replayed as if it were the only answer.
 10. **Respond with the gateway request ID** (D-011), so logs, metrics, and accounting share one key.
 
-## 5. Router flow (target design)
+## 5. Router flow
 
-The router tries the entries of the requested alias in order (D-010). Each entry is a (provider instance, provider model) pair from the config (D-044). The adapter gets a copy of the request whose `model` is the entry's provider model, and the response reports that provider model and the instance's provider type (D-045). Errors are classified by their `retryable` flag (D-014). Until M11 only the first entry is used.
+The router tries the entries of the requested alias in order (D-010). Each entry is a (provider instance, provider model) pair from the config (D-044). The adapter gets a copy of the request whose `model` is the entry's provider model, and the response reports that provider model and the instance's provider type (D-045). Errors are classified by their `retryable` flag (D-014). `Router.serve` runs this for non-streaming requests; streams get the pre-first-byte rule in M12.
 
 ```mermaid
 flowchart TD
@@ -90,13 +90,20 @@ flowchart TD
     D -->|yes| OK[Return result]
     D -->|no| L[Log the failed attempt]
     L --> E{Retryable and not a billed 2xx}
-    E -->|no| X[Non retryable, fallback rule to be decided]
+    E -->|no| Z{Bad request}
     E -->|yes| F{Attempts left, retry-after at most 5 s, wait ends before the 90 s deadline, breaker not open}
     F -->|yes| G[Wait: full jitter backoff, at least retry-after]
-    G --> B
-    F -->|no| N{More entries in alias list}
-    N -->|yes| A
-    N -->|no| FAIL[Return error to client]
+    G --> CG{Client gone}
+    CG -->|no| B
+    CG -->|yes| GONE[Stop, status 499]
+    F -->|no| Z
+    Z -->|yes| FAIL[Return error to client]
+    Z -->|no| N{More entries with time left}
+    N -->|yes| CF{Client gone}
+    CF -->|no| FT[Log fallback_taken]
+    FT --> A
+    CF -->|yes| GONE
+    N -->|no| FAIL
 ```
 
 Retry rules for one entry (D-050 to D-052, `RetryPolicy` defaults):
@@ -106,7 +113,16 @@ Retry rules for one entry (D-050 to D-052, `RetryPolicy` defaults):
 - Wait after failed attempt `n`: `random() * min(2.0, 0.2 * 2 ** (n - 1))` seconds (full jitter), or `retry-after` when that is longer. No wait before the first attempt or after the last.
 - Before every attempt, retries included, the router asks the breaker (D-058). Refused before the first attempt: no adapter call, and the client gets 503 `provider_circuit_open`. Refused before a retry: no further call, and the last failure is raised. If the breaker is open after a failed attempt, there is no wait and no retry, and the line says `retry=no`. `retry=yes` is the intent when the line is written: a breaker that opens during the wait still stops the retry.
 - Each attempt runs under `min(60 s, time left)`; if that fires, the attempt fails with `ProviderTimeout` reason `attempt_timeout` (retryable). The whole call has a 90 s deadline: a retry whose wait would reach it is not made.
-- Every attempt that fails with a `ProviderError` (including the router's own timeout) writes one `attempt_failed` line to `llmgateway.router` at WARNING with the request ID, alias, instance, provider model, attempt number, provider status, reason code, error class and whether it retries (D-054). Nothing in it reaches the client. Any other exception is a bug: it propagates at once, with no router line. Cancellation is neither: an `asyncio.CancelledError` during an attempt or a wait propagates at once, with no further attempt and no router line. A client disconnect does not cancel the request, so it does not stop the retries (D-050) until M11, which checks for it before each retry or fallback attempt.
+- Every attempt that fails with a `ProviderError` (including the router's own timeout) writes one `attempt_failed` line to `llmgateway.router` at WARNING with the request ID, alias, instance, provider model, attempt number, provider status, reason code, error class and whether it retries (D-054). Nothing in it reaches the client. Any other exception is a bug: it propagates at once, with no router line. Cancellation is neither: an `asyncio.CancelledError` during an attempt or a wait propagates at once, with no further attempt and no router line. A client disconnect does not cancel an attempt in flight, and the router checks for it before each retry and each fallback attempt (D-062).
+
+Fallback rules (D-060 to D-062):
+
+- Moves to the next entry: `ProviderTimeout`, `ProviderUnavailable` (including a billed malformed 2xx, which is not retried), `ProviderRateLimited` (including a `retry-after` over 5 s), `ProviderAuthError` and `ProviderCircuitOpen`. `router.falls_back` is the one place this lives.
+- Ends the request: `ProviderBadRequest`, any other `ProviderError` subclass, a bug, and a cancellation. An empty `max_tokens` answer is a success (D-049).
+- When no entry serves, the client gets the last failure that really happened. Only when every entry refused does it get 503 `provider_circuit_open`, with the smallest `Retry-After`.
+- One deadline covers the whole request. A non-last entry must finish 30 s before it (`fallback_reserve`), so a hung first entry stops at 60 s and the next one has 30 s. An entry whose limit has passed is skipped.
+- Attempts number from 1 for each entry, with up to 3 per entry. Each move writes one `fallback_taken` line to `llmgateway.router` at WARNING with the request ID, alias, the instance and model left and reached, the reason code and the error class.
+- Before each retry, after its wait, and before each move, the router awaits `is_disconnected`. If the client has gone it raises `ClientDisconnected`: no call, no breaker check and no `fallback_taken` line, and the request line says `status=499`. There is no check before a request's first attempt.
 
 **Streaming rule:** a streaming request can only fall back **before the first byte is sent** to the client. After that, the client has already received part of one provider's answer, and switching providers would splice two different answers together. A failure mid-stream ends the stream with an error instead.
 
@@ -124,7 +140,7 @@ stateDiagram-v2
 ```
 
 - **Closed:** the normal state. Calls go through. The window holds the last 20 success and failure outcomes; 15 failures in it open the breaker, even before it is full.
-- **Open:** the provider is treated as down. Calls are not sent. From M11 the router moves straight to the next entry in the alias list. Until then, and from then on with no entry left, the client gets 503 `provider_circuit_open` with `Retry-After` set to the cooldown left, rounded up (D-058). This protects a struggling provider and saves the time a doomed call would take.
+- **Open:** the provider is treated as down. Calls are not sent. The router moves straight to the next entry in the alias list, and if every entry refused, the client gets 503 `provider_circuit_open` with `Retry-After` set to the cooldown left, rounded up (D-058). This protects a struggling provider and saves the time a doomed call would take.
 - **HalfOpen:** the first request at or after the cooldown is the probe, and there is one at a time; every other request is refused, with no `Retry-After`. A success closes the breaker and empties the window. A failure reopens it and restarts the full cooldown. Nothing moves the breaker with no traffic: there is no timer.
 
 | Outcome of an adapter call | Breaker |
@@ -195,7 +211,7 @@ src/llmgateway/
 ├── errors.py            error body, status mapping, exception handlers
 ├── config.py            TOML config: provider instances and aliases, validated at startup
 ├── breaker.py           CircuitBreaker, BreakerPolicy: one per config instance
-├── router.py            alias selection, timeouts, retries and breaker checks; later fallback
+├── router.py            alias selection, timeouts, retries, breaker checks and fallback
 ├── main.py              module-level app for uvicorn, config from the environment
 ├── auth                 API key hashing and lookup
 ├── ratelimit            Redis Lua token bucket
@@ -306,7 +322,7 @@ On success (D-041): the first candidate's text is the concatenation of the `text
 
 | Outcome | Error type | Retryable | Status, reason | Client status | Client code |
 | --- | --- | --- | --- | --- | --- |
-| Mock failure injection, any `failure_type` | the class for that type (D-016) | per class | none, `injected` | per class | per class |
+| Mock failure injection, any `failure_type`, from the config or `LLMGATEWAY_FAULTS` (D-064) | the class for that type (D-016) | per class | none, `injected` | per class | per class |
 | The router's per-attempt timeout fires (`min(attempt_timeout, time left)`) | `ProviderTimeout` | yes | none, `attempt_timeout` | 504 | `provider_timeout` |
 | The breaker refuses the first attempt (no adapter call) | `ProviderCircuitOpen` | yes | none, `circuit_open` | 503, with `Retry-After` set to the cooldown left, rounded up; no header during a half-open probe | `provider_circuit_open` |
 
@@ -320,6 +336,7 @@ On success (D-041): the first candidate's text is the concatenation of the `text
 | Method not allowed | 405 | `method_not_allowed` |
 | Any other HTTP exception raised by the framework (message is the standard phrase, never its detail) | its own status | `http_error` |
 | `stream=true` until streaming exists (D-022) | 501 | `streaming_not_implemented` |
+| The client disconnected before a retry or fallback attempt (D-062); nobody reads this response, and it shows in the request line | 499 | `client_disconnected` |
 | A `ProviderError` subclass with no mapping of its own and no mapped parent | 502 | `provider_error` |
 | Any other exception | 500 | `internal_error` |
 
@@ -333,6 +350,8 @@ These never reach a client: the process exits at import with `llmgateway: config
 | --- | --- |
 | `LLMGATEWAY_CONFIG` unset | Built-in default: instance `mock` (type `mock`, default settings), alias `mock` = (`mock`, `mock-1`) |
 | `LLMGATEWAY_PROVIDER` set, to any value including empty | Stops (the variable is no longer read) |
+| `LLMGATEWAY_FAULTS` unset | No fault windows |
+| `LLMGATEWAY_FAULTS` set but blank, or an entry that does not match `<instance>=<rate>` or `<instance>=<rate>@<start>+<duration>`, a rate above 1, a duration of 0, a repeated instance, an unknown instance, or an instance that is not of type `mock` (D-064) | Stops; the message names the variable, the entry's position and the rule |
 | `LLMGATEWAY_CONFIG` set but empty or blank | Stops |
 | The file cannot be read, is not valid UTF-8, or is not valid TOML | Stops |
 | A top-level key other than `providers` and `aliases`, or either table missing or empty | Stops |
