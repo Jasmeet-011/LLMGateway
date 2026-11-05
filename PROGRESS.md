@@ -1817,6 +1817,37 @@ Rows caught at first show the committed tests' result, then the count with the n
 
 **Plan.** The owner said "continue" after M10's report, read as starting M11. Spec first: D-060 to D-064, FLOW.md, PLAN.md, and pointer lines in the entries whose questions M11 settles. Then the tester writes the tests from the spec, and the builder runs them and sees them fail before any `src/` change, as in M10, with a no-behavior stub stage. Then `Router.serve`, the disconnect check, `provider_instance`, `LLMGATEWAY_FAULTS`; mutation checks with leak mutants in the list from the start; review. M11 allows no dependency. Schema change: `ChatResponse.provider_instance` (D-063).
 
+**Spec.** 512967e: D-060 to D-064, FLOW.md sections 5, 6, 8 and 13, PLAN.md, and pointer lines in D-016, D-019, D-033, D-041, D-045, D-047, D-048, D-049, D-050, D-052, D-054, D-056, D-057 and D-058.
+
+**Tests (tester, Mode 1).** `tests/test_fallback.py` (185 functions, 406 cases) and `tests/test_faults.py` (91 functions, 267 cases), importing the new API at call time. No wall-clock dependence: fake clocks, a recording sleep, and `Gateway.virtual_time`, which points the event loop's `time` at the fake clock so the router's real `asyncio.timeout` fires on the exact fake second. By the tester's report, all 673 pass on a reference it wrote from the spec without reading `router.py`, `app.py`, `mock.py` or `config.py`, and 114 injected bugs in that reference were caught. It wrote both sides, so a misreading could be shared; only Mode 2 on real code counts.
+
+**Existing tests changed, each required by a D-entry.**
+- `tests/test_schema.py`: `_response()` and `test_response_json_round_trip` carry `provider_instance` (D-063).
+- `tests/test_retries.py`: `test_retry_policy_is_a_frozen_dataclass` adds `fallback_reserve` to its exact field set, which is stricter (D-061).
+- `tests/test_main.py`: setup only, clearing `LLMGATEWAY_FAULTS`, and one comment made true (D-064).
+
+The builder's brief said the seeded `mock-fallback` startup test would need changing. It does not: retries on the first entry absorb both seeded failures, so the tester left its assertions alone.
+
+**Spec gaps from the tester, settled in 14ae705.** The check after a refusal runs (D-062); `clock() >= limit` skips, and a skipped entry writes nothing (D-061); a first entry tried after skips writes no line; `FaultWindow`'s rules, overflow and ASCII digits, position from 1, and API keys checked before windows (D-064). Two were the builder's errors: D-061's Risk contradicted its Decision, and FLOW.md's diagram did not match D-060 on other `ProviderError` subclasses. Left open on purpose: `complete` with a `deadline` already past, which `serve` never passes.
+
+**Seen failing before any `src/` change.** M10's review found its tests were committed after the run they were credited with, so this time the commit is the run. a054ffa holds the tests, `git diff --stat 512967e a054ffa -- src` is empty, and the saved output names that SHA and the time, 2026-11-05 16:30.
+
+Stage 1, the real repo, `uv run pytest`: `659 failed, 1692 passed, 5 deselected in 32.76s`: the 652 new cases that need M11, and the 7 existing ones above; no collection errors. Rerun with JUnit output to read the full messages, same counts:
+- 190 `Router` has no attribute `serve`;
+- 135 no `parse_faults`, 80 no `ClientDisconnected`, 68 no `FaultWindow`, 48 no `falls_back`;
+- 40 no `clock` argument, 26 no `fallback_reserve`;
+- 72 others: the missing field (`ValidationError`, `KeyError`), `DID NOT RAISE ConfigError`, and old behavior such as `assert 502 == 200`.
+
+Stage 2, a scratch clone, never the repo: the same tests against a stub with the whole interface and no behavior (`serve` uses the first entry only, `falls_back` is always false, the disconnect check is never called, faults are ignored, `parse_faults` returns nothing). `520 failed, 1831 passed, 5 deselected in 36.30s`. All 520 are in the two new files, and they fail on what they assert:
+- 124 `DID NOT RAISE ConfigError`;
+- 93 a provider error reaching the test where it should have moved on;
+- 63 `assert 0 == 1`, a count of calls or lines;
+- 52 `assert False is True`;
+- 32 `DID NOT RAISE ValueError`;
+- 156 others: wrong lines, statuses, and `DID NOT RAISE ClientDisconnected`.
+
+153 new cases pass on the stub: they assert what a do-nothing version already satisfies, including the 21 that pass on M10's code. Mode 2 has to show they can fail. The 7 changed existing tests pass on the stub, as they should.
+
 ## Agent Mistakes Log
 
 Rows are taken only from what the git history and DECISIONS.md record. Where the history does not say who found a problem, the row says so.
