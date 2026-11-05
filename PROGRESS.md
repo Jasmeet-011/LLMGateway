@@ -1273,6 +1273,8 @@ Round 2 (delta 1066831..c551b28): **PASS**, no BLOCKING items, all round 1 items
 
 **Not changed, same class of risk.** `tests/test_retries.py` has real-time limits: `GUARD_SECONDS = 2.0` at nine sites, and tests under a real `asyncio.timeout`. A host stall over 2 s inside one could fail it. They were not part of this fix.
 
+**M10 plan.** Write the spec first (D-055 to D-059, FLOW.md sections 5, 6, 8, 11 and 13, and pointer lines in the entries whose revisit conditions M10 fires). The tester then writes the tests from it, and the builder runs them and sees them fail before touching `src/`. Then `breaker.py`, the checks in `router.py`, `ProviderCircuitOpen` in `base.py` and its row in `errors.py`; mutation checks; review.
+
 ## Agent Mistakes Log
 
 Rows are taken only from what the git history and DECISIONS.md record. Where the history does not say who found a problem, the row says so.

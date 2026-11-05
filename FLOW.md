@@ -78,21 +78,22 @@ Why each check sits where it does:
 
 ## 5. Router flow (target design)
 
-The router tries the entries of the requested alias in order (D-010). Each entry is a (provider instance, provider model) pair from the config (D-044). The adapter gets a copy of the request whose `model` is the entry's provider model, and the response reports that provider model and the instance's provider type (D-045). Errors are classified by their `retryable` flag (D-014). Until M11 only the first entry is used; the breaker is M10.
+The router tries the entries of the requested alias in order (D-010). Each entry is a (provider instance, provider model) pair from the config (D-044). The adapter gets a copy of the request whose `model` is the entry's provider model, and the response reports that provider model and the instance's provider type (D-045). Errors are classified by their `retryable` flag (D-014). Until M11 only the first entry is used.
 
 ```mermaid
 flowchart TD
-    A[Next provider and model in alias list] --> B{Circuit breaker open}
+    A[Next provider and model in alias list] --> B{Circuit breaker refuses this attempt}
     B -->|yes| N
     B -->|no| C[Call provider, attempt timeout min 60 s and time left]
-    C --> D{Succeeded}
+    C --> RB[Record the outcome in the breaker]
+    RB --> D{Succeeded}
     D -->|yes| OK[Return result]
     D -->|no| L[Log the failed attempt]
     L --> E{Retryable and not a billed 2xx}
     E -->|no| X[Non retryable, fallback rule to be decided]
-    E -->|yes| F{Attempts left, retry-after at most 5 s, wait ends before the 90 s deadline}
+    E -->|yes| F{Attempts left, retry-after at most 5 s, wait ends before the 90 s deadline, breaker not open}
     F -->|yes| G[Wait: full jitter backoff, at least retry-after]
-    G --> C
+    G --> B
     F -->|no| N{More entries in alias list}
     N -->|yes| A
     N -->|no| FAIL[Return error to client]
@@ -103,27 +104,44 @@ Retry rules for one entry (D-050 to D-052, `RetryPolicy` defaults):
 - At most 3 attempts. Only a `ProviderError` with `retryable` true is retried; anything else is raised after one attempt, and the router raises the adapter's own exception object when it gives up.
 - Not retried: an error whose provider `status` is 2xx, such as a malformed body, because the provider already billed that generation (D-052); a rate limit whose `retry-after` is over 5 s, which goes to the client as 503 with `Retry-After` (D-051).
 - Wait after failed attempt `n`: `random() * min(2.0, 0.2 * 2 ** (n - 1))` seconds (full jitter), or `retry-after` when that is longer. No wait before the first attempt or after the last.
+- Before every attempt, retries included, the router asks the breaker (D-058). Refused before the first attempt: no adapter call, and the client gets 503 `provider_circuit_open`. Refused before a retry: no further call, and the last failure is raised. If the breaker is open after a failed attempt, there is no wait and no retry, and the line says `retry=no`. `retry=yes` is the intent when the line is written: a breaker that opens during the wait still stops the retry.
 - Each attempt runs under `min(60 s, time left)`; if that fires, the attempt fails with `ProviderTimeout` reason `attempt_timeout` (retryable). The whole call has a 90 s deadline: a retry whose wait would reach it is not made.
 - Every attempt that fails with a `ProviderError` (including the router's own timeout) writes one `attempt_failed` line to `llmgateway.router` at WARNING with the request ID, alias, instance, provider model, attempt number, provider status, reason code, error class and whether it retries (D-054). Nothing in it reaches the client. Any other exception is a bug: it propagates at once, with no router line. Cancellation is neither: an `asyncio.CancelledError` during an attempt or a wait propagates at once, with no further attempt and no router line. A client disconnect does not cancel the request, so it does not stop the retries (D-050) until M11, which checks for it before each retry or fallback attempt.
 
 **Streaming rule:** a streaming request can only fall back **before the first byte is sent** to the client. After that, the client has already received part of one provider's answer, and switching providers would splice two different answers together. A failure mid-stream ends the stream with an error instead.
 
-## 6. Circuit breaker (target design)
+## 6. Circuit breaker
 
-A circuit breaker stops the gateway from repeatedly calling a provider that is failing. Thresholds, the cooldown time, which errors count as failures, and what one breaker covers are not chosen yet.
+A circuit breaker stops the gateway from repeatedly calling a provider that is failing. There is one per config instance, held in process memory (D-055). Each adapter call is an outcome, retries included (D-056), and the trip rule and values are `BreakerPolicy` defaults (D-057).
 
 ```mermaid
 stateDiagram-v2
     [*] --> Closed
-    Closed --> Open : failures reach threshold
-    Open --> HalfOpen : cooldown elapsed
-    HalfOpen --> Closed : trial call succeeds
-    HalfOpen --> Open : trial call fails
+    Closed --> Open : threshold_hit, 15 failures in the last 20 outcomes
+    Open --> HalfOpen : cooldown_over, first request 30 s or more after opening
+    HalfOpen --> Closed : probe_passed
+    HalfOpen --> Open : probe_failed, cooldown restarts
 ```
 
-- **Closed:** the normal state. Calls go through, and failures are counted.
-- **Open:** the provider is treated as down. Calls are not sent; the router moves straight to the next entry in the alias list. This protects a struggling provider and saves the time a doomed call would take.
-- **HalfOpen:** after the cooldown, a trial call is let through. If it succeeds, the breaker closes again. If it fails, the breaker opens again and the cooldown restarts.
+- **Closed:** the normal state. Calls go through. The window holds the last 20 success and failure outcomes; 15 failures in it open the breaker, even before it is full.
+- **Open:** the provider is treated as down. Calls are not sent; the router moves straight to the next entry in the alias list, and with none left the client gets 503 `provider_circuit_open` with `Retry-After` set to the cooldown left, rounded up (D-058). This protects a struggling provider and saves the time a doomed call would take.
+- **HalfOpen:** the first request at or after the cooldown is the probe, and there is one at a time; every other request is refused, with no `Retry-After`. A success closes the breaker and empties the window. A failure reopens it and restarts the full cooldown. Nothing moves the breaker with no traffic: there is no timer.
+
+| Outcome of an adapter call | Breaker |
+| --- | --- |
+| A result | Success |
+| `ProviderTimeout`, including the router's `attempt_timeout` | Failure |
+| `ProviderUnavailable`, including a malformed 2xx | Failure |
+| `ProviderAuthError`, including 402 | Failure |
+| `ProviderRateLimited` | Neutral |
+| `ProviderBadRequest` | Neutral |
+| Any other exception, or a cancellation | Neutral |
+
+A neutral outcome is not added to the window. On a probe it frees the slot and changes nothing, so the state stays half-open and the next request is the next probe.
+
+An outcome counts only if the state has not changed since its call was allowed: a call that started before the breaker opened cannot close it, restart its cooldown, or stand in for the probe (D-057).
+
+Every state change writes one line to `llmgateway.breaker` at WARNING, and nothing else does (D-059): `breaker_state_change ts=%s provider=%s from=%s to=%s reason=%s`, with `ts` in UTC to the millisecond, and `reason` the code on the diagram's arrow. None of it reaches a client. When an attempt trips the breaker, this line comes before that attempt's `attempt_failed` line.
 
 ## 7. One request, step by step (target design)
 
@@ -176,7 +194,8 @@ src/llmgateway/
 ├── app.py               create_app, request middleware, endpoints
 ├── errors.py            error body, status mapping, exception handlers
 ├── config.py            TOML config: provider instances and aliases, validated at startup
-├── router.py            alias selection, timeouts and retries; later breaker, fallback
+├── breaker.py           CircuitBreaker, BreakerPolicy: one per config instance
+├── router.py            alias selection, timeouts, retries and breaker checks; later fallback
 ├── main.py              module-level app for uvicorn, config from the environment
 ├── auth                 API key hashing and lookup
 ├── ratelimit            Redis Lua token bucket
@@ -207,7 +226,7 @@ src/llmgateway/
 - **Cache key, and why it includes the caller:** the cache key is a fingerprint of the request: its normalized content, model, parameters, and the caller's key or tenant ID. Equal requests get the same fingerprint (that is why `stop=[]` is normalized to `None`, D-013). The caller is included so one customer can never receive a response cached for another (D-003).
 - **Coalescing (stretch, D-031):** when several identical requests arrive at the same time, only the first goes to the provider. The others wait and share its answer. This saves money and protects the provider during bursts.
 - **Backoff and jitter:** after a failure, wait before retrying, and raise the longest possible wait after each failure (backoff). The actual wait is picked at random between zero and that limit (full jitter, D-050), so many clients that failed together do not all retry at the same instant.
-- **Circuit breaker:** a switch that stops calling a provider after it keeps failing, then cautiously tries again later. See section 6.
+- **Circuit breaker:** a switch that stops calling a provider after it keeps failing, then cautiously tries again later with one trial call, the probe. See section 6.
 - **Alias:** the name a client sends in `model`, such as `fast`. The config maps it to an ordered list of (provider instance, provider model) pairs (D-010, D-044). The client never names a provider model directly.
 - **Fallback:** if one provider cannot answer, try the next provider and model in the alias's list (D-010). The list is explicit, so the gateway never guesses which models are equivalent.
 - **Retryable error:** an error where trying again might work, such as a timeout, a provider rate limit, or a provider outage. A bad request or a credential problem will fail the same way every time, so it is not retryable (D-014).
@@ -220,8 +239,7 @@ Listed, not answered.
 
 - Whether cache hits count against rate limits.
 - The status code returned when a spend cap rejects a request (stretch, D-031).
-- Circuit breaker thresholds: to be chosen (M10). Retry counts and timeouts are chosen (D-050, D-051) but not yet measured.
-- Whether the circuit breaker counts provider rate limits as failures (D-014).
+- Retry counts, timeouts and breaker thresholds are chosen (D-050, D-051, D-057) but not yet measured.
 - How coalesced requests are billed (stretch, D-031).
 - How spend caps stay atomic across a provider call (stretch, D-031).
 - Whether the API key is checked before the request body is parsed, once auth exists. Parsing first lets unauthenticated callers make the gateway parse large bodies (D-018, D-025).
@@ -283,12 +301,13 @@ Request (D-039, D-040): `POST https://generativelanguage.googleapis.com/v1beta/m
 
 On success (D-041): the first candidate's text is the concatenation of the `text` of its parts that are not marked `"thought": true`; parts without `text` are skipped, and a candidate with no `content` or `parts` gives empty text. `finishReason` `STOP` maps to `stop`, `MAX_TOKENS` to `max_tokens`, and every other value (`SAFETY`, `RECITATION`, ..., and ones added later) to `other`; Gemini never produces `stop_sequence`. `input_tokens` is `promptTokenCount`, `output_tokens` is `candidatesTokenCount + thoughtsTokenCount`, and an absent count is 0; `output_tokens` may exceed `max_tokens` and is reported as Google sends it, never capped (D-049). A candidate with empty text and `MAX_TOKENS` (the budget went to thinking) is a success: 200, `content` "", `finish_reason` `max_tokens` (D-049). A non-empty `responseId` becomes `provider_response_id`. `temperature` and `top_p` are sent as `generationConfig.temperature` and `topP` when set (D-040). The adapter never retries (D-032); the error is raised once, without the httpx exception chained to it.
 
-### Mock provider and router (`providers/mock.py`, `router.py`, D-016, D-050, D-054)
+### Mock provider and router (`providers/mock.py`, `router.py`, D-016, D-050, D-054, D-058)
 
 | Outcome | Error type | Retryable | Status, reason | Client status | Client code |
 | --- | --- | --- | --- | --- | --- |
 | Mock failure injection, any `failure_type` | the class for that type (D-016) | per class | none, `injected` | per class | per class |
 | The router's per-attempt timeout fires (`min(attempt_timeout, time left)`) | `ProviderTimeout` | yes | none, `attempt_timeout` | 504 | `provider_timeout` |
+| The breaker refuses the first attempt (no adapter call) | `ProviderCircuitOpen` | yes | none, `circuit_open` | 503, with `Retry-After` set to the cooldown left, rounded up; no header during a half-open probe | `provider_circuit_open` |
 
 ### Gateway errors (`errors.py`, `app.py`)
 

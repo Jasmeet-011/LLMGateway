@@ -58,6 +58,7 @@ Worked in order. Status and evidence are in [PROGRESS.md](PROGRESS.md); this fil
 - **Proof:** tests for every transition.
 - **Dependencies allowed:** none.
 - **Open issues to settle:** where breaker state lives (record it); thresholds and cooldown; whether provider rate limits count as failures (D-014); whether one breaker covers a provider or a (provider, model) pair; with two mock instances in one alias (D-044, D-047), a breaker per provider type would open both together and break measurement 8 and the M11 proof, so per config instance is the candidate; how breaker state changes are made observable for measurement 8 (Prometheus is stretch); whether the breaker counts each failed attempt or each failed request, now that the router retries (D-050).
+- **Settled:** D-055 (in process, per config instance), D-056 (each attempt; timeouts, unavailable and auth count, rate limits and bad requests do not), D-057 (15 of the last 20, 30 s cooldown, one probe), D-058 (checked before every attempt; 503 `provider_circuit_open`), D-059 (one log line per state change for measurement 8). Added by the owner for M10: that log line, with timestamp, provider, from-state, to-state and reason.
 
 ### M11 Provider fallback and fault injection
 
