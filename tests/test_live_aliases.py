@@ -5,8 +5,9 @@ marked Stable on Google's models page, but D-039 records that some models launch
 only on the Interactions API. This sends one real request per Gemini entry,
 read from the committed file so the test follows the file.
 
-An alias falls back down its list (D-060), so an answer would not show which entry
-gave it. Each entry is sent through its own one-entry alias instead; the request
+An alias falls back down its list (D-060), so one entry's failure would be hidden
+and a later entry might never be reached. Each entry is sent through its own
+one-entry alias instead; the request
 still goes through the config, the router and the app. Excluded by default
 (`-m 'not live'`); the owner runs it with `uv run pytest -m live` and GEMINI_API_KEY
 set. It costs a few tokens per model.

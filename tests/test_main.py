@@ -415,7 +415,8 @@ async def probe():
         raise SystemExit("the server did not start")
     port = server.servers[0].sockets[0].getsockname()[1]
     body = {"model": "mock", "messages": [{"role": "user", "content": "hi"}], "max_tokens": 8}
-    async with httpx.AsyncClient(base_url=f"http://127.0.0.1:{port}") as client:
+    # httpx's default limit is 5 s, short enough for a stalled host to fail this.
+    async with httpx.AsyncClient(base_url=f"http://127.0.0.1:{port}", timeout=300.0) as client:
         response = await client.post("/v1/chat", json=body)
     server.should_exit = True
     await serving
