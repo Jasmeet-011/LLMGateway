@@ -1862,6 +1862,895 @@ First run: 2350 of 2351 passed. `test_each_rule_has_its_own_message` failed, fai
 - a connected client: three `attempt_failed` lines, one `fallback_taken`, then 200 with `provider_instance` `mock-secondary`;
 - a client that closed the socket right after sending: one `attempt_failed`, then the request line with `status=499`, with no second attempt and no `fallback_taken`.
 
+**Mutation checks (tester, Mode 2).** 823 mutations in three scratch clones at e002034, none left applied: 354 behavioral, 441 leak mutants in the catalog from the start, then 28 added. The builder recounted the table and the raw records independently: 823 distinct IDs in both, 994 mutation records, 41 pristine control runs with 0 failed, no row unreverted, none hung. A limit now reports `hung` and never `caught`.
+
+| Result | Mutants |
+| --- | --- |
+| Caught on the first pass | 690 |
+| Survived the first pass, caught after a new test | 102 |
+| Caught only by the full suite at first, then by a new test | 2 (L329, L331) |
+| Added batches, all caught: 19 for the stub cases, 8 for the logger and D-064 | 27 |
+| Equivalent, rerun against the final tests and still surviving | 2 (K046, K083) |
+| Uncaught | 0 |
+| Hung | 0 |
+| **Total** | **823** |
+
+| File | Total | First pass | New test | Added batch | Equivalent |
+| --- | --- | --- | --- | --- | --- |
+| `router.py` | 202 | 187 | 4 | 11 | 0 |
+| `app.py` | 25 | 24 | 0 | 1 | 0 |
+| `providers/mock.py` | 66 | 62 | 0 | 2 | 2 |
+| `config.py` | 70 | 62 | 6 | 2 | 0 |
+| `schema.py` | 11 | 8 | 0 | 3 | 0 |
+| Leak mutants (several files) | 449 | 347 | 94 | 8 | 0 |
+
+Equivalents:
+- K046: `_fault_origin` is read only in `_current_rate`, which returns first when `fault` is None, so the only change is one more call to the clock, with its value discarded.
+- K083: `_current_rate` is called only from `complete`, which sets the origin first whenever `fault` is set, so the branch cannot be reached. The guard exists for mypy.
+
+No mutant exposed a defect in `src/`: every leak existed only under a mutation. `src/` has not changed since e002034.
+
+The 105 first-pass survivors were 103 real test gaps, 1 equivalent (K046) and 1 missing spec sentence (L438). The builder guessed the 62 sibling-logger survivors shared one cause, a capture too narrow. That was wrong; `caplog` sits on the root and the checks read every record. There were four causes:
+- 29: the logger level, below.
+- 22: no leak test covered the 499 path through the app.
+- 6: real adapter messages were checked only inside the `fallback_taken` line, not in everything written.
+- 5: nothing checked logs or streams at startup.
+
+The startup-message gap was separate: 8 mutants echoed a value only at a later entry or with several entries, because every no-echo test sat at position 1. L437 and L440 reached the message directly. Other real gaps: R073, R077, R124, R235, C009, C010, C011, C017, C019, C034, and L131, L132, L135, L136. C009 and C011 stop startup either way but name the wrong rule, which D-064 forbids; the tester first called them equivalent and corrected that.
+
+**All 153 stub cases have now failed under a mutant.** 134 did in the first pass. The other 19 each got a targeted mutant (R260 to R270, S009 to S011, A025, K080, K081, C090, C091), and all 19 tests stay.
+
+**Logger level: a blind spot older than M11.** `main.py` sets the `llmgateway` logger to INFO on import, only if it has no handler, and that level outlives the test that first imported it. `caplog.set_level(logging.DEBUG)` sets the root, which then no longer reaches `llmgateway.*`, so any DEBUG leak on the gateway's loggers passes unseen in every test after that import. 137 such calls sit in six test files. Fixed once in `tests/conftest.py`: a `NullHandler` added at load, so `main.py`'s branch never sets the level in-process, wherever `main` is first imported. A fixture could not do this, because a first import inside a test comes after it. Subprocess tests do not load `conftest.py`, so real startup is unchanged, and `test_a_real_startup_still_sets_the_gateway_logger_to_info_with_its_handler` pins that.
+
+Measured, full suite in scratch clones, failing tests in each file (builder recounted from the `order_*.jsonl` records):
+
+| Mutant | Order | Before: `test_retries.py` | Before: `test_breaker.py` | After: `test_retries.py` | After: `test_breaker.py` |
+| --- | --- | --- | --- | --- | --- |
+| L442, DEBUG leak at each failed attempt | default | 0 | 37 | 2 | 37 |
+| L442 | reverse | 2 | 0 | 2 | 37 |
+| L442 | `test_main.py` first | 0 | 0 | 2 | 37 |
+| L443, DEBUG leak at each breaker change | default | 0 | 42 | 0 | 42 |
+| L443 | reverse | 0 | 0 | 0 | 42 |
+| L443 | `test_main.py` first | 0 | 0 | 0 | 42 |
+
+So `test_retries.py`'s leak checks were blind to DEBUG lines in normal order, and `test_breaker.py` was safe only because it sorts before `test_main.py`. `test_retries.py` does not guard L443's path, so its 0 there is not blindness. With no mutant, the final tests pass 2478 of 2478 in default order, reverse file order and `test_main.py` first; before the fix the same orders also passed, with 2442, which is why nothing showed it. With the `conftest.py` line removed, exactly 3 tests fail, the new pins in `tests/test_main.py`, in both orders run.
+
+**L438 closed with a spec sentence.** It logged an accepted value, which D-064 did not forbid. It would not have been a leak: the grammar lets through only instance names and numbers, which `fault_injection_on` already writes. D-064 now says that line is the only thing the variable writes, and that `parse_faults` logs nothing at any level. Tests assert it for accepted, refused and unset values; L438 and L444 to L449 are caught.
+
+**The 59 weaker catches.** 59 leak mutants had first failed only through exact-line or response-equality tests, the pattern M10 warned about. Rerun against the final tests, all 59 are caught by a leak-purpose test: 51 by a test named `leak` or `echo`, and 8 by `test_a_startup_error..._writes_no_value_to_any_logger_or_stream`. The builder's list of IDs and the tester's matched both ways.
+
+**New tests.** `tests/test_fallback.py` 195 functions, 446 cases; `tests/test_faults.py` 104 and 350; `tests/test_main.py` 29 and 51. No test function removed, and no skip or xfail added. The 10 removed lines (`git diff`) are the old forms of strengthened lines, docstrings and an import.
+
+`.\scripts\check.ps1` with these tests: PASS, 2478 passed, 5 deselected in 34.49 s; `ruff check` all checks passed; 39 files already formatted; mypy no issues in 30 source files.
+
+M11 mutation table. Rows L442 and L443 count the targeted M11 files only; the logger table above has the full-suite counts.
+
+| ID | Mutation | File | Test that failed (n) | Reverted |
+| --- | --- | --- | --- | --- |
+| R001 | reserve default 30 -> 20 | router.py | test_fallback_reserve_defaults_to_30_seconds (14) | yes |
+| R002 | reserve default 30 -> 31 | router.py | test_fallback_reserve_defaults_to_30_seconds (9) | yes |
+| R003 | reserve default 30 -> 0 | router.py | test_fallback_reserve_defaults_to_30_seconds (14) | yes |
+| R004 | reserve must be above 0 | router.py | test_fallback_reserve_accepts_any_finite_number_from_zero[zero_int] (3) | yes |
+| R005 | reserve not validated | router.py | test_fallback_reserve_rejects_each_bad_value[negative] (9) | yes |
+| R006 | reserve at or above total_timeout rejected | router.py | test_fallback_reserve_accepts_any_finite_number_from_zero[equal_to_total] (8) | yes |
+| R007 | reserve above total_timeout rejected | router.py | test_fallback_reserve_accepts_any_finite_number_from_zero[above_total] (4) | yes |
+| R008 | reserve: bool accepted | router.py | test_fallback_reserve_rejects_each_bad_value[true] (2) | yes |
+| R009 | reserve: inf accepted | router.py | test_fallback_reserve_rejects_each_bad_value[inf] (1) | yes |
+| R010 | reserve: nan accepted | router.py | test_fallback_reserve_rejects_each_bad_value[nan] (1) | yes |
+| R011 | reserve: negative accepted | router.py | test_fallback_reserve_rejects_each_bad_value[negative] (3) | yes |
+| R012 | reserve: string accepted | router.py | test_fallback_reserve_rejects_each_bad_value[string] (1) | yes |
+| R013 | reserve: None accepted | router.py | test_fallback_reserve_rejects_each_bad_value[none] (1) | yes |
+| R020 | Served not frozen | router.py | test_served_is_a_frozen_dataclass_of_route_and_result (1) | yes |
+| R021 | Served fields in the other order | router.py | test_served_is_a_frozen_dataclass_of_route_and_result (1) | yes |
+| R022 | Served has a third field | router.py | test_served_is_a_frozen_dataclass_of_route_and_result (1) | yes |
+| R023 | Served is a plain class | router.py | test_served_is_a_frozen_dataclass_of_route_and_result (1) | yes |
+| R030 | ClientDisconnected is a ProviderError | router.py | test_client_disconnected_is_an_exception_and_not_a_provider_error (1) | yes |
+| R031 | ClientDisconnected is a ProviderUnavailable, so it moves on | router.py | test_client_disconnected_is_an_exception_and_not_a_provider_error (1) | yes |
+| R032 | ClientDisconnected is a BaseException | router.py | test_client_disconnected_is_an_exception_and_not_a_provider_error (1) | yes |
+| R033 | ClientDisconnected is a CancelledError | router.py | test_client_disconnected_is_an_exception_and_not_a_provider_error (1) | yes |
+| R040 | falls_back: ProviderTimeout removed | router.py | test_proof_inject_failures_on_one_provider_and_the_other_serves[timeout] (27) | yes |
+| R041 | falls_back: ProviderUnavailable removed | router.py | test_proof_inject_failures_on_one_provider_and_the_other_serves[unavailable] (147) | yes |
+| R042 | falls_back: ProviderRateLimited removed | router.py | test_proof_inject_failures_on_one_provider_and_the_other_serves[rate_limited] (43) | yes |
+| R043 | falls_back: ProviderAuthError removed | router.py | test_proof_inject_failures_on_one_provider_and_the_other_serves[auth] (38) | yes |
+| R044 | falls_back: ProviderCircuitOpen removed | router.py | test_proof_with_one_mock_at_100_percent_every_request_is_served_by_the_other (41) | yes |
+| R045 | falls_back: everything moves | router.py | test_falls_back_is_false_for_each_ending_row[bad_request_400] (43) | yes |
+| R046 | falls_back: nothing moves | router.py | test_proof_inject_failures_on_one_provider_and_the_other_serves[timeout] (276) | yes |
+| R047 | falls_back: by the retryable flag | router.py | test_proof_inject_failures_on_one_provider_and_the_other_serves[auth] (50) | yes |
+| R048 | falls_back: exact class, subclasses end the request | router.py | test_falls_back_is_true_for_each_moving_row[timeout_subclass] (18) | yes |
+| R049 | falls_back: negated | router.py | test_proof_inject_failures_on_one_provider_and_the_other_serves[timeout] (311) | yes |
+| R050 | falls_back: bad requests move too | router.py | test_falls_back_is_false_for_each_ending_row[bad_request_400] (24) | yes |
+| R051 | falls_back: any ProviderError moves | router.py | test_falls_back_is_false_for_each_ending_row[bad_request_400] (43) | yes |
+| R052 | falls_back: retryable subclasses move too | router.py | test_falls_back_is_false_for_each_ending_row[other_subclass_retryable] (11) | yes |
+| R053 | falls_back: a billed 2xx does not move | router.py | test_falls_back_is_true_for_each_moving_row[billed_malformed_2xx] (11) | yes |
+| R054 | falls_back: 402 does not move | router.py | test_falls_back_is_true_for_each_moving_row[402_billing] (9) | yes |
+| R055 | falls_back: a Gemini invalid key does not move | router.py | test_falls_back_is_true_for_each_moving_row[gemini_invalid_key] (7) | yes |
+| R056 | falls_back: a rate limit over the cap does not move | router.py | test_falls_back_is_true_for_each_moving_row[rate_limited_over_the_cap] (7) | yes |
+| R057 | falls_back: only retryable errors move | router.py | test_proof_inject_failures_on_one_provider_and_the_other_serves[auth] (39) | yes |
+| R058 | falls_back: local_check moves | router.py | test_falls_back_is_false_for_each_ending_row[local_check] (6) | yes |
+| R059 | falls_back: a blocked prompt moves | router.py | test_falls_back_is_false_for_each_ending_row[blocked_prompt] (5) | yes |
+| R060 | falls_back: by status 5xx only | router.py | test_proof_inject_failures_on_one_provider_and_the_other_serves[timeout] (198) | yes |
+| R061 | falls_back: a 408 does not move | router.py | test_falls_back_is_true_for_each_moving_row[unavailable_408] (4) | yes |
+| R062 | falls_back: auth without a status does not move | router.py | test_proof_inject_failures_on_one_provider_and_the_other_serves[auth] (5) | yes |
+| R063 | falls_back: 401 and 403 do not move | router.py | test_falls_back_is_true_for_each_moving_row[auth_401] (16) | yes |
+| R064 | falls_back: reason attempt_timeout does not move | router.py | test_falls_back_is_true_for_each_moving_row[attempt_timeout] (12) | yes |
+| R065 | falls_back: a refusal with a retry-after does not move | router.py | test_proof_with_one_mock_at_100_percent_every_request_is_served_by_the_other (37) | yes |
+| R070 | None sorts first (0) | router.py | test_all_refused_prefers_a_real_retry_after_to_none[first_entry_has_none] (2) | yes |
+| R071 | None sorts first (-inf) | router.py | test_all_refused_prefers_a_real_retry_after_to_none[first_entry_has_none] (2) | yes |
+| R072 | order negated, largest wins | router.py | test_all_refused_gives_the_refusal_with_the_smallest_retry_after[smaller_on_the_first_entry] (7) | yes |
+| R073 | None sorts at a finite 1e9 | router.py | survived; new test: test_a_real_retry_after_beats_none_however_long_it_is (1) | yes |
+| R074 | largest retry-after chosen | router.py | test_all_refused_gives_the_refusal_with_the_smallest_retry_after[smaller_on_the_first_entry] (9) | yes |
+| R075 | first refusal chosen | router.py | test_all_refused_gives_the_refusal_with_the_smallest_retry_after[smaller_on_the_last_entry] (7) | yes |
+| R076 | last refusal chosen | router.py | test_all_refused_gives_the_refusal_with_the_smallest_retry_after[smaller_on_the_first_entry] (3) | yes |
+| R077 | a new refusal is built, not the entry's own | router.py | survived; new test: test_all_refused_raises_the_entrys_own_refusal_and_builds_no_other[smaller_on_the_first_entry] (3) | yes |
+| R078 | the refusal loses its retry-after | router.py | test_all_refused_gives_the_refusal_with_the_smallest_retry_after[smaller_on_the_first_entry] (13) | yes |
+| R080 | unknown alias falls to the first alias | router.py | test_serve_with_an_unknown_alias_raises_unknown_alias_and_calls_nothing[not-an-alias] (3) | yes |
+| R081 | only the first entry is used | router.py | test_proof_inject_failures_on_one_provider_and_the_other_serves[timeout] (248) | yes |
+| R082 | entries tried in reverse | router.py | test_proof_the_response_says_which_provider_served_with_two_mocks_on_one_model_string[healthy] (228) | yes |
+| R083 | deadline is attempt_timeout from the start | router.py | test_a_hung_first_entry_stops_at_60_s_and_the_next_entry_has_30_s (20) | yes |
+| R084 | deadline from the real clock | router.py | test_a_hung_first_entry_stops_at_60_s_and_the_next_entry_has_30_s (24) | yes |
+| R085 | deadline doubled per the number of entries | router.py | test_a_hung_first_entry_stops_at_60_s_and_the_next_entry_has_30_s (24) | yes |
+| R090 | no entry is last | router.py | test_a_hung_first_entry_stops_at_60_s_and_the_next_entry_has_30_s (23) | yes |
+| R091 | the first entry is last | router.py | test_a_hung_first_entry_stops_at_60_s_and_the_next_entry_has_30_s (23) | yes |
+| R092 | every entry after the first is last | router.py | test_the_last_entry_runs_to_the_deadline_with_no_reserve (8) | yes |
+| R093 | every entry is last: no reserve | router.py | test_a_hung_first_entry_stops_at_60_s_and_the_next_entry_has_30_s (21) | yes |
+| R094 | no reserve (limit is the deadline) | router.py | test_a_hung_first_entry_stops_at_60_s_and_the_next_entry_has_30_s (21) | yes |
+| R095 | reserve on the last entry too | router.py | test_a_hung_first_entry_stops_at_60_s_and_the_next_entry_has_30_s (23) | yes |
+| R096 | reserve added, not held back | router.py | test_a_hung_first_entry_stops_at_60_s_and_the_next_entry_has_30_s (21) | yes |
+| R097 | reserve halved | router.py | test_a_hung_first_entry_stops_at_60_s_and_the_next_entry_has_30_s (21) | yes |
+| R098 | reserve read as attempt_timeout | router.py | test_a_hung_first_entry_stops_at_60_s_and_the_next_entry_has_30_s (17) | yes |
+| R099 | reserve read as total minus attempt | router.py | test_with_a_smaller_reserve_the_first_entry_retries_up_to_its_limit (9) | yes |
+| R100 | reserve grows with entries left | router.py | test_a_hung_first_entry_of_three_also_uses_up_the_second_and_the_third_has_30_s (1) | yes |
+| R101 | fresh deadline per entry | router.py | test_a_hung_first_entry_stops_at_60_s_and_the_next_entry_has_30_s (11) | yes |
+| R110 | no skip | router.py | test_an_entry_whose_limit_has_passed_is_skipped (12) | yes |
+| R111 | skip only when past, not at, the limit | router.py | test_an_entry_at_exactly_its_limit_is_skipped_with_no_check_and_no_line (6) | yes |
+| R112 | skip stops the whole request (break) | router.py | test_an_entry_whose_limit_has_passed_is_skipped (10) | yes |
+| R113 | skip judged against the deadline only | router.py | test_an_entry_whose_limit_has_passed_is_skipped (10) | yes |
+| R114 | skip one second early | router.py | test_an_entry_just_before_its_limit_is_still_tried (1) | yes |
+| R115 | skip does not apply to the last entry | router.py | test_every_entry_past_its_limit_gives_the_last_failure_with_no_move (2) | yes |
+| R116 | skip does not apply to the first entry | router.py | test_a_reserve_at_or_above_the_total_skips_the_non_last_entries_with_nothing_tried[equal_to_total] (6) | yes |
+| R117 | a skip writes a line | router.py | test_an_entry_whose_limit_has_passed_is_skipped (12) | yes |
+| R118 | a skip writes a debug line on the router logger | router.py | test_an_entry_whose_limit_has_passed_is_skipped (11) | yes |
+| R119 | a skip takes a breaker check | router.py | test_a_skipped_entry_gets_no_breaker_check_and_writes_nothing (4) | yes |
+| R120 | a skip asks the client | router.py | test_every_entry_past_its_limit_gives_the_last_failure_with_no_move (9) | yes |
+| R121 | a skip becomes the from of the next move | router.py | test_an_entry_whose_limit_has_passed_is_skipped (4) | yes |
+| R122 | a skip clears the from, so no line at the next move | router.py | test_an_entry_whose_limit_has_passed_is_skipped (3) | yes |
+| R123 | a skip with nothing tried counts as a refusal-like from | router.py | test_a_reserve_at_or_above_the_total_skips_the_non_last_entries_with_nothing_tried[equal_to_total] (6) | yes |
+| R124 | a skip is recorded as a refusal | router.py | survived; new test: test_a_skipped_entry_is_not_a_refusal (1) | yes |
+| R125 | skip before the client check swapped: check first | router.py | test_every_entry_past_its_limit_gives_the_last_failure_with_no_move (3) | yes |
+| R130 | no client check on a move | router.py | test_proof_a_client_that_leaves_after_a_failed_attempt_gets_no_fallback (21) | yes |
+| R131 | the line before the client check | router.py | test_an_entry_at_exactly_its_limit_is_skipped_with_no_check_and_no_line (11) | yes |
+| R132 | client check negated on a move | router.py | test_proof_inject_failures_on_one_provider_and_the_other_serves[timeout] (62) | yes |
+| R133 | client asked but the answer ignored on a move | router.py | test_proof_a_client_that_leaves_after_a_failed_attempt_gets_no_fallback (11) | yes |
+| R134 | no check on a move after a refusal | router.py | test_a_move_on_from_a_refusal_checks_the_client_before_the_line (6) | yes |
+| R135 | no check on a move after a real failure | router.py | test_proof_a_client_that_leaves_after_a_failed_attempt_gets_no_fallback (16) | yes |
+| R136 | no line on a move after a refusal | router.py | test_all_refused_writes_the_moves_and_no_attempt_line (8) | yes |
+| R137 | no line on a move at all | router.py | test_each_moving_error_gives_the_request_to_the_next_entry[timeout] (118) | yes |
+| R138 | the line written twice | router.py | test_each_moving_error_gives_the_request_to_the_next_entry[timeout] (118) | yes |
+| R139 | a client gone on a move raises the last failure | router.py | test_proof_a_client_that_leaves_after_a_failed_attempt_gets_no_fallback (10) | yes |
+| R140 | a client gone on a move skips the entry | router.py | test_proof_a_client_that_leaves_after_a_failed_attempt_gets_no_fallback (10) | yes |
+| R141 | from and to swapped at the call | router.py | test_each_moving_error_gives_the_request_to_the_next_entry[timeout] (57) | yes |
+| R142 | no request id on the line | router.py | test_app_passes_its_request_id_to_the_router_lines (4) | yes |
+| R143 | the client asked twice on a move | router.py | test_an_entry_at_exactly_its_limit_is_skipped_with_no_check_and_no_line (11) | yes |
+| R144 | a wait on a move | router.py | test_moving_to_the_next_entry_makes_no_wait (10) | yes |
+| R145 | a client check before the first entry tried | router.py | test_proof_a_client_that_leaves_after_a_failed_attempt_gets_no_further_retry (38) | yes |
+| R146 | a client check on the first entry tried after a skip | router.py | test_a_reserve_at_or_above_the_total_skips_the_non_last_entries_with_nothing_tried[equal_to_total] (6) | yes |
+| R147 | the client is checked only on the first move | router.py | test_an_entry_at_exactly_its_limit_is_skipped_with_no_check_and_no_line (4) | yes |
+| R150 | the request id does not reach complete | router.py | test_app_passes_its_request_id_to_the_router_lines (2) | yes |
+| R151 | is_disconnected does not reach complete | router.py | test_proof_a_client_that_leaves_after_a_failed_attempt_gets_no_further_retry (12) | yes |
+| R152 | complete gets the deadline, not the limit | router.py | test_a_hung_first_entry_stops_at_60_s_and_the_next_entry_has_30_s (12) | yes |
+| R153 | complete gets no deadline | router.py | test_a_hung_first_entry_stops_at_60_s_and_the_next_entry_has_30_s (12) | yes |
+| R160 | falls_back negated in serve | router.py | test_proof_inject_failures_on_one_provider_and_the_other_serves[timeout] (263) | yes |
+| R161 | an ending error replaced by the earlier failure | router.py | test_an_ending_error_on_a_later_entry_ends_the_request_there[bad_request_400] (10) | yes |
+| R162 | an ending error is held, the next entry tried | router.py | test_each_ending_error_reaches_the_client_as_the_same_object[bad_request_400] (21) | yes |
+| R163 | from stays the first entry | router.py | test_from_is_the_last_entry_tried_including_one_that_refused (2) | yes |
+| R164 | from skips a refusing entry | router.py | test_from_is_the_last_entry_tried_including_one_that_refused (1) | yes |
+| R165 | a refusal keeps the error of the failure before it | router.py | test_from_is_the_last_entry_tried_including_one_that_refused (2) | yes |
+| R166 | a refusal counts as a failure | router.py | test_a_refusal_never_replaces_a_real_failure (13) | yes |
+| R167 | first failure wins | router.py | test_a_billed_malformed_2xx_costs_at_most_one_extra_charge_per_entry (13) | yes |
+| R168 | a failure also counts as a refusal | router.py | test_a_neutral_failure_is_still_a_real_failure_against_a_refusal[rate_limited_over_the_cap] (4) | yes |
+| R169 | a bug moves on | router.py | test_a_bug_or_a_cancellation_propagates_at_once_with_no_line_and_no_next_entry[runtime_error] (13) | yes |
+| R170 | a cancellation moves on | router.py | test_a_bug_or_a_cancellation_propagates_at_once_with_no_line_and_no_next_entry[cancelled] (7) | yes |
+| R171 | a client disconnect moves on | router.py | test_proof_a_client_that_leaves_after_a_failed_attempt_gets_no_further_retry (6) | yes |
+| R172 | the refusal on the last entry replaces the failure | router.py | test_a_refusal_never_replaces_a_real_failure (13) | yes |
+| R173 | a refusal stops the alias | router.py | test_proof_with_one_mock_at_100_percent_every_request_is_served_by_the_other (38) | yes |
+| R174 | Served reports the first entry | router.py | test_proof_inject_failures_on_one_provider_and_the_other_serves[timeout] (77) | yes |
+| R175 | an empty max_tokens answer moves on | router.py | test_an_empty_max_tokens_answer_is_a_success_and_does_not_move (3) | yes |
+| R176 | a client gone after the answer stops the request | router.py | test_an_entry_at_exactly_its_limit_is_skipped_with_no_check_and_no_line (15) | yes |
+| R177 | a refusal after a failure wins | router.py | test_a_refusal_never_replaces_a_real_failure (12) | yes |
+| R178 | the failure is wrapped in a new object | router.py | test_a_billed_malformed_2xx_costs_at_most_one_extra_charge_per_entry (18) | yes |
+| R180 | complete ignores the given deadline | router.py | test_a_hung_first_entry_stops_at_60_s_and_the_next_entry_has_30_s (14) | yes |
+| R181 | complete without a deadline keeps a reserve | router.py | test_complete_without_a_deadline_has_total_timeout_and_no_reserve (1) | yes |
+| R182 | complete takes off the reserve from a given deadline | router.py | test_a_hung_first_entry_stops_at_60_s_and_the_next_entry_has_30_s (15) | yes |
+| R183 | deadline read as seconds from now | router.py | test_a_hung_first_entry_stops_at_60_s_and_the_next_entry_has_30_s (17) | yes |
+| R190 | no client check on a retry | router.py | test_proof_a_client_that_leaves_after_a_failed_attempt_gets_no_further_retry (13) | yes |
+| R191 | the check before the wait | router.py | test_the_retry_check_comes_after_the_wait_and_before_the_breaker (5) | yes |
+| R192 | check negated on a retry | router.py | test_proof_inject_failures_on_one_provider_and_the_other_serves[timeout] (23) | yes |
+| R193 | client asked but the answer ignored on a retry | router.py | test_proof_a_client_that_leaves_after_a_failed_attempt_gets_no_further_retry (7) | yes |
+| R194 | a client gone on a retry raises the failure | router.py | test_a_client_that_leaves_during_the_wait_is_caught_after_it (5) | yes |
+| R195 | the check only after a wait above 0 | router.py | test_the_retry_check_also_runs_after_a_wait_of_zero (1) | yes |
+| R196 | the check only before the first retry | router.py | test_the_client_is_checked_once_per_retry_and_once_per_move (2) | yes |
+| R197 | the client asked twice on a retry | router.py | test_the_retry_check_comes_after_the_wait_and_before_the_breaker (6) | yes |
+| R198 | the check after the breaker: a dead client takes the probe | router.py | test_the_retry_check_comes_after_the_wait_and_before_the_breaker (4) | yes |
+| R199 | the check before the first attempt too | router.py | test_proof_a_client_that_leaves_after_a_failed_attempt_gets_no_further_retry (41) | yes |
+| R200 | a client gone after a success loses the answer | router.py | test_an_entry_at_exactly_its_limit_is_skipped_with_no_check_and_no_line (16) | yes |
+| R201 | the check before the attempt line: a stop hides the failure | router.py | test_every_entry_past_its_limit_gives_the_last_failure_with_no_move (23) | yes |
+| R202 | a stop writes a second attempt line | router.py | test_a_client_gone_after_the_wait_stops_with_no_breaker_check_and_no_call (2) | yes |
+| R203 | a stop rewrites retry=yes as no before the wait | router.py | test_the_retry_check_comes_after_the_wait_and_before_the_breaker (5) | yes |
+| R204 | a failure is not reported to the breaker when the client left | router.py | test_every_entry_past_its_limit_gives_the_last_failure_with_no_move (28) | yes |
+| R205 | the attempt timer ignores the limit | router.py | test_a_hung_first_entry_stops_at_60_s_and_the_next_entry_has_30_s (10) | yes |
+| R206 | no retry check against the limit | router.py | test_a_hung_first_entry_stops_at_60_s_and_the_next_entry_has_30_s (16) | yes |
+| R207 | a wait that reaches the limit is allowed | router.py | test_with_a_smaller_reserve_the_first_entry_retries_up_to_its_limit (9) | yes |
+| R210 | line renamed | router.py | test_each_moving_error_gives_the_request_to_the_next_entry[timeout] (118) | yes |
+| R211 | alias without repr | router.py | test_each_moving_error_gives_the_request_to_the_next_entry[timeout] (57) | yes |
+| R212 | from_model without repr | router.py | test_each_moving_error_gives_the_request_to_the_next_entry[timeout] (57) | yes |
+| R213 | to_model without repr | router.py | test_each_moving_error_gives_the_request_to_the_next_entry[timeout] (57) | yes |
+| R214 | reason field dropped | router.py | test_each_moving_error_gives_the_request_to_the_next_entry[timeout] (57) | yes |
+| R215 | reason None printed as None | router.py | test_each_moving_error_gives_the_request_to_the_next_entry[unavailable_without_a_reason] (6) | yes |
+| R216 | the class of the error is its parent's name | router.py | test_each_moving_error_gives_the_request_to_the_next_entry[timeout] (57) | yes |
+| R217 | reason and error swapped | router.py | test_each_moving_error_gives_the_request_to_the_next_entry[timeout] (57) | yes |
+| R218 | line at info | router.py | test_an_entry_at_exactly_its_limit_is_skipped_with_no_check_and_no_line (6) | yes |
+| R219 | line at error | router.py | test_the_line_goes_to_the_router_logger_at_warning (1) | yes |
+| R220 | line on another logger | router.py | test_each_moving_error_gives_the_request_to_the_next_entry[timeout] (118) | yes |
+| R221 | request id None printed | router.py | test_each_moving_error_gives_the_request_to_the_next_entry[timeout] (53) | yes |
+| R222 | from carries the type, not the instance | router.py | test_each_moving_error_gives_the_request_to_the_next_entry[timeout] (57) | yes |
+| R223 | to carries the type, not the instance | router.py | test_each_moving_error_gives_the_request_to_the_next_entry[timeout] (57) | yes |
+| R224 | from_model is the to model | router.py | test_each_moving_error_gives_the_request_to_the_next_entry[timeout] (57) | yes |
+| R225 | to_model is the from model | router.py | test_each_moving_error_gives_the_request_to_the_next_entry[timeout] (57) | yes |
+| R230 | faults parsed before the keys | router.py | test_a_missing_key_is_reported_before_a_bad_window[blank-claude] (10) | yes |
+| R231 | faults not parsed | router.py | test_build_router_stops_on_each_bad_value_before_any_adapter_is_built[blank] (43) | yes |
+| R232 | faults read from os.environ | router.py | test_build_router_stops_on_each_bad_value_before_any_adapter_is_built[blank] (34) | yes |
+| R233 | an adapter built before the parse | router.py | test_build_router_stops_on_each_bad_value_before_any_adapter_is_built[blank] (7) | yes |
+| R234 | clock ignored | router.py | test_build_router_passes_its_clock_to_the_mock_instances (8) | yes |
+| R235 | default clock is wall time | router.py | survived; new test: test_build_router_without_a_clock_uses_the_monotonic_clock_and_not_wall_time (1) | yes |
+| R236 | the window does not reach the mock | router.py | test_build_router_gives_the_window_to_the_named_instance_only (16) | yes |
+| R237 | the clock does not reach the mock | router.py | test_build_router_passes_its_clock_to_the_mock_instances (8) | yes |
+| R238 | the first window goes to every mock | router.py | test_build_router_gives_the_window_to_the_named_instance_only (6) | yes |
+| R239 | the router does not get the clock | router.py | test_build_router_passes_its_clock_to_the_router (2) | yes |
+| R240 | no startup line | router.py | test_each_window_writes_its_exact_line_at_startup[measurement_8] (13) | yes |
+| R241 | startup line at info | router.py | test_the_startup_line_goes_to_the_router_logger_at_warning (1) | yes |
+| R242 | startup line on another logger | router.py | test_the_startup_line_goes_to_the_router_logger_at_warning (1) | yes |
+| R243 | duration None printed as None | router.py | test_each_window_writes_its_exact_line_at_startup[no_end_writes_a_dash] (3) | yes |
+| R244 | rate and start swapped | router.py | test_each_window_writes_its_exact_line_at_startup[measurement_8] (7) | yes |
+| R245 | line renamed | router.py | test_each_window_writes_its_exact_line_at_startup[measurement_8] (13) | yes |
+| R246 | numbers written as whole numbers | router.py | test_each_window_writes_its_exact_line_at_startup[measurement_8] (8) | yes |
+| R247 | a line for every mock instance | router.py | test_each_window_writes_its_exact_line_at_startup[measurement_8] (10) | yes |
+| R248 | the line written twice | router.py | test_each_window_writes_its_exact_line_at_startup[measurement_8] (12) | yes |
+| R249 | only the first window writes a line | router.py | test_each_instance_with_a_window_writes_one_line (2) | yes |
+| R250 | only windows with an end write a line | router.py | test_each_window_writes_its_exact_line_at_startup[no_end_writes_a_dash] (8) | yes |
+| R251 | only windows above rate 0 write a line | router.py | test_each_window_writes_its_exact_line_at_startup[rate_zero_is_still_a_window] (1) | yes |
+| A001 | the app passes no request id | app.py | test_app_passes_its_request_id_to_the_router_lines (2) | yes |
+| A002 | the app passes no client check | app.py | test_app_a_client_gone_before_a_retry_is_499_client_disconnected (4) | yes |
+| A003 | the app passes a check that always says connected | app.py | test_app_a_client_gone_before_a_retry_is_499_client_disconnected (4) | yes |
+| A004 | a disconnect is not mapped | app.py | test_app_a_client_gone_before_a_retry_is_499_client_disconnected (3) | yes |
+| A005 | 499 -> 503 | app.py | test_app_a_client_gone_before_a_retry_is_499_client_disconnected (3) | yes |
+| A006 | 499 -> 500 | app.py | test_app_a_client_gone_before_a_retry_is_499_client_disconnected (3) | yes |
+| A007 | wrong code | app.py | test_app_a_client_gone_before_a_retry_is_499_client_disconnected (3) | yes |
+| A008 | wrong message | app.py | test_app_a_client_gone_before_a_retry_is_499_client_disconnected (1) | yes |
+| A009 | a disconnect returns an empty answer | app.py | test_app_a_client_gone_before_a_retry_is_499_client_disconnected (3) | yes |
+| A010 | line provider stays on the first entry after a fallback | app.py | test_app_request_line_names_the_serving_entry_on_success (1) | yes |
+| A011 | line provider model stays on the first entry after a fallback | app.py | test_app_request_line_names_the_serving_entry_on_success (1) | yes |
+| A012 | line has no provider on failure | app.py | test_app_request_line_names_the_first_entry_on_failure[failure_on_the_last_entry] (7) | yes |
+| A013 | line has no provider model on failure | app.py | test_app_request_line_names_the_first_entry_on_failure[failure_on_the_last_entry] (5) | yes |
+| A014 | line names the last entry on failure | app.py | test_app_request_line_names_the_first_entry_on_failure[failure_on_the_last_entry] (6) | yes |
+| A015 | line state set after serve only | app.py | test_app_request_line_names_the_first_entry_on_failure[failure_on_the_last_entry] (7) | yes |
+| A016 | provider_instance is the first entry | app.py | test_proof_the_response_says_which_provider_served_with_two_mocks_on_one_model_string[failing] (13) | yes |
+| A017 | provider_instance is the type | app.py | test_proof_the_response_says_which_provider_served_with_two_mocks_on_one_model_string[healthy] (17) | yes |
+| A018 | provider_instance is the model | app.py | test_proof_the_response_says_which_provider_served_with_two_mocks_on_one_model_string[healthy] (17) | yes |
+| A019 | model is the first entry | app.py | test_proof_inject_failures_on_one_provider_and_the_other_serves[timeout] (6) | yes |
+| A020 | provider is the first entry | app.py | test_app_the_response_reports_the_entry_that_served_after_a_fallback (2) | yes |
+| A021 | provider is the instance | app.py | test_proof_inject_failures_on_one_provider_and_the_other_serves[timeout] (28) | yes |
+| A022 | serve gets the first entry's model in the body | app.py | test_proof_inject_failures_on_one_provider_and_the_other_serves[timeout] (54) | yes |
+| A023 | a provider error at the app becomes a 499 | app.py | test_app_all_refused_is_503_with_the_smallest_retry_after_rounded_up[whole] (19) | yes |
+| A024 | the app polls the client itself before serve | app.py | test_app_a_client_gone_before_the_first_entry_is_tried_is_not_checked (1) | yes |
+| K001 | FaultWindow not frozen | mock.py | test_fault_window_is_a_frozen_dataclass_of_rate_start_and_duration (1) | yes |
+| K002 | start defaults to 1 | mock.py | test_fault_window_defaults_to_no_delay_and_no_end (14) | yes |
+| K003 | duration defaults to 1 | mock.py | test_fault_window_defaults_to_no_delay_and_no_end (5) | yes |
+| K004 | start and duration swapped in the fields | mock.py | test_fault_window_is_a_frozen_dataclass_of_rate_start_and_duration (68) | yes |
+| K005 | rate: bool accepted | mock.py | test_fault_window_rejects_each_bad_value[rate_true] (2) | yes |
+| K006 | rate: above 1 accepted | mock.py | test_fault_window_rejects_each_bad_value[rate_above_one] (15) | yes |
+| K007 | rate: below 0 accepted | mock.py | test_fault_window_rejects_each_bad_value[rate_below_zero] (1) | yes |
+| K008 | rate: nan accepted | mock.py | test_fault_window_rejects_each_bad_value[rate_nan] (1) | yes |
+| K009 | rate: 1 rejected | mock.py | test_fault_window_keeps_the_given_values_in_order (78) | yes |
+| K010 | rate: 0 rejected | mock.py | test_fault_window_accepts_the_boundary_values[zero_int] (8) | yes |
+| K011 | start: bool accepted | mock.py | test_fault_window_rejects_each_bad_value[start_true] (1) | yes |
+| K012 | start: inf accepted | mock.py | test_fault_window_rejects_each_bad_value[start_inf] (3) | yes |
+| K013 | start: nan accepted | mock.py | test_fault_window_rejects_each_bad_value[start_nan] (1) | yes |
+| K014 | start: negative accepted | mock.py | test_fault_window_rejects_each_bad_value[start_negative] (2) | yes |
+| K015 | start: 0 rejected | mock.py | test_fault_window_is_a_frozen_dataclass_of_rate_start_and_duration (64) | yes |
+| K016 | start: not a number accepted | mock.py | test_fault_window_rejects_each_bad_value[start_true] (3) | yes |
+| K017 | duration: bool accepted | mock.py | test_fault_window_rejects_each_bad_value[duration_true] (1) | yes |
+| K018 | duration: inf accepted | mock.py | test_fault_window_rejects_each_bad_value[duration_inf] (2) | yes |
+| K019 | duration: nan accepted | mock.py | test_fault_window_rejects_each_bad_value[duration_nan] (1) | yes |
+| K020 | duration: 0 accepted | mock.py | test_fault_window_rejects_each_bad_value[duration_zero_int] (14) | yes |
+| K021 | duration: negative accepted | mock.py | test_fault_window_rejects_each_bad_value[duration_negative] (1) | yes |
+| K022 | duration: not a number accepted | mock.py | test_fault_window_rejects_each_bad_value[duration_true] (2) | yes |
+| K030 | start exclusive | mock.py | test_a_mock_with_a_window_needs_no_injected_clock (35) | yes |
+| K031 | end inclusive | mock.py | test_the_window_runs_from_its_start_up_to_but_not_including_its_end[exactly_the_end_is_outside] (8) | yes |
+| K032 | end ignores start | mock.py | test_the_origin_is_the_first_call_and_not_when_the_mock_was_built (16) | yes |
+| K033 | no duration ignores start | mock.py | test_a_window_with_no_duration_still_waits_for_its_start_and_then_has_no_end[just_before_the_start] (3) | yes |
+| K034 | no duration means never | mock.py | test_a_mock_with_a_window_needs_no_injected_clock (21) | yes |
+| K035 | start ignored | mock.py | test_the_origin_is_the_first_call_and_not_when_the_mock_was_built (23) | yes |
+| K036 | end ignored | mock.py | test_the_window_runs_from_its_start_up_to_but_not_including_its_end[exactly_the_end_is_outside] (11) | yes |
+| K037 | always active | mock.py | test_the_origin_is_the_first_call_and_not_when_the_mock_was_built (26) | yes |
+| K038 | never active | mock.py | test_a_mock_with_a_window_needs_no_injected_clock (41) | yes |
+| K040 | origin moves each call | mock.py | test_the_origin_is_the_first_call_and_not_when_the_mock_was_built (19) | yes |
+| K041 | origin after the latency | mock.py | test_the_origin_is_taken_before_the_latency_and_the_roll_after_it (4) | yes |
+| K042 | origin at build | mock.py | test_the_origin_is_the_first_call_and_not_when_the_mock_was_built (3) | yes |
+| K043 | origin never set | mock.py | test_a_mock_with_a_window_needs_no_injected_clock (41) | yes |
+| K044 | origin reset on a failed call | mock.py | test_later_calls_do_not_move_the_origin (8) | yes |
+| K045 | origin from the real clock | mock.py | test_a_window_with_no_times_applies_from_the_first_call_on (37) | yes |
+| K046 | origin read every call without a window too | mock.py | none: equivalent | yes |
+| K050 | rate read before the latency | mock.py | test_the_origin_is_taken_before_the_latency_and_the_roll_after_it (3) | yes |
+| K051 | a second roll inside the window | mock.py | test_inside_the_window_the_roll_uses_the_window_rate_on_the_same_sequence (4) | yes |
+| K052 | no roll at rate 0 | mock.py | test_a_call_outside_the_window_rolls_even_when_the_configured_rate_is_zero (1) | yes |
+| K053 | no roll at rate 1 | mock.py | test_a_window_does_not_shift_which_later_calls_fail_by_chance (1) | yes |
+| K054 | a window roll on its own generator | mock.py | test_inside_the_window_the_roll_uses_the_window_rate_on_the_same_sequence (4) | yes |
+| K055 | two rolls, either fails | mock.py | test_inside_the_window_the_roll_uses_the_window_rate_on_the_same_sequence (6) | yes |
+| K056 | a window failure skips the latency | mock.py | test_a_first_call_whose_latency_outlasts_the_window_rolls_outside_it (3) | yes |
+| K057 | the window failure is always unavailable | mock.py | test_a_window_failure_is_the_instances_own_type_with_reason_injected[timeout] (5) | yes |
+| K058 | the window failure has a status | mock.py | test_a_window_failure_is_the_instances_own_type_with_reason_injected[timeout] (7) | yes |
+| K059 | the window failure has another reason | mock.py | test_a_window_failure_is_the_instances_own_type_with_reason_injected[timeout] (7) | yes |
+| K060 | window rate replaces the max | mock.py | test_inside_the_window_the_rate_is_the_larger_of_the_two[config_higher] (3) | yes |
+| K061 | min of the rates | mock.py | test_a_mock_with_a_window_needs_no_injected_clock (44) | yes |
+| K062 | the rates added | mock.py | test_inside_the_window_the_rate_is_the_larger_of_the_two[window_higher] (2) | yes |
+| K063 | inside the window the configured rate | mock.py | test_a_mock_with_a_window_needs_no_injected_clock (41) | yes |
+| K064 | outside the window the window rate | mock.py | test_the_origin_is_the_first_call_and_not_when_the_mock_was_built (26) | yes |
+| K065 | outside the window rate 0 | mock.py | test_outside_the_window_the_rate_is_the_configured_one (3) | yes |
+| K066 | activity negated | mock.py | test_a_mock_with_a_window_needs_no_injected_clock (49) | yes |
+| K067 | elapsed not relative to the origin | mock.py | test_the_origin_is_the_first_call_and_not_when_the_mock_was_built (14) | yes |
+| K068 | elapsed from the real clock | mock.py | test_the_origin_is_the_first_call_and_not_when_the_mock_was_built (23) | yes |
+| K069 | elapsed sign flipped | mock.py | test_a_window_with_no_times_applies_from_the_first_call_on (22) | yes |
+| K070 | fault default is a window | mock.py | test_mock_provider_takes_fault_and_clock_with_their_defaults (1) | yes |
+| K071 | clock default is wall time | mock.py | test_mock_provider_takes_fault_and_clock_with_their_defaults (1) | yes |
+| K072 | the window is not kept | mock.py | test_a_mock_with_a_window_needs_no_injected_clock (41) | yes |
+| K073 | the clock is not kept | mock.py | test_the_origin_is_the_first_call_and_not_when_the_mock_was_built (22) | yes |
+| K074 | window active at elapsed 0 only after one call | mock.py | test_the_window_runs_from_its_start_up_to_but_not_including_its_end[just_before_the_start] (10) | yes |
+| C001 | numbers: no decimals | config.py | test_each_valid_entry_gives_its_window[rate_zero_decimal] (39) | yes |
+| C002 | numbers: unicode digits | config.py | test_a_digit_that_is_not_ascii_stops[arabic_indic_rate] (7) | yes |
+| C003 | numbers: unicode digits after the point only | config.py | test_a_digit_that_is_not_ascii_stops[non_ascii_after_the_point] (1) | yes |
+| C004 | numbers: trailing point allowed | config.py | test_an_entry_that_does_not_match_the_grammar_stops[no_digit_after_the_point] (2) | yes |
+| C005 | numbers: leading point allowed | config.py | test_an_entry_that_does_not_match_the_grammar_stops[no_digit_before_the_point] (2) | yes |
+| C006 | numbers: a sign allowed | config.py | test_an_entry_that_does_not_match_the_grammar_stops[signed_rate] (1) | yes |
+| C007 | numbers: an exponent allowed | config.py | test_an_entry_that_does_not_match_the_grammar_stops[exponent] (4) | yes |
+| C008 | numbers: the point is any character | config.py | test_an_entry_that_does_not_match_the_grammar_stops[exponent] (4) | yes |
+| C009 | numbers: inf and nan allowed | config.py | survived; new test: test_an_entry_outside_the_grammar_is_told_so_and_not_some_other_rule[inf_rate] (6) | yes |
+| C010 | numbers: underscores allowed | config.py | survived; new test: test_an_entry_that_does_not_match_the_grammar_stops[underscore_in_the_rate] (3) | yes |
+| C011 | name: anything but = | config.py | survived; new test: test_an_entry_outside_the_grammar_is_told_so_and_not_some_other_rule[a_space_before_the_instance] (2) | yes |
+| C012 | name: lower case only | config.py | test_an_instance_name_may_use_every_character_the_config_allows (1) | yes |
+| C013 | name: no dots | config.py | test_an_instance_name_may_use_every_character_the_config_allows (1) | yes |
+| C014 | the plus is optional | config.py | test_an_entry_that_does_not_match_the_grammar_stops[start_without_duration] (2) | yes |
+| C015 | start without duration | config.py | test_an_entry_that_does_not_match_the_grammar_stops[start_without_duration] (1) | yes |
+| C016 | the at is required | config.py | test_each_valid_entry_gives_its_window[rate_zero] (38) | yes |
+| C017 | a plus or a minus between times | config.py | survived; new test: test_an_entry_that_does_not_match_the_grammar_stops[minus_between_the_times] (1) | yes |
+| C018 | spaces around the equals | config.py | test_an_entry_that_does_not_match_the_grammar_stops[spaces_around_the_equals] (2) | yes |
+| C019 | an at or a hash | config.py | survived; new test: test_an_entry_that_does_not_match_the_grammar_stops[hash_for_the_at] (1) | yes |
+| C030 | variable renamed | config.py | test_each_valid_entry_gives_its_window[rate_zero] (176) | yes |
+| C031 | blank means unset | config.py | test_set_but_blank_stops[empty] (9) | yes |
+| C032 | empty means unset, spaces stop | config.py | test_set_but_blank_stops[empty] (4) | yes |
+| C033 | no blank rule: only the entry rule | config.py | test_set_but_blank_has_its_own_message (1) | yes |
+| C034 | blank checks only for the empty string | config.py | survived; new test: test_a_value_of_only_whitespace_is_blank_and_not_a_bad_entry[ ] (5) | yes |
+| C035 | variable read from os.environ | config.py | test_parse_faults_reads_the_given_environ_only (168) | yes |
+| C036 | blank message without the variable | config.py | test_set_but_blank_stops[empty] (8) | yes |
+| C040 | match, not fullmatch | config.py | test_an_entry_that_does_not_match_the_grammar_stops[two_equals] (33) | yes |
+| C041 | search, not fullmatch | config.py | test_an_entry_that_does_not_match_the_grammar_stops[two_equals] (36) | yes |
+| C042 | entry stripped | config.py | test_an_entry_that_does_not_match_the_grammar_stops[leading_space] (7) | yes |
+| C043 | whole value stripped | config.py | test_an_entry_that_does_not_match_the_grammar_stops[leading_space] (5) | yes |
+| C044 | empty entries skipped | config.py | test_an_entry_that_does_not_match_the_grammar_stops[trailing_comma] (4) | yes |
+| C045 | position from 0 | config.py | test_digits_no_float_can_hold_stop_with_the_same_clean_message[start_overflows] (10) | yes |
+| C046 | position from 2 | config.py | test_digits_no_float_can_hold_stop_with_the_same_clean_message[start_overflows] (10) | yes |
+| C047 | position constant | config.py | test_digits_no_float_can_hold_stop_with_the_same_clean_message[start_overflows] (10) | yes |
+| C048 | position dropped | config.py | test_digits_no_float_can_hold_stop_with_the_same_clean_message[start_overflows] (10) | yes |
+| C049 | variable not named | config.py | test_an_entry_that_does_not_match_the_grammar_stops[no_rate] (106) | yes |
+| C050 | semicolons split too | config.py | test_an_entry_that_does_not_match_the_grammar_stops[wrong_entry_separator] (1) | yes |
+| C051 | only the first entry is read | config.py | test_several_entries_give_a_window_each (27) | yes |
+| C052 | only the last entry is read | config.py | test_several_entries_give_a_window_each (24) | yes |
+| C060 | unknown instance skipped | config.py | test_an_unknown_instance_stops[unknown] (13) | yes |
+| C061 | real provider allowed | config.py | test_a_real_provider_instance_stops[claude] (14) | yes |
+| C062 | real provider skipped | config.py | test_a_real_provider_instance_stops[claude] (14) | yes |
+| C063 | only claude rejected | config.py | test_a_real_provider_instance_stops[gemini] (4) | yes |
+| C064 | only gemini rejected | config.py | test_a_real_provider_instance_stops[claude] (10) | yes |
+| C065 | repeats allowed, last wins | config.py | test_a_repeated_instance_stops[identical] (7) | yes |
+| C066 | repeats allowed, first wins | config.py | test_a_repeated_instance_stops[identical] (8) | yes |
+| C067 | all the rules share one message | config.py | test_each_rule_has_its_own_message (2) | yes |
+| C068 | unknown and not mock share a message | config.py | test_each_rule_has_its_own_message (1) | yes |
+| C069 | repeat and unknown share a message | config.py | test_a_repeated_instance_has_its_own_message (1) | yes |
+| C070 | shape and unknown share a message | config.py | test_each_rule_has_its_own_message (1) | yes |
+| C071 | rate read as a percentage | config.py | test_each_valid_entry_gives_its_window[rate_one] (48) | yes |
+| C072 | start defaults to 1 | config.py | test_each_valid_entry_gives_its_window[rate_zero] (20) | yes |
+| C073 | duration ignored | config.py | test_each_valid_entry_gives_its_window[measurement_8] (33) | yes |
+| C074 | start ignored | config.py | test_each_valid_entry_gives_its_window[measurement_8] (21) | yes |
+| C075 | start and duration swapped | config.py | test_each_valid_entry_gives_its_window[measurement_8] (28) | yes |
+| C076 | numbers kept as written when whole | config.py | test_the_parsed_numbers_are_floats_whatever_was_written (8) | yes |
+| C077 | rate kept as an int when whole | config.py | test_the_parsed_numbers_are_floats_whatever_was_written (4) | yes |
+| C078 | duration kept as an int when whole | config.py | test_the_parsed_numbers_are_floats_whatever_was_written (7) | yes |
+| C080 | a bad window is not a ConfigError | config.py | test_a_rate_above_1_stops[just_above] (27) | yes |
+| C081 | a bad window is skipped | config.py | test_a_rate_above_1_stops[just_above] (27) | yes |
+| C082 | a bad window loses the position | config.py | test_digits_no_float_can_hold_stop_with_the_same_clean_message[start_overflows] (5) | yes |
+| C083 | a bad window loses the rule | config.py | test_each_rule_has_its_own_message (1) | yes |
+| C084 | a bad window loses the variable | config.py | test_a_rate_above_1_stops[just_above] (23) | yes |
+| C085 | an overflow stops, the rest is accepted: inf clamps | config.py | test_digits_no_float_can_hold_stop_with_the_same_clean_message[start_overflows] (2) | yes |
+| C086 | duration overflow clamps | config.py | test_digits_no_float_can_hold_stop_with_the_same_clean_message[duration_overflows] (1) | yes |
+| C087 | duration underflow becomes the smallest float | config.py | test_digits_no_float_can_hold_stop_with_the_same_clean_message[duration_underflows_to_0] (2) | yes |
+| C088 | rate overflow clamps to 1 | config.py | test_a_rate_above_1_stops[overflows_to_infinity] (1) | yes |
+| C089 | faults keyed by the entry | config.py | test_each_valid_entry_gives_its_window[rate_zero] (48) | yes |
+| S001 | max 129 | schema.py | test_provider_instance_rejects_anything_outside_1_to_128_characters[long] (1) | yes |
+| S002 | max 127 | schema.py | test_provider_instance_accepts_1_to_128_characters[128] (3) | yes |
+| S003 | no minimum | schema.py | test_provider_instance_rejects_anything_outside_1_to_128_characters[empty] (1) | yes |
+| S004 | minimum 2 | schema.py | test_provider_instance_accepts_1_to_128_characters[1] (1) | yes |
+| S005 | not required | schema.py | test_provider_instance_is_required (1) | yes |
+| S006 | optional | schema.py | test_provider_instance_is_required (1) | yes |
+| S007 | no maximum | schema.py | test_provider_instance_rejects_anything_outside_1_to_128_characters[long] (1) | yes |
+| S008 | any type | schema.py | test_provider_instance_rejects_anything_outside_1_to_128_characters[empty] (2) | yes |
+| L001 | fallback_taken: adapter message in the reason field | router.py | test_each_moving_error_gives_the_request_to_the_next_entry[timeout] (118) | yes |
+| L002 | fallback_taken: adapter message in extra=, always | router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[timeout] (49) | yes |
+| L003 | fallback_taken: adapter message on a sibling logger, always | router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[timeout] (47) | yes |
+| L004 | fallback_taken: adapter message in extra=, on auth | router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[auth_401] (10) | yes |
+| L005 | fallback_taken: adapter message on a sibling logger, on auth | router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[auth_401] (10) | yes |
+| L006 | fallback_taken: adapter message in extra=, on a rate limit | router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[rate_limited_no_hint] (10) | yes |
+| L007 | fallback_taken: adapter message on a sibling logger, on a rate limit | router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[rate_limited_no_hint] (10) | yes |
+| L008 | fallback_taken: adapter message in extra=, on a timeout | router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[timeout] (6) | yes |
+| L009 | fallback_taken: adapter message on a sibling logger, on a timeout | router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[timeout] (6) | yes |
+| L010 | fallback_taken: adapter message in extra=, on unavailable | router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[unavailable_503] (23) | yes |
+| L011 | fallback_taken: adapter message on a sibling logger, on unavailable | router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[unavailable_503] (21) | yes |
+| L012 | fallback_taken: adapter message in extra=, on billing | router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[402_billing] (2) | yes |
+| L013 | fallback_taken: adapter message on a sibling logger, on billing | router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[402_billing] (2) | yes |
+| L014 | fallback_taken: adapter message in extra=, on a billed 2xx | router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[billed_malformed_2xx] (2) | yes |
+| L015 | fallback_taken: adapter message on a sibling logger, on a billed 2xx | router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[billed_malformed_2xx] (2) | yes |
+| L016 | fallback_taken: adapter message in extra=, from Claude | router.py | survived; new test: test_a_real_adapter_transport_failure_that_moves_leaks_nothing[from_claude-timeout] (8) | yes |
+| L017 | fallback_taken: adapter message on a sibling logger, from Claude | router.py | survived; new test: test_a_real_adapter_transport_failure_that_moves_leaks_nothing[from_claude-timeout] (8) | yes |
+| L018 | fallback_taken: adapter message in extra=, from Gemini | router.py | survived; new test: test_a_real_adapter_transport_failure_that_moves_leaks_nothing[from_gemini-timeout] (9) | yes |
+| L019 | fallback_taken: adapter message on a sibling logger, from Gemini | router.py | survived; new test: test_a_real_adapter_transport_failure_that_moves_leaks_nothing[from_gemini-timeout] (9) | yes |
+| L020 | fallback_taken: adapter message in extra=, to Claude | router.py | survived; new test: test_a_real_adapter_transport_failure_that_moves_leaks_nothing[from_gemini-timeout] (9) | yes |
+| L021 | fallback_taken: adapter message on a sibling logger, to Claude | router.py | survived; new test: test_a_real_adapter_transport_failure_that_moves_leaks_nothing[from_gemini-timeout] (9) | yes |
+| L022 | fallback_taken: adapter message in extra=, to Gemini | router.py | survived; new test: test_a_real_adapter_transport_failure_that_moves_leaks_nothing[from_claude-timeout] (8) | yes |
+| L023 | fallback_taken: adapter message on a sibling logger, to Gemini | router.py | survived; new test: test_a_real_adapter_transport_failure_that_moves_leaks_nothing[from_claude-timeout] (8) | yes |
+| L024 | fallback_taken: prompt in the reason field | router.py | test_each_moving_error_gives_the_request_to_the_next_entry[timeout] (121) | yes |
+| L025 | fallback_taken: prompt in extra=, always | router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[timeout] (65) | yes |
+| L026 | fallback_taken: prompt on a sibling logger, always | router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[timeout] (61) | yes |
+| L027 | fallback_taken: prompt in extra=, on auth | router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[auth_401] (15) | yes |
+| L028 | fallback_taken: prompt on a sibling logger, on auth | router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[auth_401] (15) | yes |
+| L029 | fallback_taken: prompt in extra=, on a rate limit | router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[rate_limited_no_hint] (12) | yes |
+| L030 | fallback_taken: prompt on a sibling logger, on a rate limit | router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[rate_limited_no_hint] (12) | yes |
+| L031 | fallback_taken: prompt in extra=, on a timeout | router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[timeout] (6) | yes |
+| L032 | fallback_taken: prompt on a sibling logger, on a timeout | router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[timeout] (6) | yes |
+| L033 | fallback_taken: prompt in extra=, on unavailable | router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[unavailable_503] (31) | yes |
+| L034 | fallback_taken: prompt on a sibling logger, on unavailable | router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[unavailable_503] (27) | yes |
+| L035 | fallback_taken: prompt in extra=, on a refusal | router.py | test_a_refusal_that_moves_leaks_nothing (1) | yes |
+| L036 | fallback_taken: prompt on a sibling logger, on a refusal | router.py | test_a_refusal_that_moves_leaks_nothing (1) | yes |
+| L037 | fallback_taken: prompt in extra=, on billing | router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[402_billing] (4) | yes |
+| L038 | fallback_taken: prompt on a sibling logger, on billing | router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[402_billing] (4) | yes |
+| L039 | fallback_taken: prompt in extra=, on a billed 2xx | router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[billed_malformed_2xx] (4) | yes |
+| L040 | fallback_taken: prompt on a sibling logger, on a billed 2xx | router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[billed_malformed_2xx] (4) | yes |
+| L041 | fallback_taken: prompt in extra=, from Claude | router.py | test_a_real_adapter_failure_that_moves_leaks_neither_key_nor_provider_text_nor_answer[from_claude-500] (6) | yes |
+| L042 | fallback_taken: prompt on a sibling logger, from Claude | router.py | test_a_real_adapter_failure_that_moves_leaks_neither_key_nor_provider_text_nor_answer[from_claude-500] (6) | yes |
+| L043 | fallback_taken: prompt in extra=, from Gemini | router.py | test_a_real_adapter_failure_that_moves_leaks_neither_key_nor_provider_text_nor_answer[from_gemini-500] (7) | yes |
+| L044 | fallback_taken: prompt on a sibling logger, from Gemini | router.py | test_a_real_adapter_failure_that_moves_leaks_neither_key_nor_provider_text_nor_answer[from_gemini-500] (7) | yes |
+| L045 | fallback_taken: prompt in extra=, to Claude | router.py | test_a_real_adapter_failure_that_moves_leaks_neither_key_nor_provider_text_nor_answer[from_gemini-500] (8) | yes |
+| L046 | fallback_taken: prompt on a sibling logger, to Claude | router.py | test_a_real_adapter_failure_that_moves_leaks_neither_key_nor_provider_text_nor_answer[from_gemini-500] (7) | yes |
+| L047 | fallback_taken: prompt in extra=, to Gemini | router.py | test_a_real_adapter_failure_that_moves_leaks_neither_key_nor_provider_text_nor_answer[from_claude-500] (7) | yes |
+| L048 | fallback_taken: prompt on a sibling logger, to Gemini | router.py | test_a_real_adapter_failure_that_moves_leaks_neither_key_nor_provider_text_nor_answer[from_claude-500] (6) | yes |
+| L049 | fallback_taken: system prompt in the reason field | router.py | test_each_moving_error_gives_the_request_to_the_next_entry[timeout] (121) | yes |
+| L050 | fallback_taken: system prompt in extra=, always | router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[timeout] (65) | yes |
+| L051 | fallback_taken: system prompt on a sibling logger, always | router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[timeout] (61) | yes |
+| L052 | fallback_taken: system prompt in extra=, on auth | router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[auth_401] (15) | yes |
+| L053 | fallback_taken: system prompt on a sibling logger, on auth | router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[auth_401] (15) | yes |
+| L054 | fallback_taken: system prompt in extra=, on a rate limit | router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[rate_limited_no_hint] (12) | yes |
+| L055 | fallback_taken: system prompt on a sibling logger, on a rate limit | router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[rate_limited_no_hint] (12) | yes |
+| L056 | fallback_taken: system prompt in extra=, on a timeout | router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[timeout] (6) | yes |
+| L057 | fallback_taken: system prompt on a sibling logger, on a timeout | router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[timeout] (6) | yes |
+| L058 | fallback_taken: system prompt in extra=, on unavailable | router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[unavailable_503] (31) | yes |
+| L059 | fallback_taken: system prompt on a sibling logger, on unavailable | router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[unavailable_503] (27) | yes |
+| L060 | fallback_taken: system prompt in extra=, on a refusal | router.py | test_a_refusal_that_moves_leaks_nothing (1) | yes |
+| L061 | fallback_taken: system prompt on a sibling logger, on a refusal | router.py | test_a_refusal_that_moves_leaks_nothing (1) | yes |
+| L062 | fallback_taken: system prompt in extra=, on billing | router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[402_billing] (4) | yes |
+| L063 | fallback_taken: system prompt on a sibling logger, on billing | router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[402_billing] (4) | yes |
+| L064 | fallback_taken: system prompt in extra=, on a billed 2xx | router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[billed_malformed_2xx] (4) | yes |
+| L065 | fallback_taken: system prompt on a sibling logger, on a billed 2xx | router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[billed_malformed_2xx] (4) | yes |
+| L066 | fallback_taken: system prompt in extra=, from Claude | router.py | test_a_real_adapter_failure_that_moves_leaks_neither_key_nor_provider_text_nor_answer[from_claude-500] (6) | yes |
+| L067 | fallback_taken: system prompt on a sibling logger, from Claude | router.py | test_a_real_adapter_failure_that_moves_leaks_neither_key_nor_provider_text_nor_answer[from_claude-500] (6) | yes |
+| L068 | fallback_taken: system prompt in extra=, from Gemini | router.py | test_a_real_adapter_failure_that_moves_leaks_neither_key_nor_provider_text_nor_answer[from_gemini-500] (7) | yes |
+| L069 | fallback_taken: system prompt on a sibling logger, from Gemini | router.py | test_a_real_adapter_failure_that_moves_leaks_neither_key_nor_provider_text_nor_answer[from_gemini-500] (7) | yes |
+| L070 | fallback_taken: system prompt in extra=, to Claude | router.py | test_a_real_adapter_failure_that_moves_leaks_neither_key_nor_provider_text_nor_answer[from_gemini-500] (8) | yes |
+| L071 | fallback_taken: system prompt on a sibling logger, to Claude | router.py | test_a_real_adapter_failure_that_moves_leaks_neither_key_nor_provider_text_nor_answer[from_gemini-500] (7) | yes |
+| L072 | fallback_taken: system prompt in extra=, to Gemini | router.py | test_a_real_adapter_failure_that_moves_leaks_neither_key_nor_provider_text_nor_answer[from_claude-500] (7) | yes |
+| L073 | fallback_taken: system prompt on a sibling logger, to Gemini | router.py | test_a_real_adapter_failure_that_moves_leaks_neither_key_nor_provider_text_nor_answer[from_claude-500] (6) | yes |
+| L074 | fallback_taken: Anthropic key in the reason field | router.py | test_each_moving_error_gives_the_request_to_the_next_entry[timeout] (121) | yes |
+| L075 | fallback_taken: Anthropic key in extra=, always | router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[timeout] (65) | yes |
+| L076 | fallback_taken: Anthropic key on a sibling logger, always | router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[timeout] (61) | yes |
+| L077 | fallback_taken: Anthropic key in extra=, on auth | router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[auth_401] (15) | yes |
+| L078 | fallback_taken: Anthropic key on a sibling logger, on auth | router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[auth_401] (15) | yes |
+| L079 | fallback_taken: Anthropic key in extra=, on a rate limit | router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[rate_limited_no_hint] (12) | yes |
+| L080 | fallback_taken: Anthropic key on a sibling logger, on a rate limit | router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[rate_limited_no_hint] (12) | yes |
+| L081 | fallback_taken: Anthropic key in extra=, on a timeout | router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[timeout] (6) | yes |
+| L082 | fallback_taken: Anthropic key on a sibling logger, on a timeout | router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[timeout] (6) | yes |
+| L083 | fallback_taken: Anthropic key in extra=, on unavailable | router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[unavailable_503] (31) | yes |
+| L084 | fallback_taken: Anthropic key on a sibling logger, on unavailable | router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[unavailable_503] (27) | yes |
+| L085 | fallback_taken: Anthropic key in extra=, on a refusal | router.py | test_a_refusal_that_moves_leaks_nothing (1) | yes |
+| L086 | fallback_taken: Anthropic key on a sibling logger, on a refusal | router.py | test_a_refusal_that_moves_leaks_nothing (1) | yes |
+| L087 | fallback_taken: Anthropic key in extra=, on billing | router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[402_billing] (4) | yes |
+| L088 | fallback_taken: Anthropic key on a sibling logger, on billing | router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[402_billing] (4) | yes |
+| L089 | fallback_taken: Anthropic key in extra=, on a billed 2xx | router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[billed_malformed_2xx] (4) | yes |
+| L090 | fallback_taken: Anthropic key on a sibling logger, on a billed 2xx | router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[billed_malformed_2xx] (4) | yes |
+| L091 | fallback_taken: Anthropic key in extra=, from Claude | router.py | test_a_real_adapter_failure_that_moves_leaks_neither_key_nor_provider_text_nor_answer[from_claude-500] (6) | yes |
+| L092 | fallback_taken: Anthropic key on a sibling logger, from Claude | router.py | test_a_real_adapter_failure_that_moves_leaks_neither_key_nor_provider_text_nor_answer[from_claude-500] (6) | yes |
+| L093 | fallback_taken: Anthropic key in extra=, from Gemini | router.py | test_a_real_adapter_failure_that_moves_leaks_neither_key_nor_provider_text_nor_answer[from_gemini-500] (7) | yes |
+| L094 | fallback_taken: Anthropic key on a sibling logger, from Gemini | router.py | test_a_real_adapter_failure_that_moves_leaks_neither_key_nor_provider_text_nor_answer[from_gemini-500] (7) | yes |
+| L095 | fallback_taken: Anthropic key in extra=, to Claude | router.py | test_a_real_adapter_failure_that_moves_leaks_neither_key_nor_provider_text_nor_answer[from_gemini-500] (8) | yes |
+| L096 | fallback_taken: Anthropic key on a sibling logger, to Claude | router.py | test_a_real_adapter_failure_that_moves_leaks_neither_key_nor_provider_text_nor_answer[from_gemini-500] (7) | yes |
+| L097 | fallback_taken: Anthropic key in extra=, to Gemini | router.py | test_a_real_adapter_failure_that_moves_leaks_neither_key_nor_provider_text_nor_answer[from_claude-500] (7) | yes |
+| L098 | fallback_taken: Anthropic key on a sibling logger, to Gemini | router.py | test_a_real_adapter_failure_that_moves_leaks_neither_key_nor_provider_text_nor_answer[from_claude-500] (6) | yes |
+| L099 | fallback_taken: Gemini key in the reason field | router.py | test_each_moving_error_gives_the_request_to_the_next_entry[timeout] (121) | yes |
+| L100 | fallback_taken: Gemini key in extra=, always | router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[timeout] (65) | yes |
+| L101 | fallback_taken: Gemini key on a sibling logger, always | router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[timeout] (61) | yes |
+| L102 | fallback_taken: Gemini key in extra=, on auth | router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[auth_401] (15) | yes |
+| L103 | fallback_taken: Gemini key on a sibling logger, on auth | router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[auth_401] (15) | yes |
+| L104 | fallback_taken: Gemini key in extra=, on a rate limit | router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[rate_limited_no_hint] (12) | yes |
+| L105 | fallback_taken: Gemini key on a sibling logger, on a rate limit | router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[rate_limited_no_hint] (12) | yes |
+| L106 | fallback_taken: Gemini key in extra=, on a timeout | router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[timeout] (6) | yes |
+| L107 | fallback_taken: Gemini key on a sibling logger, on a timeout | router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[timeout] (6) | yes |
+| L108 | fallback_taken: Gemini key in extra=, on unavailable | router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[unavailable_503] (31) | yes |
+| L109 | fallback_taken: Gemini key on a sibling logger, on unavailable | router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[unavailable_503] (27) | yes |
+| L110 | fallback_taken: Gemini key in extra=, on a refusal | router.py | test_a_refusal_that_moves_leaks_nothing (1) | yes |
+| L111 | fallback_taken: Gemini key on a sibling logger, on a refusal | router.py | test_a_refusal_that_moves_leaks_nothing (1) | yes |
+| L112 | fallback_taken: Gemini key in extra=, on billing | router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[402_billing] (4) | yes |
+| L113 | fallback_taken: Gemini key on a sibling logger, on billing | router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[402_billing] (4) | yes |
+| L114 | fallback_taken: Gemini key in extra=, on a billed 2xx | router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[billed_malformed_2xx] (4) | yes |
+| L115 | fallback_taken: Gemini key on a sibling logger, on a billed 2xx | router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[billed_malformed_2xx] (4) | yes |
+| L116 | fallback_taken: Gemini key in extra=, from Claude | router.py | test_a_real_adapter_failure_that_moves_leaks_neither_key_nor_provider_text_nor_answer[from_claude-500] (6) | yes |
+| L117 | fallback_taken: Gemini key on a sibling logger, from Claude | router.py | test_a_real_adapter_failure_that_moves_leaks_neither_key_nor_provider_text_nor_answer[from_claude-500] (6) | yes |
+| L118 | fallback_taken: Gemini key in extra=, from Gemini | router.py | test_a_real_adapter_failure_that_moves_leaks_neither_key_nor_provider_text_nor_answer[from_gemini-500] (7) | yes |
+| L119 | fallback_taken: Gemini key on a sibling logger, from Gemini | router.py | test_a_real_adapter_failure_that_moves_leaks_neither_key_nor_provider_text_nor_answer[from_gemini-500] (7) | yes |
+| L120 | fallback_taken: Gemini key in extra=, to Claude | router.py | test_a_real_adapter_failure_that_moves_leaks_neither_key_nor_provider_text_nor_answer[from_gemini-500] (8) | yes |
+| L121 | fallback_taken: Gemini key on a sibling logger, to Claude | router.py | test_a_real_adapter_failure_that_moves_leaks_neither_key_nor_provider_text_nor_answer[from_gemini-500] (7) | yes |
+| L122 | fallback_taken: Gemini key in extra=, to Gemini | router.py | test_a_real_adapter_failure_that_moves_leaks_neither_key_nor_provider_text_nor_answer[from_claude-500] (7) | yes |
+| L123 | fallback_taken: Gemini key on a sibling logger, to Gemini | router.py | test_a_real_adapter_failure_that_moves_leaks_neither_key_nor_provider_text_nor_answer[from_claude-500] (6) | yes |
+| L124 | fallback_taken: the adapter's own headers in the reason field | router.py | test_each_moving_error_gives_the_request_to_the_next_entry[timeout] (69) | yes |
+| L125 | fallback_taken: the adapter's own headers in extra=, always | router.py | test_a_real_adapter_failure_that_moves_leaks_neither_key_nor_provider_text_nor_answer[from_claude-500] (13) | yes |
+| L126 | fallback_taken: the adapter's own headers on a sibling logger, always | router.py | test_a_real_adapter_failure_that_moves_leaks_neither_key_nor_provider_text_nor_answer[from_claude-500] (13) | yes |
+| L127 | fallback_taken: the adapter's own headers in extra=, on auth | router.py | test_a_real_adapter_failure_that_moves_leaks_neither_key_nor_provider_text_nor_answer[from_claude-401] (5) | yes |
+| L128 | fallback_taken: the adapter's own headers on a sibling logger, on auth | router.py | test_a_real_adapter_failure_that_moves_leaks_neither_key_nor_provider_text_nor_answer[from_claude-401] (5) | yes |
+| L129 | fallback_taken: the adapter's own headers in extra=, on a rate limit | router.py | test_a_real_adapter_failure_that_moves_leaks_neither_key_nor_provider_text_nor_answer[from_claude-429] (2) | yes |
+| L130 | fallback_taken: the adapter's own headers on a sibling logger, on a rate limit | router.py | test_a_real_adapter_failure_that_moves_leaks_neither_key_nor_provider_text_nor_answer[from_claude-429] (2) | yes |
+| L131 | fallback_taken: the adapter's own headers in extra=, on a timeout | router.py | survived; new test: test_a_real_adapter_transport_failure_that_moves_leaks_nothing[from_claude-timeout] (2) | yes |
+| L132 | fallback_taken: the adapter's own headers on a sibling logger, on a timeout | router.py | survived; new test: test_a_real_adapter_transport_failure_that_moves_leaks_nothing[from_claude-timeout] (2) | yes |
+| L133 | fallback_taken: the adapter's own headers in extra=, on unavailable | router.py | test_a_real_adapter_failure_that_moves_leaks_neither_key_nor_provider_text_nor_answer[from_claude-500] (6) | yes |
+| L134 | fallback_taken: the adapter's own headers on a sibling logger, on unavailable | router.py | test_a_real_adapter_failure_that_moves_leaks_neither_key_nor_provider_text_nor_answer[from_claude-500] (6) | yes |
+| L135 | fallback_taken: the adapter's own headers in extra=, on a refusal | router.py | survived; new test: test_a_refusal_of_a_real_adapter_that_moves_leaks_nothing[from_claude] (2) | yes |
+| L136 | fallback_taken: the adapter's own headers on a sibling logger, on a refusal | router.py | survived; new test: test_a_refusal_of_a_real_adapter_that_moves_leaks_nothing[from_claude] (2) | yes |
+| L137 | fallback_taken: the adapter's own headers in extra=, on billing | router.py | test_a_real_adapter_failure_that_moves_leaks_neither_key_nor_provider_text_nor_answer[from_claude-402] (2) | yes |
+| L138 | fallback_taken: the adapter's own headers on a sibling logger, on billing | router.py | test_a_real_adapter_failure_that_moves_leaks_neither_key_nor_provider_text_nor_answer[from_claude-402] (2) | yes |
+| L139 | fallback_taken: the adapter's own headers in extra=, on a billed 2xx | router.py | test_a_real_adapter_failure_that_moves_leaks_neither_key_nor_provider_text_nor_answer[from_claude-malformed_2xx] (2) | yes |
+| L140 | fallback_taken: the adapter's own headers on a sibling logger, on a billed 2xx | router.py | test_a_real_adapter_failure_that_moves_leaks_neither_key_nor_provider_text_nor_answer[from_claude-malformed_2xx] (2) | yes |
+| L141 | fallback_taken: the adapter's own headers in extra=, from Claude | router.py | test_a_real_adapter_failure_that_moves_leaks_neither_key_nor_provider_text_nor_answer[from_claude-500] (6) | yes |
+| L142 | fallback_taken: the adapter's own headers on a sibling logger, from Claude | router.py | test_a_real_adapter_failure_that_moves_leaks_neither_key_nor_provider_text_nor_answer[from_claude-500] (6) | yes |
+| L143 | fallback_taken: the adapter's own headers in extra=, from Gemini | router.py | test_a_real_adapter_failure_that_moves_leaks_neither_key_nor_provider_text_nor_answer[from_gemini-500] (7) | yes |
+| L144 | fallback_taken: the adapter's own headers on a sibling logger, from Gemini | router.py | test_a_real_adapter_failure_that_moves_leaks_neither_key_nor_provider_text_nor_answer[from_gemini-500] (7) | yes |
+| L145 | fallback_taken: the adapter's own headers in extra=, to Claude | router.py | test_a_real_adapter_failure_that_moves_leaks_neither_key_nor_provider_text_nor_answer[from_gemini-500] (7) | yes |
+| L146 | fallback_taken: the adapter's own headers on a sibling logger, to Claude | router.py | test_a_real_adapter_failure_that_moves_leaks_neither_key_nor_provider_text_nor_answer[from_gemini-500] (7) | yes |
+| L147 | fallback_taken: the adapter's own headers in extra=, to Gemini | router.py | test_a_real_adapter_failure_that_moves_leaks_neither_key_nor_provider_text_nor_answer[from_claude-500] (6) | yes |
+| L148 | fallback_taken: the adapter's own headers on a sibling logger, to Gemini | router.py | test_a_real_adapter_failure_that_moves_leaks_neither_key_nor_provider_text_nor_answer[from_claude-500] (6) | yes |
+| L149 | fallback_taken: exc_info= with the adapter message, always | router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[timeout] (50) | yes |
+| L150 | fallback_taken: exc_info= with the adapter message, on auth | router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[auth_401] (10) | yes |
+| L151 | fallback_taken: exc_info= with the adapter message, on a rate limit | router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[rate_limited_no_hint] (10) | yes |
+| L152 | fallback_taken: exc_info= with the adapter message, on a timeout | router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[timeout] (6) | yes |
+| L153 | fallback_taken: exc_info= with the adapter message, on unavailable | router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[unavailable_503] (24) | yes |
+| L154 | fallback_taken: exc_info= with the adapter message, on billing | router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[402_billing] (2) | yes |
+| L155 | fallback_taken: exc_info= with the adapter message, on a billed 2xx | router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[billed_malformed_2xx] (2) | yes |
+| L156 | fallback_taken: exc_info= with the adapter message, from Claude | router.py | survived; new test: test_a_real_adapter_transport_failure_that_moves_leaks_nothing[from_claude-timeout] (8) | yes |
+| L157 | fallback_taken: exc_info= with the adapter message, from Gemini | router.py | survived; new test: test_a_real_adapter_transport_failure_that_moves_leaks_nothing[from_gemini-timeout] (9) | yes |
+| L158 | fallback_taken: exc_info= with the adapter message, to Claude | router.py | survived; new test: test_a_real_adapter_transport_failure_that_moves_leaks_nothing[from_gemini-timeout] (9) | yes |
+| L159 | fallback_taken: exc_info= with the adapter message, to Gemini | router.py | survived; new test: test_a_real_adapter_transport_failure_that_moves_leaks_nothing[from_claude-timeout] (8) | yes |
+| L160 | response content on a sibling logger, after any success | router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[timeout] (36) | yes |
+| L161 | response content in extra= on a debug line, after any success | router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[timeout] (37) | yes |
+| L162 | response content on a sibling logger, after a fallback | router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[timeout] (36) | yes |
+| L163 | response content in extra= on a debug line, after a fallback | router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[timeout] (37) | yes |
+| L164 | response content on a sibling logger, from Claude | router.py | test_a_real_adapter_failure_that_moves_leaks_neither_key_nor_provider_text_nor_answer[from_gemini-500] (6) | yes |
+| L165 | response content in extra= on a debug line, from Claude | router.py | test_a_real_adapter_failure_that_moves_leaks_neither_key_nor_provider_text_nor_answer[from_gemini-500] (6) | yes |
+| L166 | response content on a sibling logger, from Gemini | router.py | test_a_real_adapter_failure_that_moves_leaks_neither_key_nor_provider_text_nor_answer[from_claude-500] (5) | yes |
+| L167 | response content in extra= on a debug line, from Gemini | router.py | test_a_real_adapter_failure_that_moves_leaks_neither_key_nor_provider_text_nor_answer[from_claude-500] (5) | yes |
+| L168 | provider text, Claude 5xx, through the message into extra= | claude.py, router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[timeout] (51) | yes |
+| L169 | provider text, Claude 5xx, through the message on a sibling logger | claude.py, router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[timeout] (49) | yes |
+| L170 | provider text, Claude 5xx, through exc_info= | claude.py, router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[timeout] (52) | yes |
+| L171 | provider text, Claude auth, through the message into extra= | claude.py, router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[timeout] (50) | yes |
+| L172 | provider text, Claude auth, through the message on a sibling logger | claude.py, router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[timeout] (48) | yes |
+| L173 | provider text, Claude auth, through exc_info= | claude.py, router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[timeout] (51) | yes |
+| L174 | provider text, Claude billing, through the message into extra= | claude.py, router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[timeout] (50) | yes |
+| L175 | provider text, Claude billing, through the message on a sibling logger | claude.py, router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[timeout] (48) | yes |
+| L176 | provider text, Claude billing, through exc_info= | claude.py, router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[timeout] (51) | yes |
+| L177 | provider text, Claude 429, through the message into extra= | claude.py, router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[timeout] (50) | yes |
+| L178 | provider text, Claude 429, through the message on a sibling logger | claude.py, router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[timeout] (48) | yes |
+| L179 | provider text, Claude 429, through exc_info= | claude.py, router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[timeout] (51) | yes |
+| L180 | provider text, Claude malformed 2xx, through the message into extra= | claude.py, router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[timeout] (50) | yes |
+| L181 | provider text, Claude malformed 2xx, through the message on a sibling logger | claude.py, router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[timeout] (48) | yes |
+| L182 | provider text, Claude malformed 2xx, through exc_info= | claude.py, router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[timeout] (51) | yes |
+| L183 | provider text, Gemini 5xx, through the message into extra= | gemini.py, router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[timeout] (51) | yes |
+| L184 | provider text, Gemini 5xx, through the message on a sibling logger | gemini.py, router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[timeout] (49) | yes |
+| L185 | provider text, Gemini 5xx, through exc_info= | gemini.py, router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[timeout] (52) | yes |
+| L186 | provider text, Gemini auth, through the message into extra= | gemini.py, router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[timeout] (50) | yes |
+| L187 | provider text, Gemini auth, through the message on a sibling logger | gemini.py, router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[timeout] (48) | yes |
+| L188 | provider text, Gemini auth, through exc_info= | gemini.py, router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[timeout] (51) | yes |
+| L189 | provider text, Gemini invalid key, through the message into extra= | gemini.py, router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[timeout] (50) | yes |
+| L190 | provider text, Gemini invalid key, through the message on a sibling logger | gemini.py, router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[timeout] (48) | yes |
+| L191 | provider text, Gemini invalid key, through exc_info= | gemini.py, router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[timeout] (51) | yes |
+| L192 | provider text, Gemini billing, through the message into extra= | gemini.py, router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[timeout] (50) | yes |
+| L193 | provider text, Gemini billing, through the message on a sibling logger | gemini.py, router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[timeout] (48) | yes |
+| L194 | provider text, Gemini billing, through exc_info= | gemini.py, router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[timeout] (51) | yes |
+| L195 | provider text, Gemini 429, through the message into extra= | gemini.py, router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[timeout] (50) | yes |
+| L196 | provider text, Gemini 429, through the message on a sibling logger | gemini.py, router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[timeout] (48) | yes |
+| L197 | provider text, Gemini 429, through exc_info= | gemini.py, router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[timeout] (51) | yes |
+| L198 | provider text, Gemini malformed 2xx, through the message into extra= | gemini.py, router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[timeout] (50) | yes |
+| L199 | provider text, Gemini malformed 2xx, through the message on a sibling logger | gemini.py, router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[timeout] (48) | yes |
+| L200 | provider text, Gemini malformed 2xx, through exc_info= | gemini.py, router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[timeout] (51) | yes |
+| L201 | provider text, Claude 5xx, through the reason code | claude.py | test_a_fault_on_a_mock_before_a_real_provider_leaks_nothing_from_the_real_one[claude] (1) | yes |
+| L202 | provider text, Gemini 5xx, through the reason code | gemini.py | test_a_fault_on_a_mock_before_a_real_provider_leaks_nothing_from_the_real_one[gemini] (1) | yes |
+| L203 | fault_injection_on: Anthropic key from environ in the provider field | router.py | test_each_window_writes_its_exact_line_at_startup[measurement_8] (11) | yes |
+| L204 | fault_injection_on: Anthropic key from environ in extra=, always | router.py | test_the_startup_line_leaks_no_key_from_a_config_with_real_providers (3) | yes |
+| L205 | fault_injection_on: Anthropic key from environ on a sibling logger, always | router.py | survived; new test: test_the_startup_line_leaks_no_key_from_a_config_with_real_providers (3) | yes |
+| L206 | fault_injection_on: Anthropic key from environ in extra=, for a window with an end | router.py | test_the_startup_line_leaks_no_key_from_a_config_with_real_providers (1) | yes |
+| L207 | fault_injection_on: Anthropic key from environ on a sibling logger, for a window with an end | router.py | survived; new test: test_the_startup_line_leaks_no_key_from_a_config_with_real_providers (1) | yes |
+| L208 | fault_injection_on: Anthropic key from environ in extra=, for a window with no end | router.py | test_the_startup_line_leaks_no_key_from_a_config_with_real_providers (3) | yes |
+| L209 | fault_injection_on: Anthropic key from environ on a sibling logger, for a window with no end | router.py | survived; new test: test_the_startup_line_leaks_no_key_from_a_config_with_real_providers (3) | yes |
+| L210 | fault_injection_on: Anthropic key from environ in extra=, with a Claude instance | router.py | test_the_startup_line_leaks_no_key_from_a_config_with_real_providers (2) | yes |
+| L211 | fault_injection_on: Anthropic key from environ on a sibling logger, with a Claude instance | router.py | survived; new test: test_the_startup_line_leaks_no_key_from_a_config_with_real_providers (2) | yes |
+| L212 | fault_injection_on: Anthropic key from environ in extra=, with a Gemini instance | router.py | test_the_startup_line_leaks_no_key_from_a_config_with_real_providers (2) | yes |
+| L213 | fault_injection_on: Anthropic key from environ on a sibling logger, with a Gemini instance | router.py | survived; new test: test_the_startup_line_leaks_no_key_from_a_config_with_real_providers (2) | yes |
+| L214 | fault_injection_on: Anthropic key from environ through exc_info= | router.py | test_the_startup_line_leaks_no_key_from_a_config_with_real_providers (3) | yes |
+| L215 | fault_injection_on: Gemini key from environ in the provider field | router.py | test_each_window_writes_its_exact_line_at_startup[measurement_8] (11) | yes |
+| L216 | fault_injection_on: Gemini key from environ in extra=, always | router.py | test_the_startup_line_leaks_no_key_from_a_config_with_real_providers (3) | yes |
+| L217 | fault_injection_on: Gemini key from environ on a sibling logger, always | router.py | survived; new test: test_the_startup_line_leaks_no_key_from_a_config_with_real_providers (3) | yes |
+| L218 | fault_injection_on: Gemini key from environ in extra=, for a window with an end | router.py | test_the_startup_line_leaks_no_key_from_a_config_with_real_providers (1) | yes |
+| L219 | fault_injection_on: Gemini key from environ on a sibling logger, for a window with an end | router.py | survived; new test: test_the_startup_line_leaks_no_key_from_a_config_with_real_providers (1) | yes |
+| L220 | fault_injection_on: Gemini key from environ in extra=, for a window with no end | router.py | test_the_startup_line_leaks_no_key_from_a_config_with_real_providers (3) | yes |
+| L221 | fault_injection_on: Gemini key from environ on a sibling logger, for a window with no end | router.py | survived; new test: test_the_startup_line_leaks_no_key_from_a_config_with_real_providers (3) | yes |
+| L222 | fault_injection_on: Gemini key from environ in extra=, with a Claude instance | router.py | test_the_startup_line_leaks_no_key_from_a_config_with_real_providers (2) | yes |
+| L223 | fault_injection_on: Gemini key from environ on a sibling logger, with a Claude instance | router.py | survived; new test: test_the_startup_line_leaks_no_key_from_a_config_with_real_providers (2) | yes |
+| L224 | fault_injection_on: Gemini key from environ in extra=, with a Gemini instance | router.py | test_the_startup_line_leaks_no_key_from_a_config_with_real_providers (2) | yes |
+| L225 | fault_injection_on: Gemini key from environ on a sibling logger, with a Gemini instance | router.py | survived; new test: test_the_startup_line_leaks_no_key_from_a_config_with_real_providers (2) | yes |
+| L226 | fault_injection_on: Gemini key from environ through exc_info= | router.py | test_the_startup_line_leaks_no_key_from_a_config_with_real_providers (3) | yes |
+| L227 | fault_injection_on: Anthropic key from os.environ in the provider field | router.py | test_each_window_writes_its_exact_line_at_startup[measurement_8] (13) | yes |
+| L228 | fault_injection_on: Anthropic key from os.environ in extra=, always | router.py | test_the_startup_line_leaks_no_key_from_a_config_with_real_providers (5) | yes |
+| L229 | fault_injection_on: Anthropic key from os.environ on a sibling logger, always | router.py | survived; new test: test_the_startup_line_leaks_no_key_from_a_config_with_real_providers (5) | yes |
+| L230 | fault_injection_on: Anthropic key from os.environ in extra=, for a window with an end | router.py | test_the_startup_line_leaks_no_key_from_a_config_with_real_providers (1) | yes |
+| L231 | fault_injection_on: Anthropic key from os.environ on a sibling logger, for a window with an end | router.py | survived; new test: test_the_startup_line_leaks_no_key_from_a_config_with_real_providers (1) | yes |
+| L232 | fault_injection_on: Anthropic key from os.environ in extra=, for a window with no end | router.py | test_the_startup_line_leaks_no_key_from_a_config_with_real_providers (5) | yes |
+| L233 | fault_injection_on: Anthropic key from os.environ on a sibling logger, for a window with no end | router.py | survived; new test: test_the_startup_line_leaks_no_key_from_a_config_with_real_providers (5) | yes |
+| L234 | fault_injection_on: Anthropic key from os.environ in extra=, with a Claude instance | router.py | test_the_startup_line_leaks_no_key_from_a_config_with_real_providers (2) | yes |
+| L235 | fault_injection_on: Anthropic key from os.environ on a sibling logger, with a Claude instance | router.py | survived; new test: test_the_startup_line_leaks_no_key_from_a_config_with_real_providers (2) | yes |
+| L236 | fault_injection_on: Anthropic key from os.environ in extra=, with a Gemini instance | router.py | test_the_startup_line_leaks_no_key_from_a_config_with_real_providers (2) | yes |
+| L237 | fault_injection_on: Anthropic key from os.environ on a sibling logger, with a Gemini instance | router.py | survived; new test: test_the_startup_line_leaks_no_key_from_a_config_with_real_providers (2) | yes |
+| L238 | fault_injection_on: Anthropic key from os.environ through exc_info= | router.py | test_the_startup_line_leaks_no_key_from_a_config_with_real_providers (5) | yes |
+| L239 | fault_injection_on: Gemini key from os.environ in the provider field | router.py | test_each_window_writes_its_exact_line_at_startup[measurement_8] (13) | yes |
+| L240 | fault_injection_on: Gemini key from os.environ in extra=, always | router.py | test_the_startup_line_leaks_no_key_from_a_config_with_real_providers (5) | yes |
+| L241 | fault_injection_on: Gemini key from os.environ on a sibling logger, always | router.py | survived; new test: test_the_startup_line_leaks_no_key_from_a_config_with_real_providers (5) | yes |
+| L242 | fault_injection_on: Gemini key from os.environ in extra=, for a window with an end | router.py | test_the_startup_line_leaks_no_key_from_a_config_with_real_providers (1) | yes |
+| L243 | fault_injection_on: Gemini key from os.environ on a sibling logger, for a window with an end | router.py | survived; new test: test_the_startup_line_leaks_no_key_from_a_config_with_real_providers (1) | yes |
+| L244 | fault_injection_on: Gemini key from os.environ in extra=, for a window with no end | router.py | test_the_startup_line_leaks_no_key_from_a_config_with_real_providers (5) | yes |
+| L245 | fault_injection_on: Gemini key from os.environ on a sibling logger, for a window with no end | router.py | survived; new test: test_the_startup_line_leaks_no_key_from_a_config_with_real_providers (5) | yes |
+| L246 | fault_injection_on: Gemini key from os.environ in extra=, with a Claude instance | router.py | test_the_startup_line_leaks_no_key_from_a_config_with_real_providers (2) | yes |
+| L247 | fault_injection_on: Gemini key from os.environ on a sibling logger, with a Claude instance | router.py | survived; new test: test_the_startup_line_leaks_no_key_from_a_config_with_real_providers (2) | yes |
+| L248 | fault_injection_on: Gemini key from os.environ in extra=, with a Gemini instance | router.py | test_the_startup_line_leaks_no_key_from_a_config_with_real_providers (2) | yes |
+| L249 | fault_injection_on: Gemini key from os.environ on a sibling logger, with a Gemini instance | router.py | survived; new test: test_the_startup_line_leaks_no_key_from_a_config_with_real_providers (2) | yes |
+| L250 | fault_injection_on: Gemini key from os.environ through exc_info= | router.py | test_the_startup_line_leaks_no_key_from_a_config_with_real_providers (5) | yes |
+| L251 | fault_injection_on: the keys dict in the provider field | router.py | test_each_window_writes_its_exact_line_at_startup[measurement_8] (11) | yes |
+| L252 | fault_injection_on: the keys dict in extra=, always | router.py | test_the_startup_line_leaks_no_key_from_a_config_with_real_providers (3) | yes |
+| L253 | fault_injection_on: the keys dict on a sibling logger, always | router.py | survived; new test: test_the_startup_line_leaks_no_key_from_a_config_with_real_providers (3) | yes |
+| L254 | fault_injection_on: the keys dict in extra=, for a window with an end | router.py | test_the_startup_line_leaks_no_key_from_a_config_with_real_providers (1) | yes |
+| L255 | fault_injection_on: the keys dict on a sibling logger, for a window with an end | router.py | survived; new test: test_the_startup_line_leaks_no_key_from_a_config_with_real_providers (1) | yes |
+| L256 | fault_injection_on: the keys dict in extra=, for a window with no end | router.py | test_the_startup_line_leaks_no_key_from_a_config_with_real_providers (3) | yes |
+| L257 | fault_injection_on: the keys dict on a sibling logger, for a window with no end | router.py | survived; new test: test_the_startup_line_leaks_no_key_from_a_config_with_real_providers (3) | yes |
+| L258 | fault_injection_on: the keys dict in extra=, with a Claude instance | router.py | test_the_startup_line_leaks_no_key_from_a_config_with_real_providers (2) | yes |
+| L259 | fault_injection_on: the keys dict on a sibling logger, with a Claude instance | router.py | survived; new test: test_the_startup_line_leaks_no_key_from_a_config_with_real_providers (2) | yes |
+| L260 | fault_injection_on: the keys dict in extra=, with a Gemini instance | router.py | test_the_startup_line_leaks_no_key_from_a_config_with_real_providers (2) | yes |
+| L261 | fault_injection_on: the keys dict on a sibling logger, with a Gemini instance | router.py | survived; new test: test_the_startup_line_leaks_no_key_from_a_config_with_real_providers (2) | yes |
+| L262 | fault_injection_on: the keys dict through exc_info= | router.py | test_the_startup_line_leaks_no_key_from_a_config_with_real_providers (3) | yes |
+| L263 | injected failure: prompt on the router logger, always | mock.py | test_the_router_logs_an_injected_failure_like_any_other (6) | yes |
+| L264 | injected failure: prompt on a sibling logger, always | mock.py | survived; new test: test_an_injected_fault_leaks_neither_its_message_nor_the_prompt_nor_the_answer (4) | yes |
+| L265 | injected failure: prompt in the error's message, written by the router | mock.py, router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[timeout] (47) | yes |
+| L266 | injected failure: prompt on the router logger, with a window | mock.py | test_the_router_logs_an_injected_failure_like_any_other (6) | yes |
+| L267 | injected failure: prompt on a sibling logger, with a window | mock.py | survived; new test: test_an_injected_fault_leaks_neither_its_message_nor_the_prompt_nor_the_answer (4) | yes |
+| L268 | injected failure: prompt in the error's message, written by the router | mock.py, router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[timeout] (47) | yes |
+| L269 | injected failure: system prompt on the router logger, always | mock.py | test_the_router_logs_an_injected_failure_like_any_other (6) | yes |
+| L270 | injected failure: system prompt on a sibling logger, always | mock.py | survived; new test: test_an_injected_fault_leaks_neither_its_message_nor_the_prompt_nor_the_answer (4) | yes |
+| L271 | injected failure: system prompt in the error's message, written by the router | mock.py, router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[timeout] (49) | yes |
+| L272 | injected failure: system prompt on the router logger, with a window | mock.py | test_the_router_logs_an_injected_failure_like_any_other (6) | yes |
+| L273 | injected failure: system prompt on a sibling logger, with a window | mock.py | survived; new test: test_an_injected_fault_leaks_neither_its_message_nor_the_prompt_nor_the_answer (4) | yes |
+| L274 | injected failure: system prompt in the error's message, written by the router | mock.py, router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[timeout] (47) | yes |
+| L275 | 499: prompt in the response message | app.py | test_app_a_client_gone_before_a_retry_is_499_client_disconnected (1); with new tests (30) | yes |
+| L276 | 499: prompt on a sibling logger | app.py | survived; new test: test_app_a_499_before_a_move_leaks_nothing_whatever_failure_came_first[timeout] (29) | yes |
+| L277 | 499: prompt in extra= on the request logger | app.py | test_app_a_client_gone_before_a_retry_is_499_client_disconnected (3); with new tests (32) | yes |
+| L278 | 499: prompt in the request line, through the state | app.py | test_app_a_client_gone_before_a_retry_is_499_client_disconnected (1); with new tests (30) | yes |
+| L279 | 499: system prompt in the response message | app.py | test_app_a_client_gone_before_a_retry_is_499_client_disconnected (1); with new tests (30) | yes |
+| L280 | 499: system prompt on a sibling logger | app.py | survived; new test: test_app_a_499_before_a_move_leaks_nothing_whatever_failure_came_first[timeout] (29) | yes |
+| L281 | 499: system prompt in extra= on the request logger | app.py | test_app_a_client_gone_before_a_retry_is_499_client_disconnected (3); with new tests (32) | yes |
+| L282 | 499: system prompt in the request line, through the state | app.py | test_app_a_client_gone_before_a_retry_is_499_client_disconnected (1); with new tests (30) | yes |
+| L283 | 499: stop sequences in the response message | app.py | test_app_a_client_gone_before_a_retry_is_499_client_disconnected (1); with new tests (30) | yes |
+| L284 | 499: stop sequences on a sibling logger | app.py | survived; new test: test_app_a_499_before_a_move_leaks_nothing_whatever_failure_came_first[timeout] (29) | yes |
+| L285 | 499: stop sequences in extra= on the request logger | app.py | test_app_a_client_gone_before_a_retry_is_499_client_disconnected (3); with new tests (32) | yes |
+| L286 | 499: stop sequences in the request line, through the state | app.py | test_app_a_client_gone_before_a_retry_is_499_client_disconnected (1); with new tests (30) | yes |
+| L287 | 499: Anthropic key in the response message | app.py | test_app_a_client_gone_before_a_retry_is_499_client_disconnected (1); with new tests (30) | yes |
+| L288 | 499: Anthropic key on a sibling logger | app.py | survived; new test: test_app_a_499_before_a_move_leaks_nothing_whatever_failure_came_first[timeout] (29) | yes |
+| L289 | 499: Anthropic key in extra= on the request logger | app.py | test_app_a_client_gone_before_a_retry_is_499_client_disconnected (3); with new tests (32) | yes |
+| L290 | 499: Anthropic key in the request line, through the state | app.py | test_app_a_client_gone_before_a_retry_is_499_client_disconnected (1); with new tests (30) | yes |
+| L291 | 499: Gemini key in the response message | app.py | test_app_a_client_gone_before_a_retry_is_499_client_disconnected (1); with new tests (30) | yes |
+| L292 | 499: Gemini key on a sibling logger | app.py | survived; new test: test_app_a_499_before_a_move_leaks_nothing_whatever_failure_came_first[timeout] (29) | yes |
+| L293 | 499: Gemini key in extra= on the request logger | app.py | test_app_a_client_gone_before_a_retry_is_499_client_disconnected (3); with new tests (32) | yes |
+| L294 | 499: Gemini key in the request line, through the state | app.py | test_app_a_client_gone_before_a_retry_is_499_client_disconnected (1); with new tests (30) | yes |
+| L295 | 499 before a retry: adapter message in the response message | app.py, router.py | test_app_a_client_gone_before_a_retry_is_499_client_disconnected (1); with new tests (6) | yes |
+| L296 | 499 before a move: adapter message in the response message | app.py, router.py | test_app_a_client_gone_before_a_retry_is_499_client_disconnected (1); with new tests (28) | yes |
+| L297 | 499 before a retry: adapter message on a sibling logger | app.py, router.py | survived; new test: test_app_a_499_before_a_retry_leaks_nothing (3) | yes |
+| L298 | 499 before a move: adapter message on a sibling logger | app.py, router.py | survived; new test: test_app_a_499_before_a_move_leaks_nothing_whatever_failure_came_first[timeout] (25) | yes |
+| L299 | 499 before a retry: adapter message through exc_info= on a sibling logger | app.py, router.py | survived; new test: test_app_a_499_before_a_retry_leaks_nothing (3) | yes |
+| L300 | 499 before a move: adapter message through exc_info= on a sibling logger | app.py, router.py | survived; new test: test_app_a_499_before_a_move_leaks_nothing_whatever_failure_came_first[timeout] (25) | yes |
+| L301 | 499 before a retry: adapter message in extra= | app.py, router.py | test_app_a_client_gone_before_a_retry_is_499_client_disconnected (3); with new tests (6) | yes |
+| L302 | 499 before a move: adapter message in extra= | app.py, router.py | test_app_a_client_gone_before_a_retry_is_499_client_disconnected (3); with new tests (28) | yes |
+| L303 | a stop before a retry writes adapter message on a sibling logger | router.py | survived; new test: test_a_stop_before_a_retry_leaks_nothing (4) | yes |
+| L304 | a stop before a move writes adapter message on a sibling logger | router.py | test_a_stop_for_a_client_that_left_leaks_nothing (1) | yes |
+| L305 | a stop before a move writes adapter message in extra= | router.py | test_a_stop_on_a_later_entry_keeps_the_earlier_lines_and_writes_no_more (2) | yes |
+| L306 | 499 before a retry: prompt in the response message | app.py, router.py | test_app_a_client_gone_before_a_retry_is_499_client_disconnected (1); with new tests (6) | yes |
+| L307 | 499 before a move: prompt in the response message | app.py, router.py | test_app_a_client_gone_before_a_retry_is_499_client_disconnected (1); with new tests (29) | yes |
+| L308 | 499 before a retry: prompt on a sibling logger | app.py, router.py | survived; new test: test_app_a_499_before_a_retry_leaks_nothing (3) | yes |
+| L309 | 499 before a move: prompt on a sibling logger | app.py, router.py | survived; new test: test_app_a_499_before_a_move_leaks_nothing_whatever_failure_came_first[timeout] (26) | yes |
+| L310 | 499 before a retry: prompt through exc_info= on a sibling logger | app.py, router.py | survived; new test: test_app_a_499_before_a_retry_leaks_nothing (3) | yes |
+| L311 | 499 before a move: prompt through exc_info= on a sibling logger | app.py, router.py | survived; new test: test_app_a_499_before_a_move_leaks_nothing_whatever_failure_came_first[timeout] (26) | yes |
+| L312 | 499 before a retry: prompt in extra= | app.py, router.py | test_app_a_client_gone_before_a_retry_is_499_client_disconnected (3); with new tests (6) | yes |
+| L313 | 499 before a move: prompt in extra= | app.py, router.py | test_app_a_client_gone_before_a_retry_is_499_client_disconnected (3); with new tests (29) | yes |
+| L314 | a stop before a retry writes prompt on a sibling logger | router.py | survived; new test: test_a_stop_before_a_retry_leaks_nothing (4) | yes |
+| L315 | a stop before a move writes prompt on a sibling logger | router.py | test_a_stop_for_a_client_that_left_leaks_nothing (1) | yes |
+| L316 | a stop before a move writes prompt in extra= | router.py | test_a_stop_on_a_later_entry_keeps_the_earlier_lines_and_writes_no_more (2) | yes |
+| L317 | 499 before a retry: system prompt in the response message | app.py, router.py | test_app_a_client_gone_before_a_retry_is_499_client_disconnected (1); with new tests (6) | yes |
+| L318 | 499 before a move: system prompt in the response message | app.py, router.py | test_app_a_client_gone_before_a_retry_is_499_client_disconnected (1); with new tests (29) | yes |
+| L319 | 499 before a retry: system prompt on a sibling logger | app.py, router.py | survived; new test: test_app_a_499_before_a_retry_leaks_nothing (3) | yes |
+| L320 | 499 before a move: system prompt on a sibling logger | app.py, router.py | survived; new test: test_app_a_499_before_a_move_leaks_nothing_whatever_failure_came_first[timeout] (26) | yes |
+| L321 | 499 before a retry: system prompt through exc_info= on a sibling logger | app.py, router.py | survived; new test: test_app_a_499_before_a_retry_leaks_nothing (3) | yes |
+| L322 | 499 before a move: system prompt through exc_info= on a sibling logger | app.py, router.py | survived; new test: test_app_a_499_before_a_move_leaks_nothing_whatever_failure_came_first[timeout] (26) | yes |
+| L323 | 499 before a retry: system prompt in extra= | app.py, router.py | test_app_a_client_gone_before_a_retry_is_499_client_disconnected (3); with new tests (6) | yes |
+| L324 | 499 before a move: system prompt in extra= | app.py, router.py | test_app_a_client_gone_before_a_retry_is_499_client_disconnected (3); with new tests (29) | yes |
+| L325 | a stop before a retry writes system prompt on a sibling logger | router.py | survived; new test: test_a_stop_before_a_retry_leaks_nothing (4) | yes |
+| L326 | a stop before a move writes system prompt on a sibling logger | router.py | test_a_stop_for_a_client_that_left_leaks_nothing (1) | yes |
+| L327 | a stop before a move writes system prompt in extra= | router.py | test_a_stop_on_a_later_entry_keeps_the_earlier_lines_and_writes_no_more (2) | yes |
+| L328 | 499: provider text, Claude 5xx, through the message to the client | app.py, claude.py, router.py | test_app_a_client_gone_before_a_retry_is_499_client_disconnected (1); with new tests (28) | yes |
+| L329 | 499: provider text, Claude 5xx, through the message on a sibling logger | app.py, claude.py, router.py | full suite only: test_http_status_mapping[500-ProviderUnavailable] (18); new test: test_app_a_499_before_a_move_leaks_nothing_whatever_failure_came_first[timeout] (25) | yes |
+| L330 | 499: provider text, Gemini 5xx, through the message to the client | app.py, gemini.py, router.py | test_app_a_client_gone_before_a_retry_is_499_client_disconnected (1); with new tests (28) | yes |
+| L331 | 499: provider text, Gemini 5xx, through the message on a sibling logger | app.py, gemini.py, router.py | full suite only: test_http_status_mapping[500-ProviderUnavailable] (24); new test: test_app_a_499_before_a_move_leaks_nothing_whatever_failure_came_first[timeout] (25) | yes |
+| L332 | parse_faults shape: entry in the message | config.py | test_a_startup_error_names_the_variable_and_echoes_no_value[shape] (4) | yes |
+| L333 | parse_faults shape: entry repr in the message | config.py | test_a_startup_error_names_the_variable_and_echoes_no_value[shape] (4) | yes |
+| L334 | parse_faults shape: entry only after the first entry | config.py | survived; new test: test_a_startup_error_at_a_later_entry_echoes_no_value_from_any_entry[shape] (1) | yes |
+| L335 | parse_faults shape: entry only with several entries | config.py | survived; new test: test_a_startup_error_at_a_later_entry_echoes_no_value_from_any_entry[shape] (1) | yes |
+| L336 | parse_faults shape: value in the message | config.py | test_a_startup_error_names_the_variable_and_echoes_no_value[shape] (5) | yes |
+| L337 | parse_faults shape: value repr in the message | config.py | test_a_startup_error_names_the_variable_and_echoes_no_value[shape] (5) | yes |
+| L338 | parse_faults shape: value only after the first entry | config.py | test_a_startup_error_names_the_entrys_position_counting_from_1[shape] (1); with new tests (2) | yes |
+| L339 | parse_faults shape: value only with several entries | config.py | test_a_startup_error_names_the_entrys_position_counting_from_1[shape] (1); with new tests (2) | yes |
+| L340 | parse_faults unknown instance: name in the message | config.py | test_a_startup_error_names_the_variable_and_echoes_no_value[unknown_instance] (3) | yes |
+| L341 | parse_faults unknown instance: name repr in the message | config.py | test_a_startup_error_names_the_variable_and_echoes_no_value[unknown_instance] (3) | yes |
+| L342 | parse_faults unknown instance: name only after the first entry | config.py | survived; new test: test_a_startup_error_at_a_later_entry_echoes_no_value_from_any_entry[unknown_instance] (1) | yes |
+| L343 | parse_faults unknown instance: name only with several entries | config.py | survived; new test: test_a_startup_error_at_a_later_entry_echoes_no_value_from_any_entry[unknown_instance] (1) | yes |
+| L344 | parse_faults unknown instance: entry in the message | config.py | test_a_startup_error_names_the_variable_and_echoes_no_value[unknown_instance] (3) | yes |
+| L345 | parse_faults unknown instance: entry repr in the message | config.py | test_a_startup_error_names_the_variable_and_echoes_no_value[unknown_instance] (3) | yes |
+| L346 | parse_faults unknown instance: entry only after the first entry | config.py | test_a_startup_error_names_the_entrys_position_counting_from_1[unknown_instance] (2); with new tests (3) | yes |
+| L347 | parse_faults unknown instance: entry only with several entries | config.py | test_a_startup_error_names_the_entrys_position_counting_from_1[unknown_instance] (2); with new tests (3) | yes |
+| L348 | parse_faults unknown instance: value in the message | config.py | test_a_startup_error_names_the_variable_and_echoes_no_value[unknown_instance] (5) | yes |
+| L349 | parse_faults unknown instance: value repr in the message | config.py | test_a_startup_error_names_the_variable_and_echoes_no_value[unknown_instance] (5) | yes |
+| L350 | parse_faults unknown instance: value only after the first entry | config.py | test_a_startup_error_names_the_entrys_position_counting_from_1[unknown_instance] (2); with new tests (3) | yes |
+| L351 | parse_faults unknown instance: value only with several entries | config.py | test_a_startup_error_names_the_entrys_position_counting_from_1[unknown_instance] (2); with new tests (3) | yes |
+| L352 | parse_faults not mock: name in the message | config.py | test_a_startup_error_names_the_variable_and_echoes_no_value[claude_instance] (5) | yes |
+| L353 | parse_faults not mock: name repr in the message | config.py | test_a_startup_error_names_the_variable_and_echoes_no_value[claude_instance] (5) | yes |
+| L354 | parse_faults not mock: name only after the first entry | config.py | survived; new test: test_a_startup_error_at_a_later_entry_echoes_no_value_from_any_entry[claude_instance] (2) | yes |
+| L355 | parse_faults not mock: name only with several entries | config.py | survived; new test: test_a_startup_error_at_a_later_entry_echoes_no_value_from_any_entry[claude_instance] (2) | yes |
+| L356 | parse_faults not mock: entry in the message | config.py | test_a_startup_error_names_the_variable_and_echoes_no_value[claude_instance] (5) | yes |
+| L357 | parse_faults not mock: entry repr in the message | config.py | test_a_startup_error_names_the_variable_and_echoes_no_value[claude_instance] (5) | yes |
+| L358 | parse_faults not mock: entry only after the first entry | config.py | test_a_startup_error_names_the_entrys_position_counting_from_1[real_instance] (1); with new tests (3) | yes |
+| L359 | parse_faults not mock: entry only with several entries | config.py | test_a_startup_error_names_the_entrys_position_counting_from_1[real_instance] (1); with new tests (3) | yes |
+| L360 | parse_faults not mock: value in the message | config.py | test_a_startup_error_names_the_variable_and_echoes_no_value[claude_instance] (6) | yes |
+| L361 | parse_faults not mock: value repr in the message | config.py | test_a_startup_error_names_the_variable_and_echoes_no_value[claude_instance] (6) | yes |
+| L362 | parse_faults not mock: value only after the first entry | config.py | test_a_startup_error_names_the_entrys_position_counting_from_1[real_instance] (1); with new tests (3) | yes |
+| L363 | parse_faults not mock: value only with several entries | config.py | test_a_startup_error_names_the_entrys_position_counting_from_1[real_instance] (1); with new tests (3) | yes |
+| L364 | parse_faults repeat: name in the message | config.py | test_a_repeated_instance_error_echoes_no_value (1) | yes |
+| L365 | parse_faults repeat: name repr in the message | config.py | test_a_repeated_instance_error_echoes_no_value (1) | yes |
+| L366 | parse_faults repeat: name only after the first entry | config.py | test_a_repeated_instance_error_echoes_no_value (1) | yes |
+| L367 | parse_faults repeat: name only with several entries | config.py | test_a_repeated_instance_error_echoes_no_value (1) | yes |
+| L368 | parse_faults repeat: entry in the message | config.py | test_a_repeated_instance_error_echoes_no_value (1) | yes |
+| L369 | parse_faults repeat: entry repr in the message | config.py | test_a_repeated_instance_error_echoes_no_value (1) | yes |
+| L370 | parse_faults repeat: entry only after the first entry | config.py | test_a_repeated_instance_error_echoes_no_value (1) | yes |
+| L371 | parse_faults repeat: entry only with several entries | config.py | test_a_repeated_instance_error_echoes_no_value (1) | yes |
+| L372 | parse_faults repeat: value in the message | config.py | test_a_repeated_instance_error_echoes_no_value (2) | yes |
+| L373 | parse_faults repeat: value repr in the message | config.py | test_a_repeated_instance_error_echoes_no_value (2) | yes |
+| L374 | parse_faults repeat: value only after the first entry | config.py | test_a_repeated_instance_error_echoes_no_value (2) | yes |
+| L375 | parse_faults repeat: value only with several entries | config.py | test_a_repeated_instance_error_echoes_no_value (2) | yes |
+| L376 | parse_faults bad window: name in the message | config.py | test_a_startup_error_names_the_variable_and_echoes_no_value[rate_above_1] (4) | yes |
+| L377 | parse_faults bad window: name repr in the message | config.py | test_a_startup_error_names_the_variable_and_echoes_no_value[rate_above_1] (4) | yes |
+| L378 | parse_faults bad window: name only after the first entry | config.py | survived; new test: test_a_startup_error_at_a_later_entry_echoes_no_value_from_any_entry[rate_above_1] (2) | yes |
+| L379 | parse_faults bad window: name only with several entries | config.py | survived; new test: test_a_startup_error_at_a_later_entry_echoes_no_value_from_any_entry[rate_above_1] (2) | yes |
+| L380 | parse_faults bad window: entry in the message | config.py | test_digits_no_float_can_hold_stop_with_the_same_clean_message[start_overflows] (11) | yes |
+| L381 | parse_faults bad window: entry repr in the message | config.py | test_digits_no_float_can_hold_stop_with_the_same_clean_message[start_overflows] (11) | yes |
+| L382 | parse_faults bad window: entry only after the first entry | config.py | test_digits_no_float_can_hold_stop_with_the_same_clean_message[start_overflows] (5); with new tests (11) | yes |
+| L383 | parse_faults bad window: entry only with several entries | config.py | test_digits_no_float_can_hold_stop_with_the_same_clean_message[start_overflows] (5); with new tests (11) | yes |
+| L384 | parse_faults bad window: value in the message | config.py | test_digits_no_float_can_hold_stop_with_the_same_clean_message[start_overflows] (13) | yes |
+| L385 | parse_faults bad window: value repr in the message | config.py | test_digits_no_float_can_hold_stop_with_the_same_clean_message[start_overflows] (13) | yes |
+| L386 | parse_faults bad window: value only after the first entry | config.py | test_digits_no_float_can_hold_stop_with_the_same_clean_message[start_overflows] (5); with new tests (11) | yes |
+| L387 | parse_faults bad window: value only with several entries | config.py | test_digits_no_float_can_hold_stop_with_the_same_clean_message[start_overflows] (5); with new tests (11) | yes |
+| L388 | parse_faults bad window: rate in the message | config.py | test_a_startup_error_names_the_variable_and_echoes_no_value[rate_above_1] (3) | yes |
+| L389 | parse_faults bad window: rate repr in the message | config.py | test_a_startup_error_names_the_variable_and_echoes_no_value[rate_above_1] (3) | yes |
+| L390 | parse_faults bad window: rate only after the first entry | config.py | test_a_startup_error_names_the_entrys_position_counting_from_1[rate_above_1] (2); with new tests (3) | yes |
+| L391 | parse_faults bad window: rate only with several entries | config.py | test_a_startup_error_names_the_entrys_position_counting_from_1[rate_above_1] (2); with new tests (3) | yes |
+| L392 | parse_faults bad window: start in the message | config.py | test_digits_no_float_can_hold_stop_with_the_same_clean_message[start_overflows] (5) | yes |
+| L393 | parse_faults bad window: start repr in the message | config.py | test_digits_no_float_can_hold_stop_with_the_same_clean_message[start_overflows] (5) | yes |
+| L394 | parse_faults bad window: start only after the first entry | config.py | test_digits_no_float_can_hold_stop_with_the_same_clean_message[start_overflows] (4); with new tests (6) | yes |
+| L395 | parse_faults bad window: start only with several entries | config.py | test_digits_no_float_can_hold_stop_with_the_same_clean_message[start_overflows] (4); with new tests (6) | yes |
+| L396 | parse_faults bad window: duration in the message | config.py | test_digits_no_float_can_hold_stop_with_the_same_clean_message[duration_overflows] (3); with new tests (12) | yes |
+| L397 | parse_faults bad window: duration repr in the message | config.py | test_digits_no_float_can_hold_stop_with_the_same_clean_message[duration_overflows] (3); with new tests (12) | yes |
+| L398 | parse_faults bad window: duration only after the first entry | config.py | test_digits_no_float_can_hold_stop_with_the_same_clean_message[start_overflows] (4); with new tests (7) | yes |
+| L399 | parse_faults bad window: duration only with several entries | config.py | test_digits_no_float_can_hold_stop_with_the_same_clean_message[start_overflows] (4); with new tests (7) | yes |
+| L400 | parse_faults shape: chained ValueError holds the entry | config.py | test_a_startup_error_echoes_no_value_through_a_chained_exception[shape] (1) | yes |
+| L401 | parse_faults shape: an exception note holds the entry | config.py | test_a_startup_error_echoes_no_value_through_a_chained_exception[shape] (1) | yes |
+| L402 | parse_faults shape: second exception argument holds the entry | config.py | test_a_startup_error_names_the_variable_and_echoes_no_value[shape] (4) | yes |
+| L403 | parse_faults shape: the entry on a sibling logger | config.py | test_startup_with_a_bad_value_fails_cleanly[shape] (1); with new tests (5) | yes |
+| L404 | parse_faults shape: the entry at debug | config.py | survived; new test: test_a_startup_error_writes_no_value_to_any_logger_or_stream[shape] (2) | yes |
+| L405 | parse_faults shape: the entry in extra= | config.py | survived; new test: test_a_startup_error_writes_no_value_to_any_logger_or_stream[shape] (2) | yes |
+| L406 | parse_faults shape: the entry on stderr | config.py | test_startup_with_a_bad_value_fails_cleanly[shape] (1); with new tests (4) | yes |
+| L407 | parse_faults shape: exc_info= holds the entry on a sibling logger | config.py | survived; new test: test_a_startup_error_writes_no_value_to_any_logger_or_stream[shape] (2) | yes |
+| L408 | parse_faults unknown instance: chained ValueError holds the entry | config.py | test_a_startup_error_echoes_no_value_through_a_chained_exception[unknown_instance] (1) | yes |
+| L409 | parse_faults unknown instance: an exception note holds the entry | config.py | test_a_startup_error_echoes_no_value_through_a_chained_exception[unknown_instance] (1) | yes |
+| L410 | parse_faults unknown instance: second exception argument holds the entry | config.py | test_a_startup_error_names_the_variable_and_echoes_no_value[unknown_instance] (3) | yes |
+| L411 | parse_faults unknown instance: the entry on a sibling logger | config.py | test_startup_with_a_bad_value_fails_cleanly[unknown_instance] (1); with new tests (6) | yes |
+| L412 | parse_faults unknown instance: the entry at debug | config.py | survived; new test: test_a_startup_error_writes_no_value_to_any_logger_or_stream[unknown_instance] (2) | yes |
+| L413 | parse_faults unknown instance: the entry in extra= | config.py | survived; new test: test_a_startup_error_writes_no_value_to_any_logger_or_stream[unknown_instance] (2) | yes |
+| L414 | parse_faults unknown instance: the entry on stderr | config.py | test_startup_with_a_bad_value_fails_cleanly[unknown_instance] (1); with new tests (5) | yes |
+| L415 | parse_faults unknown instance: exc_info= holds the entry on a sibling logger | config.py | survived; new test: test_a_startup_error_writes_no_value_to_any_logger_or_stream[unknown_instance] (2) | yes |
+| L416 | parse_faults not mock: chained ValueError holds the entry | config.py | test_a_startup_error_echoes_no_value_through_a_chained_exception[claude_instance] (2) | yes |
+| L417 | parse_faults not mock: an exception note holds the entry | config.py | test_a_startup_error_echoes_no_value_through_a_chained_exception[claude_instance] (2) | yes |
+| L418 | parse_faults not mock: second exception argument holds the entry | config.py | test_a_startup_error_names_the_variable_and_echoes_no_value[claude_instance] (5) | yes |
+| L419 | parse_faults not mock: the entry on a sibling logger | config.py | test_startup_with_a_real_instance_named_fails_cleanly_with_no_key_shown (1); with new tests (6) | yes |
+| L420 | parse_faults not mock: the entry at debug | config.py | survived; new test: test_a_startup_error_writes_no_value_to_any_logger_or_stream[claude_instance] (4) | yes |
+| L421 | parse_faults not mock: the entry in extra= | config.py | survived; new test: test_a_startup_error_writes_no_value_to_any_logger_or_stream[claude_instance] (4) | yes |
+| L422 | parse_faults not mock: the entry on stderr | config.py | test_startup_with_a_real_instance_named_fails_cleanly_with_no_key_shown (1); with new tests (5) | yes |
+| L423 | parse_faults not mock: exc_info= holds the entry on a sibling logger | config.py | survived; new test: test_a_startup_error_writes_no_value_to_any_logger_or_stream[claude_instance] (4) | yes |
+| L424 | parse_faults repeat: chained ValueError holds the entry | config.py | test_a_repeated_instance_error_echoes_no_value (1) | yes |
+| L425 | parse_faults repeat: an exception note holds the entry | config.py | test_a_repeated_instance_error_echoes_no_value (1) | yes |
+| L426 | parse_faults repeat: second exception argument holds the entry | config.py | test_a_repeated_instance_error_echoes_no_value (1) | yes |
+| L427 | parse_faults repeat: the entry on a sibling logger | config.py | survived; new test: test_a_startup_error_writes_no_value_to_any_logger_or_stream[repeat] (3) | yes |
+| L428 | parse_faults repeat: the entry at debug | config.py | survived; new test: test_a_startup_error_writes_no_value_to_any_logger_or_stream[repeat] (2) | yes |
+| L429 | parse_faults repeat: the entry in extra= | config.py | survived; new test: test_a_startup_error_writes_no_value_to_any_logger_or_stream[repeat] (2) | yes |
+| L430 | parse_faults repeat: the entry on stderr | config.py | survived; new test: test_a_startup_error_writes_no_value_to_any_logger_or_stream[repeat] (3) | yes |
+| L431 | parse_faults repeat: exc_info= holds the entry on a sibling logger | config.py | survived; new test: test_a_startup_error_writes_no_value_to_any_logger_or_stream[repeat] (2) | yes |
+| L432 | parse_faults bad window: chained exception keeps the value | config.py | test_digits_no_float_can_hold_stop_with_the_same_clean_message[start_overflows] (5) | yes |
+| L433 | parse_faults bad window: an exception note holds the entry | config.py | test_digits_no_float_can_hold_stop_with_the_same_clean_message[start_overflows] (5) | yes |
+| L434 | parse_faults bad window: the entry on a sibling logger | config.py | test_startup_with_a_bad_value_fails_cleanly[rate_above_1] (4); with new tests (21) | yes |
+| L435 | parse_faults bad window: the entry at debug | config.py | survived; new test: test_a_startup_error_writes_no_value_to_any_logger_or_stream[rate_above_1] (4) | yes |
+| L436 | parse_faults bad window: the entry on stderr | config.py | test_startup_with_a_bad_value_fails_cleanly[rate_above_1] (4); with new tests (18) | yes |
+| L437 | parse_faults blank: the raw value in the message | config.py | survived; new test: test_a_value_of_only_whitespace_is_blank_and_not_a_bad_entry[ ] (9) | yes |
+| L438 | parse_faults: an accepted value is logged | config.py | survived; new test: test_parse_faults_logs_nothing_when_it_accepts_a_value[no_window_times] (3) | yes |
+| L439 | FaultWindow's own message echoes rate, and reaches ConfigError | mock.py | test_a_startup_error_names_the_variable_and_echoes_no_value[rate_above_1] (3) | yes |
+| L440 | FaultWindow's own message echoes start, and reaches ConfigError | mock.py | survived; new test: test_digits_no_float_can_hold_stop_with_the_same_clean_message[start_overflows] (1) | yes |
+| L441 | FaultWindow's own message echoes duration, and reaches ConfigError | mock.py | survived; new test: test_digits_no_float_can_hold_stop_with_the_same_clean_message[duration_overflows] (1) | yes |
+| R260 | serve's arguments are not keyword-only | router.py | test_serve_takes_the_request_and_keyword_only_request_id_and_is_disconnected (1) | yes |
+| R261 | complete's arguments are not keyword-only | router.py | test_complete_takes_keyword_only_deadline_and_is_disconnected (1) | yes |
+| R262 | the reserve is always the default | router.py | test_fallback_reserve_keeps_the_given_value (15) | yes |
+| R263 | reserve: whole numbers rejected | router.py | test_fallback_reserve_accepts_any_finite_number_from_zero[zero_int] (2) | yes |
+| R264 | reserve: fractions rejected | router.py | test_fallback_reserve_keeps_the_given_value (2) | yes |
+| R265 | a one-entry alias is not served | router.py | test_a_single_entry_alias_serves_as_its_one_entry (15) | yes |
+| R266 | all None gets a made-up retry-after | router.py | test_all_refused_with_every_retry_after_none_gives_none (2) | yes |
+| R267 | an unknown alias reaches the first alias through routes | router.py | test_serve_with_an_unknown_alias_raises_unknown_alias_and_calls_nothing[not-an-alias] (4) | yes |
+| R268 | complete moves on by itself | router.py | test_proof_inject_failures_on_one_provider_and_the_other_serves[timeout] (259) | yes |
+| R269 | build_router's clock defaults to time.monotonic, not None | router.py | test_build_router_takes_a_keyword_only_clock (2) | yes |
+| R270 | a mock with no window gets a fixed seed | router.py | test_the_committed_mock_fallback_config_falls_back_on_each_seeded_failure (3) | yes |
+| A025 | a provider error names the entries tried | app.py | test_app_all_refused_is_503_with_the_smallest_retry_after_rounded_up[whole] (18) | yes |
+| K080 | window: whole-number times rejected | mock.py | test_fault_window_accepts_the_boundary_values[whole_numbers] (1) | yes |
+| K081 | window: fractions in the times rejected | mock.py | test_fault_window_accepts_the_boundary_values[fractions] (7) | yes |
+| C090 | unset stops | config.py | test_an_unset_variable_gives_no_windows (10) | yes |
+| C091 | unset stops a config with no mock | config.py | test_an_unset_variable_leaves_a_real_only_config_starting (1) | yes |
+| S009 | left out of the serialized response | schema.py | test_proof_inject_failures_on_one_provider_and_the_other_serves[timeout] (22) | yes |
+| S010 | minimum 3 | schema.py | test_provider_instance_accepts_1_to_128_characters[1] (2) | yes |
+| S011 | maximum 126 | schema.py | test_provider_instance_accepts_1_to_128_characters[127] (4) | yes |
+| K083 | the origin guard in _current_rate removed | mock.py | none: equivalent | yes |
+| L442 | a DEBUG line on a sibling logger with the adapter message, at every failed attempt | router.py | test_a_move_leaks_nothing_whatever_failure_caused_it[timeout] (104) | yes |
+| L443 | a DEBUG line on a sibling logger with the Anthropic key, at every breaker state change | breaker.py | test_a_refusal_that_moves_leaks_nothing (4) | yes |
+| L444 | parse_faults: an accepted value is logged at info | config.py | test_parse_faults_logs_nothing_when_it_accepts_a_value[no_window_times] (3) | yes |
+| L445 | parse_faults: acceptance writes a line with no value in it | config.py | test_parse_faults_logs_nothing_when_it_accepts_a_value[no_window_times] (3) | yes |
+| L446 | parse_faults: an unset variable writes a line | config.py | test_parse_faults_logs_nothing_when_the_variable_is_unset (1) | yes |
+| L447 | parse_faults: a refusal writes a line with no value in it | config.py | test_parse_faults_logs_nothing_when_it_refuses_a_value[repeat] (1) | yes |
+| L448 | parse_faults: a blank value writes a line | config.py | test_parse_faults_logs_nothing_when_it_refuses_a_value[blank] (1) | yes |
+| L449 | parse_faults: a bad window writes a line on the router logger | config.py | test_parse_faults_logs_nothing_when_it_refuses_a_value[rate_above_1] (3) | yes |
+
 ## Agent Mistakes Log
 
 Rows are taken only from what the git history and DECISIONS.md record. Where the history does not say who found a problem, the row says so.
@@ -1907,3 +2796,13 @@ Rows are taken only from what the git history and DECISIONS.md record. Where the
 | 2026-11-05 | M10: H01 and H02 were counted as caught, though no test failed and only the harness's limit stopped them. The tester reported it that way, and the builder recounted the rows without asking what they meant. The builder also wrote that a limit would bring back the wall-clock failure, which overstates it: that failure came from a 60 s limit. | Reviewer round 1, SHOULD FIX 5, from the raw rows. | Tables report 2 hung apart from the caught rows; the reason is corrected; the choice is under Needs owner. |
 | 2026-11-04 | M10: the builder's simulation for D-057 was not kept, and its 0.6 per 100,000 for 10 consecutive failures was wrong against an exact 0.41, probably noise from a small run (unverified, the script is gone). Five other figures were slightly off: 173, 8.4, 1.65, 114 and 41. The numbers were labelled arithmetic but could not be reproduced. | Reviewer round 1, a note, with a hand estimate. | `scripts/breaker_trip_sim.py` added, and D-057 updated from it, with the exact values as a check. The conclusions do not change. |
 | 2026-11-05 | M10 review: the reviewer ran `ls`, `head`, `tail`, `wc`, `grep`, `sed`, `cut` and an empty `python` heredoc, past its role's limit on Bash. Reads only, no repo file changed. | The reviewer disclosed it in its own report. | Later reads used Read and Grep. Recorded here; its agent file is unchanged. |
+| 2026-11-05 | M11: the builder's brief said the seeded `mock-fallback` startup test would need changing. It did not: retries on the first entry absorb both seeded failures. | The tester, in its Mode 1 report. | The tester left the assertions alone; the session log records it. |
+| 2026-11-05 | M11: the builder's spec had two errors: D-061's Risk contradicted its Decision on a 40 s failure, and FLOW.md's diagram did not match D-060. | The tester's spec gaps. | Both fixed in 14ae705, before any `src/` change. |
+| 2026-11-05 | M11: the builder's first grouping of the red run was useless, because pytest cut each reason to the terminal width. | The builder, reading the groups. | Rerun with `--junitxml`, and grouped from the full messages. |
+| 2026-11-05 | M11: the builder's first `parse_faults` gave one combined message for the rate and the duration, where D-064 says the message names the rule. | `test_each_rule_has_its_own_message`, the one failure of 2351. | Fixed in the code using `FaultWindow`'s fixed messages; the test is unchanged. |
+| 2026-11-05 | M11: the builder told the owner the 62 sibling-logger survivors were probably one narrow capture. It marked that unverified, but it was wrong: four causes. The builder also estimated 75 minutes for the last mutants, which took about 40. | The tester checked the guess and measured it. | The session log gives the four causes. |
+| 2026-11-05 | M9 to M11: `caplog.set_level(logging.DEBUG)` was assumed to see every level. After the first import of `main.py` it does not reach `llmgateway.*`, so `tests/test_retries.py`'s leak checks were blind to DEBUG lines in normal order and `tests/test_breaker.py` was safe only by file order. M11's `watched` docstring claimed "every level". No earlier run caught it, because the blindness fails silently. | Mode 2: survivors that failed alone and passed in the full run. The tester flagged two files; the builder counted 137 calls in six. | One `NullHandler` in `tests/conftest.py`, pinned in `tests/test_main.py`, measured before and after in three orders. |
+| 2026-11-05 | M11 Mode 1: the leak tests had four gaps: no leak test on the 499 path through the app, though the brief asked for it; real adapter messages checked only on the `fallback_taken` line; every no-echo test at position 1; the window rules with no echo cases of their own. | Mode 2: 103 real gaps among 105 survivors. | New tests; all those mutants caught. |
+| 2026-11-05 | M11: the tester provisionally classed C009 and C011 as equivalent. They were not: startup stops either way, but the message names the wrong rule. | The tester, rereading D-064 during triage. | A test for each. |
+| 2026-11-05 | M11: the tester's bash heredocs broke twice more, one on quoting and one corrupting `mutate.py` (the M8 and M10 mistake again), and its first Mode 1 mutation run never started and exited 0 from a trailing `grep`. In Mode 2, R247 had a bad indent, R269's description was wrong (corrected in the table, kept in the raw records), and one new test first failed mypy. | The tester's own review and the harness's compile check. | Scripts written with the Write tool, the run's result read from its records, and each item fixed before the rerun. |
+| 2026-11-05 | M11: after the logger proof runs the tester edited three test docstrings or comments. The scratch-clone runs were not repeated for that. | The tester's report. | The real repo was rerun afterward: 2478 passed. |

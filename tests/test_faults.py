@@ -48,7 +48,13 @@ import pytest
 
 from llmgateway.app import create_app
 from llmgateway.breaker import BreakerPolicy
-from llmgateway.config import ConfigError, GatewayConfig, load_config, parse_config
+from llmgateway.config import (
+    DEFAULT_CONFIG,
+    ConfigError,
+    GatewayConfig,
+    load_config,
+    parse_config,
+)
 from llmgateway.providers.base import (
     ProviderAuthError,
     ProviderBadRequest,
@@ -73,10 +79,14 @@ INSTANCE_MARKER = "planted-instance-marker"
 CLAUDE_MARKER = "planted-claude-marker"
 GEMINI_MARKER = "planted-gemini-marker"
 RATE_MARKER = "7.31962"
+OTHER_MARKER = "planted-other-marker"
+OTHER_RATE_MARKER = "0.61803"
 TIME_MARKER = "271828"
 # Digits the grammar accepts, and that no float can hold: inf, and 0 for the second.
 OVERFLOWS = TIME_MARKER * 70
 UNDERFLOWS = "0." + "0" * 400 + TIME_MARKER
+# A duration of 0 that no message could hold by chance.
+ZERO_MARKER = "0.0000000"
 PROMPT_MARKER = "secret-prompt-text-marker"
 SYSTEM_MARKER = "secret-system-prompt-marker"
 ANTHROPIC_KEY = "sk-ant-faults-test-key-marker"
@@ -762,6 +772,11 @@ def test_set_but_blank_stops(value: str) -> None:
         pytest.param("mock-a=1@60+1e2", id="exponent_duration"),
         pytest.param("mock-a=1@.5+30", id="start_without_a_leading_digit"),
         pytest.param("mock-a=1@60+30.", id="duration_without_a_trailing_digit"),
+        pytest.param("mock-a=1@60-30", id="minus_between_the_times"),
+        pytest.param("mock-a=1#60+30", id="hash_for_the_at"),
+        pytest.param("mock-a=0_1", id="underscore_in_the_rate"),
+        pytest.param("mock-a=1@6_0+30", id="underscore_in_the_start"),
+        pytest.param("mock-a=1@60+3_0", id="underscore_in_the_duration"),
         pytest.param("mock-a=1@inf+30", id="inf_start"),
         pytest.param("mock-a=1@60+inf", id="inf_duration"),
         pytest.param("mock-a = 1", id="spaces_around_the_equals"),
@@ -882,6 +897,8 @@ def test_digits_no_float_can_hold_stop_with_the_same_clean_message(value: str) -
     error = _error(value)
     assert VARIABLE in str(error)
     assert TIME_MARKER not in _printed(error)
+    # What the digits became is a value too. `\b`, because "finite" holds "inf".
+    assert re.search(r"\binf\b", str(error)) is None
     assert _numbers(str(_error(f"mock-a=1,{value}"))) - _numbers(str(error)) == {"2": 1}
 
 
@@ -893,6 +910,10 @@ RULE_CASES = [
     pytest.param(f"{MARKER}=0.75319", id="unknown_instance"),
     pytest.param(f"{CLAUDE_MARKER}=0.75319", id="claude_instance"),
     pytest.param(f"{GEMINI_MARKER}=1@{TIME_MARKER}+{TIME_MARKER}", id="gemini_instance"),
+    pytest.param(f"{INSTANCE_MARKER}=1@60+{ZERO_MARKER}", id="duration_of_0_written_out"),
+    pytest.param(f"{INSTANCE_MARKER}=1@{OVERFLOWS}+30", id="start_overflows"),
+    pytest.param(f"{INSTANCE_MARKER}=1@60+{OVERFLOWS}", id="duration_overflows"),
+    pytest.param(f"{INSTANCE_MARKER}=1@60+{UNDERFLOWS}", id="duration_underflows"),
 ]
 HIDDEN = (
     MARKER,
@@ -901,6 +922,7 @@ HIDDEN = (
     GEMINI_MARKER,
     RATE_MARKER,
     TIME_MARKER,
+    ZERO_MARKER,
     "0.75319",
 )
 
@@ -985,6 +1007,25 @@ def test_each_rule_has_its_own_message() -> None:
     assert len(set(messages)) == len(messages)
 
 
+@pytest.mark.parametrize(
+    "value",
+    [
+        pytest.param("mock-a=inf", id="inf_rate"),
+        pytest.param("mock-a=nan", id="nan_rate"),
+        pytest.param("mock-a=1@inf+30", id="inf_start"),
+        pytest.param("mock-a=1@nan+30", id="nan_start"),
+        pytest.param("mock-a=1@60+inf", id="inf_duration"),
+        pytest.param("mock-a=1@60+nan", id="nan_duration"),
+        pytest.param(" mock-a=1", id="a_space_before_the_instance"),
+        pytest.param("mock-a =1", id="a_space_after_the_instance"),
+    ],
+)
+def test_an_entry_outside_the_grammar_is_told_so_and_not_some_other_rule(value: str) -> None:
+    # Numbers are plain decimals and entries have no spaces (D-064), so these break the
+    # grammar, whatever else could be said about them.
+    assert str(_error(value)) == str(_error("not-an-entry"))
+
+
 def test_a_repeated_instance_has_its_own_message() -> None:
     # Position 2 here, so the others are built to fail at position 2 as well.
     repeated = str(_error("mock-a=1,mock-a=1"))
@@ -994,6 +1035,132 @@ def test_a_repeated_instance_has_its_own_message() -> None:
 
 def test_set_but_blank_has_its_own_message() -> None:
     assert str(_error("")) != str(_error("not-an-entry"))
+
+
+@pytest.mark.parametrize("value", [" ", "   ", "\t", "\n", " \t\n "])
+def test_a_value_of_only_whitespace_is_blank_and_not_a_bad_entry(value: str) -> None:
+    assert str(_error(value)) == str(_error(""))
+
+
+@pytest.mark.parametrize("value", ["", " ", "   ", "\t"])
+def test_a_blank_value_is_not_echoed(value: str) -> None:
+    assert repr(value) not in str(_error(value))
+
+
+# The same rules behind a valid first entry, so a value echoed only there is seen too.
+LATER_CONFIG = MARKED_CONFIG.replace(
+    "[aliases]\n",
+    f'[providers.{OTHER_MARKER}]\ntype = "mock"\n\n[aliases]\n',
+).replace(
+    f'{ALIAS} = [{{ provider = "{INSTANCE_MARKER}", model = "m1" }}, ',
+    f'{ALIAS} = [{{ provider = "{INSTANCE_MARKER}", model = "m1" }}, '
+    f'{{ provider = "{OTHER_MARKER}", model = "m2" }}, ',
+)
+LATER_HIDDEN = (*HIDDEN, OTHER_MARKER, OTHER_RATE_MARKER)
+
+
+@pytest.mark.parametrize("value", RULE_CASES)
+def test_a_startup_error_at_a_later_entry_echoes_no_value_from_any_entry(value: str) -> None:
+    error = _error(f"{OTHER_MARKER}={OTHER_RATE_MARKER},{value}", LATER_CONFIG)
+    assert VARIABLE in str(error)
+    for hidden in LATER_HIDDEN:
+        assert hidden not in _printed(error)
+
+
+def test_a_repeated_instance_at_a_later_entry_echoes_no_value_from_any_entry() -> None:
+    value = f"{OTHER_MARKER}={OTHER_RATE_MARKER},{OTHER_MARKER}=0.75319"
+    error = _error(value, LATER_CONFIG)
+    for hidden in LATER_HIDDEN:
+        assert hidden not in _printed(error)
+
+
+REPEATED = f"{INSTANCE_MARKER}=0.75319,{INSTANCE_MARKER}=0.75319"
+
+
+@pytest.mark.parametrize("value", [*RULE_CASES, pytest.param(REPEATED, id="repeat")])
+def test_a_startup_error_writes_no_value_to_any_logger_or_stream(
+    caplog: pytest.LogCaptureFixture, capfd: pytest.CaptureFixture[str], value: str
+) -> None:
+    # The message is not the only way out: a pasted key must not reach a console or a
+    # CI log by a line written next to it (D-044, D-064).
+    caplog.set_level(logging.DEBUG)
+    caplog.set_level(logging.DEBUG, logger="llmgateway")
+    _error(value, MARKED_CONFIG)
+    written = caplog.text + "".join(str(vars(record)) for record in caplog.records)
+    stdout, stderr = capfd.readouterr()
+    for hidden in HIDDEN:
+        assert hidden not in written
+        assert hidden not in stdout
+        assert hidden not in stderr
+
+
+@pytest.mark.parametrize("value", [*RULE_CASES, pytest.param(REPEATED, id="repeat")])
+def test_a_startup_error_at_a_later_entry_writes_no_value_to_any_logger_or_stream(
+    caplog: pytest.LogCaptureFixture, capfd: pytest.CaptureFixture[str], value: str
+) -> None:
+    caplog.set_level(logging.DEBUG)
+    caplog.set_level(logging.DEBUG, logger="llmgateway")
+    _error(f"{OTHER_MARKER}={OTHER_RATE_MARKER},{value}", LATER_CONFIG)
+    written = caplog.text + "".join(str(vars(record)) for record in caplog.records)
+    stdout, stderr = capfd.readouterr()
+    for hidden in LATER_HIDDEN:
+        assert hidden not in written
+        assert hidden not in stdout
+        assert hidden not in stderr
+
+
+# parse_faults itself logs nothing, at any level, accepted or refused (D-064)
+
+
+def _quiet(caplog: pytest.LogCaptureFixture) -> GatewayConfig:
+    caplog.set_level(logging.DEBUG)
+    caplog.set_level(logging.DEBUG, logger="llmgateway")
+    config = parse_config(MIXED_CONFIG)
+    caplog.clear()
+    return config
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["mock-a=1", "mock-a=1.0@60+30", "mock-a=0.5,mock-b=1@1+1"],
+    ids=["no_window_times", "with_times", "two_entries"],
+)
+def test_parse_faults_logs_nothing_when_it_accepts_a_value(
+    caplog: pytest.LogCaptureFixture, value: str
+) -> None:
+    config = _quiet(caplog)
+    assert _parse_faults({VARIABLE: value}, config)
+    assert caplog.records == []
+
+
+def test_parse_faults_logs_nothing_when_the_variable_is_unset(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    config = _quiet(caplog)
+    assert _parse_faults({}, config) == {}
+    assert caplog.records == []
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        pytest.param("", id="blank"),
+        pytest.param("not-an-entry", id="shape"),
+        pytest.param("nobody=1", id="unknown_instance"),
+        pytest.param("claude-a=1", id="real_instance"),
+        pytest.param("mock-a=1,mock-a=1", id="repeat"),
+        pytest.param("mock-a=2", id="rate_above_1"),
+        pytest.param("mock-a=1@1+0", id="duration_of_0"),
+        pytest.param(f"mock-a=1@{OVERFLOWS}+30", id="overflow"),
+    ],
+)
+def test_parse_faults_logs_nothing_when_it_refuses_a_value(
+    caplog: pytest.LogCaptureFixture, value: str
+) -> None:
+    config = _quiet(caplog)
+    with pytest.raises(ConfigError):
+        _parse_faults({VARIABLE: value}, config)
+    assert caplog.records == []
 
 
 # build_router (D-064)
@@ -1079,6 +1246,23 @@ async def test_build_router_passes_its_clock_to_the_mock_instances() -> None:
     assert await _fails(primary.adapter) is True
     clock.advance(5.0)
     assert await _fails(primary.adapter) is False
+
+
+@pytest.mark.asyncio
+async def test_build_router_without_a_clock_uses_the_monotonic_clock_and_not_wall_time(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # None means the defaults of D-050 and D-064, `time.monotonic`. A wall clock jumps.
+    monotonic = FakeClock()
+    wall = FakeClock(1793826000.0)
+    monkeypatch.setattr(time, "monotonic", monotonic)
+    monkeypatch.setattr(time, "time", wall)
+    environ = {VARIABLE: "mock-primary=1.0@10+5"}
+    router: Any = build_router(parse_config(_two_mocks()), environ, sleep=RecordingSleep())
+    primary = router.select(ALIAS)
+    assert await _fails(primary.adapter) is False
+    monotonic.advance(10.0)
+    assert await _fails(primary.adapter) is True
 
 
 @pytest.mark.asyncio
@@ -1506,6 +1690,25 @@ def test_startup_with_a_bad_value_fails_cleanly(value: str, hidden: tuple[str, .
         assert text not in result.stdout
 
 
+@pytest.mark.parametrize(
+    "value",
+    [
+        pytest.param(MARKER, id="shape"),
+        pytest.param(f"{MARKER}=1", id="unknown_instance"),
+        pytest.param("mock=1,mock=1", id="repeat"),
+        pytest.param("mock=2", id="rate_above_1"),
+        pytest.param("mock=1@1+0", id="duration_of_0"),
+        pytest.param("mock=1,nobody=1", id="second_entry"),
+    ],
+)
+def test_startup_with_a_bad_value_prints_exactly_the_prefix_and_the_message(value: str) -> None:
+    # FLOW.md: `llmgateway: configuration error: <message>`, and nothing around it.
+    message = str(_error(value, DEFAULT_CONFIG))
+    result = _import_main(_env(LLMGATEWAY_FAULTS=value))
+    assert result.stderr == f"{PREFIX} {message}\n"
+    assert result.stdout == ""
+
+
 def test_startup_with_a_real_instance_named_fails_cleanly_with_no_key_shown(
     tmp_path: Path,
 ) -> None:
@@ -1588,8 +1791,14 @@ SECRETS = (ANTHROPIC_KEY, GEMINI_KEY, PROMPT_MARKER, SYSTEM_MARKER)
 def watched(
     caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
 ) -> pytest.LogCaptureFixture:
-    """Captures every level, with both keys in the environment as in production."""
+    """Captures every level, with both keys in the environment as in production.
+
+    `llmgateway` is set as well as the root, as a second guard on what conftest.py
+    already ensures: a level on that logger would stop the root's reaching its children,
+    and a leak at DEBUG would pass here unseen.
+    """
     caplog.set_level(logging.DEBUG)
+    caplog.set_level(logging.DEBUG, logger="llmgateway")
     monkeypatch.setenv("ANTHROPIC_API_KEY", ANTHROPIC_KEY)
     monkeypatch.setenv("GEMINI_API_KEY", GEMINI_KEY)
     return caplog
@@ -1599,6 +1808,14 @@ def _written(caplog: pytest.LogCaptureFixture) -> str:
     # caplog.text has each formatted line and any traceback. A record's fields hold what
     # the message does not show, such as `extra`, which a structured handler would write.
     return caplog.text + "".join(str(vars(record)) for record in caplog.records)
+
+
+def test_watched_sees_a_debug_line_on_a_child_logger_after_main_was_imported(
+    router_from_env: RouterFromEnv, watched: pytest.LogCaptureFixture
+) -> None:
+    # `router_from_env` has imported llmgateway.main, which is what used to hide this.
+    logging.getLogger("llmgateway.any.child").debug("seen-marker")
+    assert "seen-marker" in _written(watched)
 
 
 async def _injected_message() -> str:

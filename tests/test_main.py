@@ -18,6 +18,7 @@ by hand.
 
 import importlib
 import json
+import logging
 import os
 import subprocess
 import sys
@@ -261,6 +262,42 @@ def test_router_from_env_with_the_committed_mock_fallback_toml(
     ]
 
 
+# The logging level under test, whatever imported llmgateway.main first (conftest.py)
+
+
+def _first_import_of_main(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Imports main as a test that is the first to do so would, after its fixtures."""
+    for name in ("LLMGATEWAY_PROVIDER", "LLMGATEWAY_CONFIG", "LLMGATEWAY_FAULTS"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.delitem(sys.modules, "llmgateway.main", raising=False)
+    importlib.import_module("llmgateway.main")
+
+
+def test_a_first_import_of_main_during_a_test_sets_no_level_on_the_gateway_logger(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _first_import_of_main(monkeypatch)
+    assert logging.getLogger("llmgateway").level == logging.NOTSET
+
+
+def test_a_root_level_set_before_main_is_imported_still_reaches_a_gateway_logger(
+    caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    caplog.set_level(logging.DEBUG)
+    _first_import_of_main(monkeypatch)
+    logging.getLogger("llmgateway.any.child").debug("seen-after-import")
+    assert "seen-after-import" in caplog.text
+
+
+def test_a_root_level_set_after_main_is_imported_still_reaches_a_gateway_logger(
+    caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _first_import_of_main(monkeypatch)
+    caplog.set_level(logging.DEBUG)
+    logging.getLogger("llmgateway.any.child").debug("seen-after-level")
+    assert "seen-after-level" in caplog.text
+
+
 # The real startup path, in a subprocess
 
 STARTUP_VARS = (
@@ -332,6 +369,28 @@ def _assert_clean_failure(
     for value in hidden:
         assert value not in result.stderr
         assert value not in result.stdout
+
+
+# conftest.py keeps this from happening under pytest; a real process is not affected.
+LOGGER_PROBE = """
+import logging
+import llmgateway.main
+logger = logging.getLogger("llmgateway")
+print(logger.level, [type(h).__name__ for h in logger.handlers])
+"""
+
+
+def test_a_real_startup_still_sets_the_gateway_logger_to_info_with_its_handler() -> None:
+    # LOGGER_PROBE is the fixed script above, not outside input.
+    result = subprocess.run(  # noqa: S603
+        [sys.executable, "-c", LOGGER_PROBE],
+        env=_env(),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == f"{logging.INFO} ['StreamHandler']"
 
 
 def test_startup_with_invalid_toml_fails_cleanly(tmp_path: Path) -> None:

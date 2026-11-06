@@ -94,6 +94,7 @@ ADAPTER_MESSAGE = "adapter-message-marker"
 PROVIDER_TEXT = "provider-error-text-marker"
 ANTHROPIC_KEY = "sk-ant-fallback-test-key-marker"
 GEMINI_KEY = "gemini-fallback-test-key-marker"
+STOP_MARKER = "secret-stop-sequence-marker"
 
 COOLDOWN = 30.0
 CLOCK_START = 100.0
@@ -1406,6 +1407,72 @@ async def test_all_refused_with_three_entries_finds_the_smallest_in_the_middle()
     with pytest.raises(ProviderCircuitOpen) as info:
         await gateway.serve()
     assert info.value.retry_after_seconds == 18.0
+
+
+@pytest.fixture
+def refusals(monkeypatch: pytest.MonkeyPatch) -> list[ProviderCircuitOpen]:
+    """Every refusal the router builds, in order, so a test can ask for the very object."""
+    built: list[ProviderCircuitOpen] = []
+
+    class Recorded(ProviderCircuitOpen):
+        def __init__(self, message: str, *, retry_after_seconds: float | None = None) -> None:
+            super().__init__(message, retry_after_seconds=retry_after_seconds)
+            built.append(self)
+
+    monkeypatch.setattr(_router_module(), "ProviderCircuitOpen", Recorded)
+    return built
+
+
+@pytest.mark.parametrize(
+    ("order", "index"),
+    [
+        pytest.param((FIRST, SECOND), 0, id="smaller_on_the_first_entry"),
+        pytest.param((SECOND, FIRST), 1, id="smaller_on_the_last_entry"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_all_refused_raises_the_entrys_own_refusal_and_builds_no_other(
+    refusals: list[ProviderCircuitOpen], order: tuple[Entry, Entry], index: int
+) -> None:
+    gateway = _all_refused(ScriptedAdapter(RESULT), ScriptedAdapter(RESULT))
+    gateway.trip(order[0])
+    gateway.clock.advance(10.0)
+    gateway.trip(order[1])
+    with pytest.raises(ProviderCircuitOpen) as info:
+        await gateway.serve()
+    assert len(refusals) == 2
+    assert info.value is refusals[index]
+
+
+@pytest.mark.asyncio
+async def test_a_skipped_entry_is_not_a_refusal(refusals: list[ProviderCircuitOpen]) -> None:
+    # A skip made no breaker check, so the client gets the one refusal that happened.
+    gateway = Gateway(
+        ScriptedAdapter(RESULT),
+        ScriptedAdapter(RESULT),
+        retry=_reserve(100.0),
+        breaker_policy=_tripwire(),
+    )
+    gateway.take_probe(SECOND)
+    with pytest.raises(ProviderCircuitOpen) as info:
+        await gateway.serve()
+    assert refusals == [info.value]
+
+
+@pytest.mark.asyncio
+async def test_a_real_retry_after_beats_none_however_long_it_is() -> None:
+    # None is used only when all are None (D-060), so no finite stand-in will do.
+    cooldown = 2e9
+    gateway = Gateway(
+        ScriptedAdapter(RESULT),
+        ScriptedAdapter(RESULT),
+        breaker_policy=BreakerPolicy(window_size=1, failure_threshold=1, cooldown=cooldown),
+    )
+    gateway.take_probe(FIRST)
+    gateway.trip(SECOND)
+    with pytest.raises(ProviderCircuitOpen) as info:
+        await gateway.serve()
+    assert info.value.retry_after_seconds == cooldown
 
 
 @pytest.mark.parametrize(
@@ -3511,9 +3578,15 @@ class Upstream:
         self.body = body
         self.headers = headers
         self.requests: list[httpx.Request] = []
+        self.on_request: Callable[[], None] | None = None
+        self.error: Exception | None = None
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
         self.requests.append(request)
+        if self.on_request is not None:
+            self.on_request()
+        if self.error is not None:
+            raise self.error
         if isinstance(self.body, bytes):
             return httpx.Response(self.status, content=self.body, headers=self.headers)
         return httpx.Response(self.status, json=self.body, headers=self.headers)
@@ -3671,6 +3744,7 @@ SECRETS = (
     RESPONSE_MARKER,
     PROVIDER_TEXT,
     ADAPTER_MESSAGE,
+    STOP_MARKER,
 )
 ADAPTER_MESSAGE_PREFIXES = ("claude:", "gemini:")
 
@@ -3679,8 +3753,13 @@ ADAPTER_MESSAGE_PREFIXES = ("claude:", "gemini:")
 def watched(
     caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
 ) -> pytest.LogCaptureFixture:
-    """Captures every level, with both keys in the environment as in production."""
+    """Captures every level, with both keys in the environment as in production.
+
+    `llmgateway` is set as well as the root, as a second guard on what conftest.py
+    already ensures: a level on that logger would stop the root's reaching its children.
+    """
     caplog.set_level(logging.DEBUG)
+    caplog.set_level(logging.DEBUG, logger="llmgateway")
     monkeypatch.setenv("ANTHROPIC_API_KEY", ANTHROPIC_KEY)
     monkeypatch.setenv("GEMINI_API_KEY", GEMINI_KEY)
     return caplog
@@ -3692,14 +3771,26 @@ def _assert_nothing_leaked(caplog: pytest.LogCaptureFixture) -> None:
     written = caplog.text + "".join(str(vars(record)) for record in caplog.records)
     for marker in SECRETS:
         assert marker not in written
-    for line in _fallback_lines(caplog):
-        for prefix in ADAPTER_MESSAGE_PREFIXES:
-            assert prefix not in line
+    # A real adapter's messages start this way; ADAPTER_MESSAGE only comes from fakes.
+    for prefix in ADAPTER_MESSAGE_PREFIXES:
+        assert prefix not in written
+
+
+def _assert_nothing_in_the_body(connection: "Connection") -> None:
+    # Before any exact comparison, so a leak is named as one.
+    body = json.dumps(connection.json())
+    for marker in (*SECRETS, *ADAPTER_MESSAGE_PREFIXES):
+        assert marker not in body
 
 
 def _full_request() -> ChatRequest:
     """A request with every part that must stay out of the logs, the system prompt too."""
-    return _request(system=SYSTEM_MARKER)
+    return _request(system=SYSTEM_MARKER, stop=[STOP_MARKER])
+
+
+def _full_body() -> dict[str, Any]:
+    """The same request, as a client sends it."""
+    return _chat_body(system=SYSTEM_MARKER, stop=[STOP_MARKER])
 
 
 async def _serve_fully(gateway: Gateway, **kwargs: Any) -> None:
@@ -3758,6 +3849,122 @@ async def test_a_stop_for_a_client_that_left_leaks_nothing(
     await _serve_fully(gateway, is_disconnected=Client(True))
     _assert_nothing_leaked(watched)
     assert len(_router_lines(watched)) == 1
+
+
+@pytest.mark.asyncio
+async def test_a_stop_before_a_retry_leaks_nothing(watched: pytest.LogCaptureFixture) -> None:
+    gateway = Gateway(ScriptedAdapter(_unavailable()), ScriptedAdapter(RESULT), retry=DYADIC)
+    await _serve_fully(gateway, is_disconnected=Client(True))
+    _assert_nothing_leaked(watched)
+    assert len(_router_lines(watched)) == 1
+
+
+@pytest.mark.parametrize("make_error", MOVES)
+@pytest.mark.asyncio
+async def test_app_a_499_before_a_move_leaks_nothing_whatever_failure_came_first(
+    watched: pytest.LogCaptureFixture, make_error: ProviderErrorFactory
+) -> None:
+    connection = Connection(_full_body())
+    first = ScriptedAdapter(make_error())
+    first.on_call = connection.gone.set
+    gateway = Gateway(first, ScriptedAdapter(RESULT))
+    await connection.post(create_app(router=gateway.router))
+    assert connection.status == 499
+    _assert_nothing_in_the_body(connection)
+    _assert_nothing_leaked(watched)
+
+
+@pytest.mark.asyncio
+async def test_app_a_499_before_a_retry_leaks_nothing(watched: pytest.LogCaptureFixture) -> None:
+    connection = Connection(_full_body())
+    first = ScriptedAdapter(_unavailable())
+    first.on_call = connection.gone.set
+    gateway = Gateway(first, ScriptedAdapter(RESULT), retry=DYADIC)
+    await connection.post(create_app(router=gateway.router))
+    assert connection.status == 499
+    _assert_nothing_in_the_body(connection)
+    _assert_nothing_leaked(watched)
+
+
+@pytest.mark.asyncio
+async def test_app_a_499_after_a_refusal_leaks_nothing(watched: pytest.LogCaptureFixture) -> None:
+    connection = Connection(_full_body())
+    connection.gone.set()
+    gateway = Gateway(ScriptedAdapter(RESULT), ScriptedAdapter(RESULT), breaker_policy=_tripwire())
+    gateway.trip(FIRST)
+    await connection.post(create_app(router=gateway.router))
+    assert connection.status == 499
+    _assert_nothing_in_the_body(connection)
+    _assert_nothing_leaked(watched)
+
+
+@pytest.mark.parametrize(
+    "order", [_claude_then_gemini, _gemini_then_claude], ids=["from_claude", "from_gemini"]
+)
+@pytest.mark.parametrize("retry", [ONE_ATTEMPT, DYADIC], ids=["before_a_move", "before_a_retry"])
+@pytest.mark.asyncio
+async def test_app_a_499_after_a_real_adapter_failure_tells_the_client_nothing_it_should_not(
+    watched: pytest.LogCaptureFixture, order: Any, retry: RetryPolicy
+) -> None:
+    connection = Connection(_full_body())
+    failing, healthy = Upstream(500, PROVIDER_ERROR_BODY), Upstream(200, _claude_ok())
+    failing.on_request = connection.gone.set
+    async with order(failing, healthy, retry=retry) as gateway:
+        await connection.post(create_app(router=gateway.router))
+    assert connection.status == 499
+    _assert_nothing_in_the_body(connection)
+    assert connection.json() == {
+        "error": {
+            "code": "client_disconnected",
+            "message": "The client disconnected.",
+            "request_id": connection.header("x-request-id"),
+        }
+    }
+    assert healthy.requests == []
+    _assert_nothing_leaked(watched)
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        pytest.param(httpx.ReadTimeout(PROVIDER_TEXT), id="timeout"),
+        pytest.param(httpx.ConnectError(PROVIDER_TEXT), id="connection"),
+    ],
+)
+@pytest.mark.parametrize(
+    "order", [_claude_then_gemini, _gemini_then_claude], ids=["from_claude", "from_gemini"]
+)
+@pytest.mark.asyncio
+async def test_a_real_adapter_transport_failure_that_moves_leaks_nothing(
+    watched: pytest.LogCaptureFixture, order: Any, error: Exception
+) -> None:
+    failing = Upstream(200, _claude_ok())
+    failing.error = error
+    healthy = Upstream(200, _gemini_ok() if order is _claude_then_gemini else _claude_ok())
+    async with order(failing, healthy) as gateway:
+        await _serve_fully(gateway)
+    assert len(healthy.requests) == 1
+    _assert_nothing_leaked(watched)
+    assert len(_fallback_lines(watched)) == 1
+
+
+@pytest.mark.parametrize(
+    "order", [_claude_then_gemini, _gemini_then_claude], ids=["from_claude", "from_gemini"]
+)
+@pytest.mark.asyncio
+async def test_a_refusal_of_a_real_adapter_that_moves_leaks_nothing(
+    watched: pytest.LogCaptureFixture, order: Any
+) -> None:
+    first = Upstream(200, _gemini_ok())
+    healthy = Upstream(200, _gemini_ok() if order is _claude_then_gemini else _claude_ok())
+    async with order(first, healthy, breaker_policy=_tripwire()) as gateway:
+        route = gateway.routes[0]
+        gateway.trip(Entry(route.provider, route.model))
+        await _serve_fully(gateway)
+    assert first.requests == []
+    assert len(healthy.requests) == 1
+    _assert_nothing_leaked(watched)
+    assert len(_fallback_lines(watched)) == 1
 
 
 @pytest.mark.parametrize(
@@ -3829,7 +4036,7 @@ async def test_a_fallback_through_the_app_leaks_neither_the_prompt_nor_the_answe
 ) -> None:
     gateway = Gateway(ScriptedAdapter(_unavailable()), ScriptedAdapter(RESULT))
     async with _client(gateway) as client:
-        response = await client.post("/v1/chat", json=_chat_body(system=SYSTEM_MARKER))
+        response = await client.post("/v1/chat", json=_full_body())
     assert response.status_code == 200
     assert response.json()["content"] == RESPONSE_MARKER
     _assert_nothing_leaked(watched)
