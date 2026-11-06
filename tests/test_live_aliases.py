@@ -5,10 +5,11 @@ marked Stable on Google's models page, but D-039 records that some models launch
 only on the Interactions API. This sends one real request per Gemini entry,
 read from the committed file so the test follows the file.
 
-Until M11, an alias only uses its first entry, so each entry is sent through its
-own one-entry alias; the request still goes through the config, the router and
-the app. Excluded by default (`-m 'not live'`); the owner runs it with
-`uv run pytest -m live` and GEMINI_API_KEY set. It costs a few tokens per model.
+An alias falls back down its list (D-060), so an answer would not show which entry
+gave it. Each entry is sent through its own one-entry alias instead; the request
+still goes through the config, the router and the app. Excluded by default
+(`-m 'not live'`); the owner runs it with `uv run pytest -m live` and GEMINI_API_KEY
+set. It costs a few tokens per model.
 
 Owner exception to CLAUDE.md's cheapest-models rule: this test also sends
 `gemini-3.6-flash` (`smart`'s second entry), directly through a one-entry alias,

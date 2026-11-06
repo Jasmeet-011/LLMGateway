@@ -1862,18 +1862,18 @@ First run: 2350 of 2351 passed. `test_each_rule_has_its_own_message` failed, fai
 - a connected client: three `attempt_failed` lines, one `fallback_taken`, then 200 with `provider_instance` `mock-secondary`;
 - a client that closed the socket right after sending: one `attempt_failed`, then the request line with `status=499`, with no second attempt and no `fallback_taken`.
 
-**Mutation checks (tester, Mode 2).** 823 mutations in three scratch clones at e002034, none left applied: 354 behavioral, 441 leak mutants in the catalog from the start, then 28 added. The builder recounted the table and the raw records independently: 823 distinct IDs in both, 994 mutation records, 41 pristine control runs with 0 failed, no row unreverted, none hung. A limit now reports `hung` and never `caught`.
+**Mutation checks (tester, Mode 2).** 840 mutations in scratch clones at e002034's `src/`, none left applied: 354 behavioral, 441 leak mutants in the catalog from the start, then 45 added, 17 of them in `main.py` after review round 1. The builder recounted the table and the raw records independently: 840 distinct IDs in both, 1011 mutation records, 49 pristine control runs with 0 failed, no row unreverted, none hung. A limit now reports `hung` and never `caught`.
 
 | Result | Mutants |
 | --- | --- |
 | Caught on the first pass | 690 |
 | Survived the first pass, caught after a new test | 102 |
 | Caught only by the full suite at first, then by a new test | 2 (L329, L331) |
-| Added batches, all caught: 19 for the stub cases, 8 for the logger and D-064 | 27 |
-| Equivalent, rerun against the final tests and still surviving | 2 (K046, K083) |
-| Uncaught | 0 |
+| Added batches, all caught: 19 for the stub cases, 8 for the logger and D-064, 13 in `main.py` | 40 |
+| Equivalent, rerun against the final tests and still surviving | 4 (K046, K083, M015, M016) |
+| Uncaught, by decision (D-065) | 2 (M013, M014) |
 | Hung | 0 |
-| **Total** | **823** |
+| **Total** | **840** |
 
 | File | Total | First pass | New test | Added batch | Equivalent |
 | --- | --- | --- | --- | --- | --- |
@@ -1883,10 +1883,13 @@ First run: 2350 of 2351 passed. `test_each_rule_has_its_own_message` failed, fai
 | `config.py` | 70 | 62 | 6 | 2 | 0 |
 | `schema.py` | 11 | 8 | 0 | 3 | 0 |
 | Leak mutants (several files) | 449 | 347 | 94 | 8 | 0 |
+| `main.py` (2 more uncaught) | 17 | 0 | 0 | 13 | 2 |
 
 Equivalents:
 - K046: `_fault_origin` is read only in `_current_rate`, which returns first when `fault` is None, so the only change is one more call to the clock, with its value discarded.
 - K083: `_current_rate` is called only from `complete`, which sets the origin first whenever `fault` is set, so the branch cannot be reached. The guard exists for mypy.
+- M015: the logger stops propagating. The root has no handlers under real uvicorn (measured), and nothing in `src/` adds any, so propagation has no receiver.
+- M016: the same handler added twice. `Logger.addHandler` ignores a handler already attached, so this changes nothing; M017 is the mutant that was meant, a second handler, and it is caught.
 
 No mutant exposed a defect in `src/`: every leak existed only under a mutation. `src/` has not changed since e002034.
 
@@ -1919,9 +1922,22 @@ So `test_retries.py`'s leak checks were blind to DEBUG lines in normal order, an
 
 **The 59 weaker catches.** 59 leak mutants had first failed only through exact-line or response-equality tests, the pattern M10 warned about. Rerun against the final tests, all 59 are caught by a leak-purpose test: 51 by a test named `leak` or `echo`, and 8 by `test_a_startup_error..._writes_no_value_to_any_logger_or_stream`. The builder's list of IDs and the tester's matched both ways.
 
-**New tests.** `tests/test_fallback.py` 195 functions, 446 cases; `tests/test_faults.py` 104 and 350; `tests/test_main.py` 29 and 51. No test function removed, and no skip or xfail added. The 9 lines removed from `tests/` are the old forms of strengthened lines, docstrings and an import.
+**New tests.** `tests/test_fallback.py` 195 functions, 446 cases; `tests/test_faults.py` 104 and 350; `tests/test_main.py` 30 and 52. No test function removed, and no skip or xfail added. The 9 lines removed from `tests/` are the old forms of strengthened lines, docstrings and an import.
 
 `.\scripts\check.ps1` with these tests: PASS, 2478 passed, 5 deselected in 34.49 s; `ruff check` all checks passed; 39 files already formatted; mypy no issues in 30 source files.
+
+**Review, round 1.** **FAIL**, 3 BLOCKING, all documentation, 4 SHOULD FIX, 6 notes. check.ps1 PASS for the reviewer (2478 passed, 5 deselected). It found no defect in `src/`, and confirmed the code against D-060 to D-064, the security rules on every new path, the test-first evidence, and the mutation count from the raw records, with K046 and K083 really equivalent and no false catch.
+- BLOCKING, fixed in 32bd8d9: README.md still said only an alias's first entry is used; README.md said up to 3 real calls per request, when attempts are per entry, so 6 for the two-entry aliases in `config/providers.toml`; FLOW.md did not have `provider_instance` at all, though CLAUDE.md says the D-entry and FLOW.md change together.
+- SHOULD FIX, fixed in 32bd8d9: FLOW.md's diagram, retry rules and error table still described the time before fallback; `.env.example` did not list `LLMGATEWAY_FAULTS`; the `NullHandler` had no D-entry, now D-065.
+- SHOULD FIX, fixed by the tester: the subprocess pin had never been shown failing, the catalog had no `main.py` mutant, and no suite test proved an INFO line reaches stderr in a real process. `test_a_real_server_writes_the_info_request_line_to_stderr` runs a real server on a real socket, mocks only, with no sleeps. 17 `main.py` mutants: the handler removed or broken and the level broken fail both tests. M007 (handler writes to stdout) and M008 (handler at WARNING) fail only the new test: the handler and level were right and the pin passed, while the line never reached stderr. So the reviewer's concern was real.
+- Notes, fixed: stale comments in `tests/test_schema.py` and `tests/test_live_aliases.py`, comment-only by AST comparison; 137 calls is 138 at 4d2943e; survivors with no named cause now say so; D-064 says "log line", and its Risk records that a fault on a mock ahead of a real provider adds billed calls.
+- Note, left: `router.py`'s `min(refusals, ...)` would raise a bare `ValueError` if every entry were skipped with nothing tried. That needs the last entry's `clock() >= deadline` straight after the deadline is set, so a near-zero `total_timeout` or a clock jump, and the defaults cannot reach it. Not changed, since `src/` stays as reviewed.
+
+**M013 and M014, uncaught by decision.** The formatter removed, and the time dropped from the format. These are not equivalent: the output differs. The builder left them uncaught and said why in D-065: the prefix is for reading by eye, and `breaker_state_change`, which measurement 8 reads by time, carries its own `ts` (D-059). Pinning it would make a cosmetic format part of the contract.
+
+**Slow suite.** The tester saw two suite runs of about 176 s and 184 s last night. The System log has Kernel-Power 506 (entering standby) at 22:06:56 on 2026-11-05 and 507 (exit) at 09:49:29 on 2026-11-06, and both runs and the `main.py` mutant runs fall inside it. Awake, the same suite took 53.08 s for the tester and 46.00 s in check.ps1. That is correlation and timing, not a proven mechanism. The new test costs about 1.7 s per run awake, and is not the outlier among the subprocess tests.
+
+`.\scripts\check.ps1` after these changes: PASS, 2479 passed, 5 deselected in 46.00 s; `ruff check` all checks passed; 39 files already formatted; mypy no issues in 30 source files.
 
 M11 mutation table. Rows L442 and L443 count the targeted M11 files only; the logger table above has the full-suite counts.
 
@@ -2750,6 +2766,23 @@ M11 mutation table. Rows L442 and L443 count the targeted M11 files only; the lo
 | L447 | parse_faults: a refusal writes a line with no value in it | config.py | test_parse_faults_logs_nothing_when_it_refuses_a_value[repeat] (1) | yes |
 | L448 | parse_faults: a blank value writes a line | config.py | test_parse_faults_logs_nothing_when_it_refuses_a_value[blank] (1) | yes |
 | L449 | parse_faults: a bad window writes a line on the router logger | config.py | test_parse_faults_logs_nothing_when_it_refuses_a_value[rate_above_1] (3) | yes |
+| M001 | the handler is not added | main.py | test_a_real_startup_still_sets_the_gateway_logger_to_info_with_its_handler (2) | yes |
+| M002 | the INFO level is not set | main.py | test_a_real_startup_still_sets_the_gateway_logger_to_info_with_its_handler (2) | yes |
+| M003 | level WARNING | main.py | test_a_real_startup_still_sets_the_gateway_logger_to_info_with_its_handler (2) | yes |
+| M004 | level ERROR | main.py | test_a_real_startup_still_sets_the_gateway_logger_to_info_with_its_handler (3) | yes |
+| M005 | level DEBUG | main.py | test_a_real_startup_still_sets_the_gateway_logger_to_info_with_its_handler (1) | yes |
+| M006 | a NullHandler in place of the stream handler | main.py | test_a_real_startup_still_sets_the_gateway_logger_to_info_with_its_handler (3) | yes |
+| M007 | the handler writes to stdout | main.py | test_a_real_server_writes_the_info_request_line_to_stderr (2) | yes |
+| M008 | the handler itself is at WARNING | main.py | test_a_real_server_writes_the_info_request_line_to_stderr (1) | yes |
+| M009 | the condition inverted | main.py | test_a_first_import_of_main_during_a_test_sets_no_level_on_the_gateway_logger (5) | yes |
+| M010 | the condition removed: the level is always set | main.py | test_a_first_import_of_main_during_a_test_sets_no_level_on_the_gateway_logger (3) | yes |
+| M011 | the handler goes on another logger | main.py | test_a_real_startup_still_sets_the_gateway_logger_to_info_with_its_handler (2) | yes |
+| M012 | the level and handler go on the request logger only | main.py | test_a_real_startup_still_sets_the_gateway_logger_to_info_with_its_handler (1) | yes |
+| M013 | the formatter is removed | main.py | uncaught: survived | yes |
+| M014 | the format drops the time | main.py | uncaught: survived | yes |
+| M015 | the logger stops propagating | main.py | none: equivalent | yes |
+| M016 | the handler is added twice | main.py | none: equivalent | yes |
+| M017 | a second stream handler: every line is written twice | main.py | test_a_real_startup_still_sets_the_gateway_logger_to_info_with_its_handler (2) | yes |
 
 ## Agent Mistakes Log
 
@@ -2806,3 +2839,8 @@ Rows are taken only from what the git history and DECISIONS.md record. Where the
 | 2026-11-05 | M11: the tester provisionally classed C009 and C011 as equivalent. They were not: startup stops either way, but the message names the wrong rule. | The tester, rereading D-064 during triage. | A test for each. |
 | 2026-11-05 | M11: the tester's bash heredocs broke twice more, one on quoting and one corrupting `mutate.py` (the M8 and M10 mistake again), and its first Mode 1 mutation run never started and exited 0 from a trailing `grep`. In Mode 2, R247 had a bad indent, R269's description was wrong (corrected in the table, kept in the raw records), and one new test first failed mypy. | The tester's own review and the harness's compile check. | Scripts written with the Write tool, the run's result read from its records, and each item fixed before the rerun. |
 | 2026-11-05 | M11: after the logger proof runs the tester edited three test docstrings or comments. The scratch-clone runs were not repeated for that. | The tester's report. | The real repo was rerun afterward: 2478 passed. |
+| 2026-11-05 | M11: the builder's docs missed the schema change and old behavior. README.md kept "only the first entry" and "up to 3 times per request", which understates real, billed calls; FLOW.md had no `provider_instance`, against CLAUDE.md's rule that the D-entry and FLOW.md change together; FLOW.md's diagram, retry rules and error table still described the time before fallback; `.env.example` missed `LLMGATEWAY_FAULTS`. The builder's M11 doc pass edited only the lines it searched for by "M11". | Reviewer, round 1, 3 BLOCKING and 1 SHOULD FIX. | Fixed in 32bd8d9. |
+| 2026-11-05 | M11: the builder put a test-environment change into `tests/conftest.py` with no D-entry, and first wrote D-065's Revisit line calling M15 metrics, when M15 is token and cost accounting. The session log also said 10 lines were removed from `tests/`, when 9 were. | The reviewer for the D-entry; the builder for the other two, checking PLAN.md and the diff. | D-065 added and its line fixed; count corrected in 4d2943e. |
+| 2026-11-05 | M11: the tester's catalog had no `main.py` mutant, though the conftest change depended on that file, so the pin that made it safe was never shown failing. M016 was a poor mutant: `addHandler` ignores a handler already attached. | Reviewer, round 1, for the first; M016's survival for the second. | 17 `main.py` mutants and a real-server test; M017 replaces M016. |
+| 2026-11-06 | M11: the tester's `table.txt` and raw file lagged its last run and were missing M017, and a harness run reported early, with one clone still running, so its first read had 15 of 16 rows. A comment edit also went over the line limit. | The builder from the file times; the tester from clone 1's dirty `src/`; ruff. | Both files rebuilt and recounted by the builder: 840 rows; the comment fixed before any run. |
+| 2026-11-05 | M11 review: the reviewer again went past its role's Bash limit, the same mistake as M10: `git status`, `ls`, `wc`, `head`, and output piped through `tail`, `cut` and `cat`, after saying it would stop. Reads only, no tracked file changed. | The reviewer disclosed it in its own report. | Round 2's brief states the limit. |

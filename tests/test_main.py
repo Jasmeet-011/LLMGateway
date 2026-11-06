@@ -393,6 +393,59 @@ def test_a_real_startup_still_sets_the_gateway_logger_to_info_with_its_handler()
     assert result.stdout.strip() == f"{logging.INFO} ['StreamHandler']"
 
 
+# A real uvicorn server in the child, on a real socket, with the built-in mock config.
+# The child ends itself, so the parent only waits for its output to end: a request line
+# that never comes makes the assertion fail instead of leaving a reader blocked. The
+# spin yields until the server is up, and uvicorn waits for the request to finish before
+# `serve` returns, so the line is written before the child exits, however slow the host.
+SERVER_PROBE = """
+import asyncio
+
+import httpx
+import uvicorn
+
+
+async def probe():
+    config = uvicorn.Config("llmgateway.main:app", host="127.0.0.1", port=0)
+    server = uvicorn.Server(config)
+    serving = asyncio.ensure_future(server.serve())
+    while not server.started and not serving.done():
+        await asyncio.sleep(0)
+    if serving.done():
+        raise SystemExit("the server did not start")
+    port = server.servers[0].sockets[0].getsockname()[1]
+    body = {"model": "mock", "messages": [{"role": "user", "content": "hi"}], "max_tokens": 8}
+    async with httpx.AsyncClient(base_url=f"http://127.0.0.1:{port}") as client:
+        response = await client.post("/v1/chat", json=body)
+    server.should_exit = True
+    await serving
+    print(response.status_code, response.headers["x-request-id"])
+
+
+asyncio.run(probe())
+"""
+
+
+def test_a_real_server_writes_the_info_request_line_to_stderr() -> None:
+    # The reason main.py has a handler: uvicorn configures only its own loggers (D-026).
+    # A WARNING line proves nothing here, because logging.lastResort would print it.
+    # SERVER_PROBE is the fixed script above, not outside input.
+    result = subprocess.run(  # noqa: S603
+        [sys.executable, "-c", SERVER_PROBE],
+        env=_env(),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    status, request_id = result.stdout.strip().splitlines()[-1].split()
+    assert status == "200"
+    lines = [line for line in result.stderr.splitlines() if f"request_id={request_id}" in line]
+    assert len(lines) == 1, result.stderr
+    assert "provider=mock model='mock' status=200 latency_ms=" in lines[0]
+    assert lines[0].endswith(" provider_model='mock-1'")
+
+
 def test_startup_with_invalid_toml_fails_cleanly(tmp_path: Path) -> None:
     path = _write(tmp_path / MARKER, f'[providers.m]\ntype = "{MARKER}\n')
     result = _import_main(_env(LLMGATEWAY_CONFIG=str(path)))

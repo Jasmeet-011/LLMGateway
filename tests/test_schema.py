@@ -243,7 +243,7 @@ def test_stream_json_bool_accepted_json_string_rejected() -> None:
 
 
 def test_response_json_round_trip() -> None:
-    # Through **extras until the field exists, so mypy accepts this file before M11.
+    # Through **extras, as written before the field existed (D-063); it changes nothing.
     extras: dict[str, Any] = {"provider_instance": "mock"}
     resp = ChatResponse(
         id="r1",
