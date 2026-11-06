@@ -78,7 +78,7 @@ Why each check sits where it does:
 
 ## 5. Router flow
 
-The router tries the entries of the requested alias in order (D-010). Each entry is a (provider instance, provider model) pair from the config (D-044). The adapter gets a copy of the request whose `model` is the entry's provider model, and the response reports that provider model and the instance's provider type (D-045). Errors are classified by their `retryable` flag (D-014). `Router.serve` runs this for non-streaming requests; streams get the pre-first-byte rule in M12.
+The router tries the entries of the requested alias in order (D-010). Each entry is a (provider instance, provider model) pair from the config (D-044). The adapter gets a copy of the request whose `model` is the entry's provider model, and the response reports that provider model, the instance's provider type (D-045) and the instance's name in `provider_instance` (D-063). Errors are classified by their `retryable` flag (D-014). `Router.serve` runs this for non-streaming requests; streams get the pre-first-byte rule in M12.
 
 ```mermaid
 flowchart TD
@@ -91,7 +91,7 @@ flowchart TD
     D -->|no| L[Log the failed attempt]
     L --> E{Retryable and not a billed 2xx}
     E -->|no| Z{Falls back}
-    E -->|yes| F{Attempts left, retry-after at most 5 s, wait ends before the 90 s deadline, breaker not open}
+    E -->|yes| F{Attempts left, retry-after at most 5 s, wait ends before the entry limit, breaker not open}
     F -->|yes| G[Wait: full jitter backoff, at least retry-after]
     G --> CG{Client gone}
     CG -->|no| B
@@ -111,8 +111,8 @@ Retry rules for one entry (D-050 to D-052, `RetryPolicy` defaults):
 - At most 3 attempts. Only a `ProviderError` with `retryable` true is retried; anything else is raised after one attempt, and the router raises the adapter's own exception object when it gives up.
 - Not retried: an error whose provider `status` is 2xx, such as a malformed body, because the provider already billed that generation (D-052); a rate limit whose `retry-after` is over 5 s, which goes to the client as 503 with `Retry-After` (D-051).
 - Wait after failed attempt `n`: `random() * min(2.0, 0.2 * 2 ** (n - 1))` seconds (full jitter), or `retry-after` when that is longer. No wait before the first attempt or after the last.
-- Before every attempt, retries included, the router asks the breaker (D-058). Refused before the first attempt: no adapter call, and the client gets 503 `provider_circuit_open`. Refused before a retry: no further call, and the last failure is raised. If the breaker is open after a failed attempt, there is no wait and no retry, and the line says `retry=no`. `retry=yes` is the intent when the line is written: a breaker that opens during the wait still stops the retry.
-- Each attempt runs under `min(60 s, time left)`; if that fires, the attempt fails with `ProviderTimeout` reason `attempt_timeout` (retryable). The whole call has a 90 s deadline: a retry whose wait would reach it is not made.
+- Before every attempt, retries included, the router asks the breaker (D-058). Refused before the first attempt: no adapter call, and the request moves to the next entry; the client gets 503 `provider_circuit_open` only when every entry refused (D-060). Refused before a retry: no further call, the entry's last failure is raised, and the fallback rules below apply. If the breaker is open after a failed attempt, there is no wait and no retry, and the line says `retry=no`. `retry=yes` is the intent when the line is written: a breaker that opens during the wait still stops the retry.
+- Each attempt runs under `min(60 s, time left)`, where the time left runs to the entry's limit; if that fires, the attempt fails with `ProviderTimeout` reason `attempt_timeout` (retryable). The whole request has one 90 s deadline, and a non-last entry's limit is 30 s before it, so 60 s by default (D-061): a retry whose wait would reach the entry's limit is not made.
 - Every attempt that fails with a `ProviderError` (including the router's own timeout) writes one `attempt_failed` line to `llmgateway.router` at WARNING with the request ID, alias, instance, provider model, attempt number, provider status, reason code, error class and whether it retries (D-054). Nothing in it reaches the client. Any other exception is a bug: it propagates at once, with no router line. Cancellation is neither: an `asyncio.CancelledError` during an attempt or a wait propagates at once, with no further attempt and no router line. A client disconnect does not cancel an attempt in flight, and the router checks for it before each retry and each fallback attempt (D-062).
 
 Fallback rules (D-060 to D-062):
@@ -324,7 +324,7 @@ On success (D-041): the first candidate's text is the concatenation of the `text
 | --- | --- | --- | --- | --- | --- |
 | Mock failure injection, any `failure_type`, from the config or `LLMGATEWAY_FAULTS` (D-064) | the class for that type (D-016) | per class | none, `injected` | per class | per class |
 | The router's per-attempt timeout fires (`min(attempt_timeout, time left)`) | `ProviderTimeout` | yes | none, `attempt_timeout` | 504 | `provider_timeout` |
-| The breaker refuses the first attempt (no adapter call) | `ProviderCircuitOpen` | yes | none, `circuit_open` | 503, with `Retry-After` set to the cooldown left, rounded up; no header during a half-open probe | `provider_circuit_open` |
+| Every entry's breaker refuses its first attempt (no adapter call); a refusal with another entry left moves on instead (D-060) | `ProviderCircuitOpen` | yes | none, `circuit_open` | 503, with `Retry-After` set to the smallest cooldown left, rounded up; no header when every refusal is a half-open probe | `provider_circuit_open` |
 
 ### Gateway errors (`errors.py`, `app.py`)
 
