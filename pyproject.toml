@@ -20,6 +20,7 @@ dev = [
     "mypy==2.4.0",
     "pytest==9.1.1",
     "pytest-asyncio==1.4.0",
+    "pytest-timeout==2.4.0",
     "ruff==0.17.0",
 ]
 
@@ -56,5 +57,7 @@ addopts = "-ra --strict-markers --strict-config -m 'not live'"
 markers = [
     "live: calls a real provider API; needs a key and costs money; excluded by default",
 ]
+# One limit for every test, so a hang ends the run instead of blocking it (D-066).
+timeout = 300
 asyncio_mode = "strict"
 asyncio_default_fixture_loop_scope = "function"

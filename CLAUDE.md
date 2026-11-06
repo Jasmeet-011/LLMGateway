@@ -16,7 +16,7 @@ The bracketed numbers stay as placeholders until `docs/RESULTS.md` has measured 
 ## Start of every session
 
 1. `git status` is clean, the branch is `main`, and `git pull` succeeds. If the tree is not clean, stop and report.
-2. Read `PROGRESS.md` (current milestone, open items), that milestone in `PLAN.md`, and `DECISIONS.md` before any design choice.
+2. Read `PROGRESS.md` (current milestone, open items), that milestone in `PLAN.md`, and, before any design choice, the index at the top of `DECISIONS.md` plus every entry the milestone or the touched code depends on.
 3. `FLOW.md` is the spec for request flow and error mapping. Code must match it; when a decision changes the flow, the D-entry and FLOW.md change together.
 
 ## Stack

@@ -2,6 +2,77 @@
 
 Log of design decisions. Add a new entry after each step; do not rewrite old entries. If a decision is reversed, add a new entry that supersedes it and reference the old ID.
 
+## Index
+
+One line per entry, with what superseded it. A session reads this index plus every entry its milestone or the code it touches depends on, not the whole file. Add a line here with every new entry.
+
+- D-001 Mock provider for tests and load tests
+- D-002 Lua for the rate limiter
+- D-003 Cache only deterministic non-streaming requests; key includes tenant ID
+- D-004 Claude and Gemini only
+- D-005 Tooling and layout: uv, src layout, pinned versions
+- D-006 Unified schema shape
+- D-007 Tuples for request collections
+- D-008 Last message must be from the user
+- D-009 Coercion policy: lax mode, strict `stream`
+- D-010 Model aliases with explicit fallback lists
+- D-011 Gateway-generated response IDs
+- D-012 Cache hits in accounting
+- D-013 Normalize empty `stop` to `None`
+- D-014 Provider error taxonomy with a retryable flag
+- D-015 Non-streaming adapter interface first
+- D-016 Mock provider design
+- D-017 pytest-asyncio for async tests
+- D-018 Order of checks per request
+- D-019 HTTP status mapping
+- D-020 Response ID format and `x-request-id`
+- D-021 Cache-hit header name
+- D-022 First endpoints
+- D-023 Error body
+- D-024 App factory
+- D-025 Known gaps of the first endpoint
+- D-026 Request logging
+- D-027 Temporary: model echoed, one provider (superseded in part by D-036, then by D-044 and D-045)
+- D-028 Web dependencies
+- D-029 Dependency age floor
+- D-030 Maximum length of `model`
+- D-031 Scope for done
+- D-032 Raw httpx for provider calls, not the Anthropic SDK
+- D-033 Claude API version `2026-10-21`; `temperature` and `top_p` rejected in the adapter
+- D-034 Claude adapter timeouts
+- D-035 Classifying Claude failures: 529, malformed bodies, transport errors
+- D-036 Provider selection by environment variable (temporary) (superseded by D-044)
+- D-037 Runtime dependencies: httpx and starlette
+- D-038 Negative `retry_after_seconds` sends `Retry-After: 0`
+- D-039 Gemini endpoint: `generateContent` on `v1beta`, not the Interactions API
+- D-040 Sampling stays in the schema; Gemini passes it through
+- D-041 Classifying Gemini responses and failures
+- D-042 Gemini checks before any network call: model ID and stop sequences
+- D-043 Adapters never follow redirects; undecodable bodies are unavailable
+- D-044 Gateway configuration: a TOML file named by `LLMGATEWAY_CONFIG`
+- D-045 Alias resolution, and what the response reports
+- D-046 The Gemini model-ID check stays in the adapter and also runs at startup
+- D-047 Initial alias lists
+- D-048 Gemini invalid key is an auth error; 402 is an auth error on both adapters
+- D-049 Gemini thinking: the adapter asks for minimal thinking; `max_tokens` does not bound billed output
+- D-050 Router retries: attempts, backoff with full jitter, per-attempt timeout and total deadline
+- D-051 Honoring `retry-after`, with a 5 s cap
+- D-052 No retry after the provider answered with a 2xx
+- D-053 HTTP 408 is a retryable `ProviderUnavailable` on both adapters
+- D-054 Provider errors carry the provider status and a fixed reason; one log line per failed attempt
+- D-055 One in-process circuit breaker per config instance
+- D-056 The breaker counts each attempt; timeouts, unavailable and auth failures count, rate limits and bad requests do not
+- D-057 Trip rule: 15 failures in the last 20 outcomes; 30 s cooldown; one probe
+- D-058 The router checks the breaker before every attempt; a refused request gets 503 `provider_circuit_open`
+- D-059 One log line per breaker state change
+- D-060 Everything but a bad request falls back
+- D-061 One deadline for the whole request; a non-last entry leaves 30 s; attempts number per entry
+- D-062 The router checks the client before every retry and fallback attempt; 499 when it is gone
+- D-063 `ChatResponse.provider_instance` says which instance served
+- D-064 `LLMGATEWAY_FAULTS`: fault windows for mock instances only
+- D-065 Tests keep `main.py` from setting the gateway logger's level in-process
+- D-066 One 300 s limit per test with pytest-timeout
+
 ## Entry format
 
 ```
@@ -687,3 +758,11 @@ Log of design decisions. Add a new entry after each step; do not rewrite old ent
 - **Alternatives:** `caplog.set_level(logging.DEBUG, logger="llmgateway")` at each call (138 edits, a new test can forget it, and a first import after the call still resets the level); a fixture that resets the level (a first import inside a test comes after the fixture); moving logger setup out of import into a startup function (the cleanest, but it changes the real startup path to fix a problem only tests have).
 - **Risk:** `main.py`'s branch runs only in subprocess tests, so an in-process test cannot cover it. Anything that imports `llmgateway.main` before `conftest.py` loads, such as a pytest plugin, would bring the blind spot back; the pins in `tests/test_main.py` would fail.
 - **Revisit when:** Logger setup moves out of import, or M18 puts `fallback_taken` on a timeline: D-061 says measurement 8 needs the moves, that line has no `ts`, and the prefix would be its only clock.
+
+## D-066 One 300 s limit per test with pytest-timeout
+
+- **Decision:** `pytest-timeout` 2.4.0 joins the dev group, approved by the owner, and `timeout = 300` in `[tool.pytest.ini_options]` is the one global limit. It covers setup, call and teardown of every test, live tests included. The method stays the plugin's default for the platform: `thread` on Windows, `signal` on Linux. No test sets its own limit. This settles the hung-child question from M10 (mutants H01 and H02).
+- **Why:** A test that hangs used to block a session until someone stopped it by hand. The value is measured, not guessed: the slowest test takes 1.39 s awake, and 300 s is over 200 times that. It also clears the two longer limits that matter. A 60 s limit failed a healthy child while the laptop was in Modern Standby (mistakes log, 2026-11-04), and a live test can run to the router's 90 s deadline. Version 2.4.0 was uploaded on 2025-05-05, well inside the age floor (D-029).
+- **Alternatives:** A timeout on each `subprocess.run` (the startup tests removed exactly that, because it fails on host stalls, and it covers only those tests); `faulthandler_timeout` alone (dumps stacks, stops nothing); only a job limit in CI (M13) (a local run would still block).
+- **Risk:** Measured on this machine with throwaway tests and a 3 s limit: on Windows a hang does not fail one test. The `thread` method dumps the stacks and ends the whole pytest process with exit 1, so the tests after it never run and no summary is printed. `check.ps1` still stops with a failure, so a session is not blocked, but the stack dump is the only report. On Linux the `signal` method should fail just the one test and go on, which is what the plugin's source does but has not been run here (unverified until M13). A hung child outlives pytest on Windows and has to be stopped by hand. A host stall over 300 s inside one test ends a healthy run, loudly.
+- **Revisit when:** A real test needs more than a minute, M13 shows the `signal` method behaving differently in CI, or a stall ends a healthy run.

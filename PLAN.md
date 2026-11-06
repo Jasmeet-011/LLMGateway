@@ -77,7 +77,7 @@ Worked in order. Status and evidence are in [PROGRESS.md](PROGRESS.md); this fil
 
 ### M13 Docker Compose and CI
 
-- **Scope:** Docker Compose with the api, Postgres and Redis. GitHub Actions CI running the five checks plus integration tests against service containers. The job has its own time limit, because the startup tests wait for their child with no timeout and a real hang would otherwise block the run.
+- **Scope:** Docker Compose with the api, Postgres and Redis. GitHub Actions CI running the five checks plus integration tests against service containers. The per-test limit ends a hung test (D-066), and the job keeps its own time limit as the outer guard. Replace `GUARD_SECONDS` in `tests/test_retries.py` with an injected clock. Make every log `ts` UTC with an explicit offset, tested with an injected clock.
 - **Proof:** `docker compose up` works from a clean clone; a green CI run.
 - **Dependencies allowed:** none.
 - **Open issues to settle:** image versions and how they are pinned; how CI pins third-party actions; how integration tests are marked and selected; how CI runs `uv sync --locked` under the age floor (D-029).
