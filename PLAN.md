@@ -74,6 +74,7 @@ Worked in order. Status and evidence are in [PROGRESS.md](PROGRESS.md); this fil
 - **Proof:** tests asserting identical event shapes from the Claude, Gemini and mock streams; tests for mid-stream failure; a failure before the first byte falls back; a failure after it ends the stream as FLOW.md specifies (section 5), with no retry and no fallback; live-marked streaming tests for both providers.
 - **Dependencies allowed:** none.
 - **Open issues to settle:** mid-stream provider failure behavior (how the stream ends, what the client sees, what is recorded); what the read timeout means for streams (D-034); whether the final event's shape changes `StreamEnd` in `schema.py`.
+- **Settled:** D-067 (adapter interface), D-068 (the first event is the line), D-069 (mid-stream failure), D-070 (timeouts), D-071 (breaker), D-072 (client disconnect), D-073 (`StreamEnd`, `StreamError`, the wire format), D-074 and D-075 (Claude and Gemini), D-076 (SSE decoder), D-077 (mock). Added by the owner for M12: a disconnect closes the upstream promptly, and Gemini keeps D-049's thinking with usage reported as on the non-streaming path.
 
 ### M13 Docker Compose and CI
 

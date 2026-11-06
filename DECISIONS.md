@@ -27,7 +27,7 @@ One line per entry, with what superseded it. A session reads this index plus eve
 - D-019 HTTP status mapping
 - D-020 Response ID format and `x-request-id`
 - D-021 Cache-hit header name
-- D-022 First endpoints
+- D-022 First endpoints (the `stream=true` 501 superseded by D-073)
 - D-023 Error body
 - D-024 App factory
 - D-025 Known gaps of the first endpoint
@@ -72,6 +72,17 @@ One line per entry, with what superseded it. A session reads this index plus eve
 - D-064 `LLMGATEWAY_FAULTS`: fault windows for mock instances only
 - D-065 Tests keep `main.py` from setting the gateway logger's level in-process
 - D-066 One 300 s limit per test with pytest-timeout
+- D-067 Adapters stream through one async generator, with one event shape
+- D-068 The first event commits a stream; before it, a stream is an ordinary request
+- D-069 A failure after the first event ends the stream with an `error` event
+- D-070 Stream timeouts: the attempt limit to the first event, then 60 s between events, and no total limit
+- D-071 A stream is one breaker outcome, decided when it ends
+- D-072 A client that leaves closes the upstream at once; `EventStream` owns that
+- D-073 `StreamEnd` carries what `ChatResponse` carries; `StreamError` joins the events
+- D-074 Claude streaming: which events are read, and what an in-stream error means
+- D-075 Gemini streaming: `streamGenerateContent`, D-049's thinking, and usage reported the same way
+- D-076 One byte-level SSE decoder, not httpx's `aiter_lines`
+- D-077 The mock streams its one answer, word by word
 
 ## Entry format
 
@@ -207,6 +218,7 @@ One line per entry, with what superseded it. A session reads this index plus eve
 - **Alternatives:** Design the streaming method now (no streaming code to test it against yet); an abstract base class (a Protocol lets test fakes match structurally without inheritance).
 - **Risk:** Adding streaming may change the interface, and adapters written before then may need rework.
 - **Revisit when:** The streaming step starts.
+- **Settled in D-067:** `stream` joins the protocol; `complete` and `ProviderResult` do not change.
 
 ## D-016 Mock provider design
 
@@ -267,6 +279,7 @@ One line per entry, with what superseded it. A session reads this index plus eve
 - **Alternatives:** An OpenAI-compatible path such as `/v1/chat/completions` (implies a compatible body, which D-006 rejected); silently ignoring `stream=true` (the client would get a different response shape than it asked for).
 - **Risk:** `/healthz` reports only that the process is up, not that Redis, Postgres, or providers are reachable.
 - **Revisit when:** Streaming is built, or a deployment needs a readiness check.
+- **Superseded in part by D-073:** `stream=true` now streams; the 501 is gone.
 
 ## D-023 Error body
 
@@ -369,6 +382,7 @@ One line per entry, with what superseded it. A session reads this index plus eve
 - **Risk:** None of these values is measured. Requests with a large `max_tokens`, or a thinking model at high effort, can legitimately exceed 60s and are reported as `ProviderTimeout`, which is retryable, so a retry repeats the same long and billed generation. Because read is not a total deadline, a slow trickle of bytes can run past 60s.
 - **Revisit when:** The router step chooses deadlines, streaming arrives (read then means time between events), or load tests measure real latencies.
 - **Amended by D-050:** the router adds a per-attempt timeout of 60 s and a 90 s total deadline around adapter calls, which bounds the slow trickle; the adapter timeouts are unchanged.
+- **Settled in D-070:** for a stream, read means the longest gap between bytes, and the router adds its own limit between events.
 
 ## D-035 Classifying Claude failures: 529, malformed bodies, transport errors
 
@@ -622,6 +636,7 @@ One line per entry, with what superseded it. A session reads this index plus eve
 - **Revisit when:** Metrics are added (stretch), M10 logs breaker state changes, or M11 numbers attempts across fallback entries.
 - **Extended by D-058 and D-059:** `retry=yes` is now the intent at the time of the line, because a breaker that opens during the wait stops the retry; `circuit_open` joins the reason codes; state changes get their own log line.
 - **Extended by D-061:** attempts number per entry, and a move to the next entry writes its own `fallback_taken` line; `attempt_failed` keeps its format.
+- **Extended by D-069, D-070, D-072 and D-074:** `stream_truncated` (the 2xx status, or none from the router), `stream_idle` (none) and `stream_error` (none) join the reason codes; `stream_failed` and `stream_abandoned` are new lines; a Claude in-stream error carries the status it stands for.
 
 ## D-055 One in-process circuit breaker per config instance
 
@@ -728,6 +743,7 @@ One line per entry, with what superseded it. A session reads this index plus eve
 - **Alternatives:** Cancel the in-flight attempt on disconnect (saves more, but needs a watcher task per request, and a cancelled call may be billed anyway, D-050); a background task that cancels the handler (the same, plus a race with the response); map it to an existing code (the log would blame a provider); check before the first attempt too (it adds a poll to every request for a client that left in the milliseconds since sending; PLAN.md asks only for retries and fallback).
 - **Risk:** An in-flight attempt runs to the end, up to 60 s, and bills. httptools is not installed; `is_disconnected` under it is unverified. `Request.is_disconnected` consumes a message from `receive`, which is safe here only because the body has been read. 499 is not a registered status. M12 needs its own check, because a stream must notice a disconnect while sending.
 - **Revisit when:** M12 builds streaming, or M15 shows what abandoned in-flight attempts cost.
+- **Settled for streams in D-072:** a watcher task cancels the attempt in flight and closes the upstream; non-streaming requests are unchanged.
 
 ## D-063 `ChatResponse.provider_instance` says which instance served
 
@@ -766,3 +782,149 @@ One line per entry, with what superseded it. A session reads this index plus eve
 - **Alternatives:** A timeout on each `subprocess.run` (the startup tests removed exactly that, because it fails on host stalls, and it covers only those tests); `faulthandler_timeout` alone (dumps stacks, stops nothing); only a job limit in CI (M13) (a local run would still block).
 - **Risk:** Measured on this machine with throwaway tests and a 3 s limit: on Windows a hang does not fail one test. The `thread` method dumps the stacks and ends the whole pytest process with exit 1, so the tests after it never run and no summary is printed. `check.ps1` still stops with a failure, so a session is not blocked, but the stack dump is the only report. On Linux the `signal` method should fail just the one test and go on, which is what the plugin's source does but has not been run here (unverified until M13). A hung child outlives pytest on Windows and has to be stopped by hand. A host stall over 300 s inside one test ends a healthy run, loudly.
 - **Revisit when:** A real test needs more than a minute, M13 shows the `signal` method behaving differently in CI, or a stall ends a healthy run.
+
+## D-067 Adapters stream through one async generator, with one event shape
+
+- **Decision:** Settles D-015's revisit condition. `ProviderAdapter` gains `def stream(self, request: ChatRequest) -> AsyncIterator[ProviderStreamEvent]`, an async generator on every adapter. `ProviderStreamEvent` is `StreamDelta | ProviderStreamEnd`. `StreamDelta` is the schema's model. `ProviderStreamEnd`, in `providers/base.py`, is frozen with `extra="forbid"` and holds `finish_reason`, `usage` and `provider_response_id` (a non-empty string or None), the same three non-content fields as `ProviderResult`. The contract:
+  - An adapter yields zero or more `StreamDelta`s with non-empty text, then exactly one `ProviderStreamEnd`, then stops. The concatenated deltas are the answer `complete` would have returned for that generation.
+  - A failure is raised once as a `ProviderError`, never retried, with no httpx exception chained on it (D-032).
+  - Closing the generator with `aclose()`, or cancelling a task inside it, closes the upstream connection before it returns.
+  - The call that creates the generator does no work: local checks and the request happen on the first pull, so they fail where the router can classify them.
+- **Why:** Retries, the breaker and fallback must see every provider the same way, so the stream's shape belongs in one place. An async generator makes close-on-exit a language feature: `async with client.stream(...)` around the yields releases the connection on normal exit, on `aclose()` and on cancellation. Adapters know nothing about the gateway's ID, the instance name or the alias (D-015), so they return a `ProviderStreamEnd` and the app builds the client's `StreamEnd`, as it builds a `ChatResponse` from a `ProviderResult`.
+- **Alternatives:** A separate `StreamingAdapter` protocol (keeps test fakes unchanged, but D-015 says streaming joins this interface, and every adapter must stream); a coroutine returning an object with `__aiter__` and `aclose` (more code in each adapter for what a generator gives for free); yielding the schema's `StreamEnd` (adapters would need fields they cannot know); `complete` built on `stream` (one code path, but it would change a proven non-streaming path and its error rows for no gain).
+- **Risk:** An async generator left suspended is only closed by the garbage collector, so a caller that forgets `aclose()` keeps the upstream open. The router and `EventStream` close it on every path, and tests pin that. `stream` and `complete` hold separate parsers, which can drift; a test compares their results.
+- **Revisit when:** Tool use or multimodal output needs events other than text.
+
+## D-068 The first event commits a stream; before it, a stream is an ordinary request
+
+- **Decision:** `Router.open_stream(request, *, request_id=None, is_disconnected=None) -> ServedStream` is the streaming counterpart of `serve`. It goes down the alias's entries under the same rules as non-streaming requests: D-050 attempts and backoff, D-051, D-052, D-058 breaker checks, D-060 fallback, D-061 deadline and reserve, D-062 client checks, and the same `attempt_failed` and `fallback_taken` lines. An attempt pulls from the adapter until the first event: a delta with non-empty text, or the end. **That first event is the line.** Once it exists, `open_stream` returns and the entry is committed: no retry, no fallback, no other entry is tried, whatever happens next. Before it, nothing has reached the client.
+  - An empty delta, a ping, or a thinking part produces no event, so it does not cross the line. A failure after any of those is still before the first byte. The router drops an empty delta too, so a careless adapter cannot commit a stream with nothing sent.
+  - The app awaits `open_stream` before it starts the response. So a failure before the first byte is an ordinary JSON error with its usual status, code and `Retry-After` (section 13), never a 200.
+  - The gateway sends nothing before the first event: no headers, no comment, no keep-alive. A keep-alive would be a first byte and would end fallback for a stream that has not produced a word.
+  - A generator that ends with no `ProviderStreamEnd` is `ProviderUnavailable`, reason `stream_truncated`, no status, on either side of the line.
+- **Why:** CLAUDE.md's rule is that fallback happens only before the first streamed byte. Pulling the first event before the response starts is what makes the rule real: until then the gateway can still pick any status and any provider. Defining the line by the first *event* and not the HTTP 200 matters, because a provider answers 200 before it has generated anything, and Claude can send an `overloaded_error` right after it (D-074). Counting that 200 as the first byte would give up fallback in the most common failure. Reusing `serve`'s rules keeps one meaning for "attempt".
+- **Alternatives:** Start the response at once and send errors as events (time to headers improves, but every failure becomes a 200, and fallback has to happen inside a started response); buffer the whole answer and fall back at any point (no longer streaming); commit at the provider's 200 (above).
+- **Risk:** The client sees no headers until the first token, up to 60 s for a slow first attempt. A proxy with a short idle timeout could cut that off. A failure after the first event gets nothing better than an error event (D-069).
+- **Revisit when:** A client needs headers before the first token, or tool use makes "first event" ambiguous.
+
+## D-069 A failure after the first event ends the stream with an `error` event
+
+- **Decision:** Settles PLAN.md M12's issue on mid-stream failure. When an adapter fails after the first event, or the idle limit fires (D-070):
+  - **What the client sees:** the deltas already sent stand, then one `error` event, then the HTTP body ends normally. There is no `end` event, so a client can tell a whole answer from a partial one. `code` and `message` are the fixed pair `errors.py` maps the exception to (section 13), and `request_id` is the gateway ID. Provider text never reaches it. The HTTP status stays 200, because it was sent long before.
+  - **How it ends:** no retry, no fallback, and no later event. The upstream is closed.
+  - **What is recorded:** one line on `llmgateway.router` at WARNING, `stream_failed request_id=%s alias=%r provider=%s model=%r status=%s reason=%s error=%s`, with the same fixed fields as `attempt_failed` and the same rule on what may appear (D-054). The request line keeps `status=200`, the status the client got. The breaker gets the outcome (D-071). No usage is reported, because the provider's count never arrived; M15 decides what a partial stream costs.
+  - **A bug** (any exception that is not a `ProviderError`) after the first event gets an `error` event with code `internal_error` and message `Internal server error.`, and the body ends normally. It is not re-raised, because uvicorn would log the exception's text with a traceback. `EventStream` stores the class name, and the request line is written at ERROR with `status=200` and `error=<class>`. There is no `stream_failed` line, as a bug gets no router line (D-054). The breaker outcome is neutral (D-056).
+  - Before the first event, the same bug propagates as any bug does, to a 500.
+- **Why:** The client has a partial answer and must not mistake it for a whole one. An explicit event says so; a cut connection can look like a clean end to some clients. Ending the body cleanly lets the client read that event. Fixed codes keep the D-023 rule that provider text never reaches a client.
+- **Alternatives:** Abort the connection (the client learns nothing, and cannot tell why); resume on another provider (CLAUDE.md forbids it, and two providers' answers would be spliced); a final `end` with `finish_reason` `other` (reads as a success).
+- **Risk:** A client that ignores `error` events and only watches for the body to end treats a partial answer as complete. The request line alone shows 200 for a failed stream, so a dashboard on status misses them until it also reads `stream_failed`. A partial generation may be billed, and nothing records it before M15.
+- **Revisit when:** M15 records usage for partial streams, or metrics are built (stretch).
+
+## D-070 Stream timeouts: the attempt limit to the first event, then 60 s between events, and no total limit
+
+- **Decision:** Settles PLAN.md M12's issue on the read timeout, and D-034's revisit condition.
+  - **Before the first event:** D-050 and D-061 apply unchanged. Each attempt runs under `min(60 s, time left)`, and the whole opening has the 90 s deadline with the 30 s reserve. If it fires, the attempt fails with `ProviderTimeout`, reason `attempt_timeout`, and is retried or falls back as usual.
+  - **After the first event:** the 60 s attempt limit and the 90 s deadline stop applying. `RetryPolicy.stream_idle_timeout` (default 60.0, a finite number above 0, validated like `attempt_timeout`) limits each wait for the next event. If it fires, the stream ends as D-069 says with `ProviderTimeout`, reason `stream_idle`, status none, which reaches the client as `provider_timeout`. It runs only while the router waits on the adapter, so a slow client does not count against the provider.
+  - httpx's `read=60` stays, and for a stream it now means the longest gap between bytes, as D-034 predicted. A read timeout raises `ProviderTimeout`, reason `timeout`, before or after the line. The router's limit is still needed because Claude's `ping` events reset httpx's timer without producing an event.
+  - There is no limit on a stream's total length.
+- **Why:** A long answer that keeps arriving is healthy, and the client is reading it, so a 90 s total would cut off good answers. What needs catching is silence. `max_tokens` bounds the generation in the normal case. Sixty seconds matches the values already chosen and is unmeasured like them.
+- **Alternatives:** Keep the 90 s deadline for the whole stream (cuts every long answer); a total cap such as 10 minutes (one more value with no measurement behind it, and it would end a healthy stream); rely on httpx's read timeout alone (pings would keep a silent stream open for good, and a mock or a fake has no such timer).
+- **Risk:** A provider that trickles a byte of text every 59 s holds a connection for as long as it likes. Claude's thinking is filtered out (D-074), so a long thinking pause after the first text reads as silence and can end a healthy stream at 60 s. Neither value is measured.
+- **Revisit when:** M18 measures real gaps, or a live stream is cut by the idle limit.
+
+## D-071 A stream is one breaker outcome, decided when it ends
+
+- **Decision:** D-056 says the breaker records the outcome of each adapter call. A stream is one adapter call, so it has exactly one outcome.
+  - **A failure before the first event** is recorded then, by D-056's table, as for any attempt.
+  - **After the first event** the permit stays open until the stream ends. `ProviderStreamEnd` is a success. A failure is a failure or neutral by `counts_as_failure`, so a dropped connection, a truncation or `stream_idle` counts, and an in-stream rate limit does not. A client that leaves or stalls (D-072), a bug and a cancellation are neutral.
+  - D-057's generation rule applies: a stream that began before the breaker changed state cannot move it.
+  - The breaker gates opening only. A stream already running is never cut when the breaker opens.
+- **Why:** After the first byte nothing can save this client, but the breaker is how the next client gets a provider that works. A provider that drops every stream partway must trip it, or every later stream would commit to that provider and fail where fallback can no longer help. The owner's M12 brief applies retries, the breaker and fallback to opening, and rules out retry and fallback after the first byte. This entry keeps the breaker's gate at opening and lets a stream's end feed the same window. Deferring the outcome keeps one call to one outcome: recording a success at the first event and then a failure would cap any provider at 50% failures, under the 15-in-20 trip rule, so it could never open.
+- **Alternatives:** Success at the first event, and mid-stream failures not counted (simple, but the breaker never sees a provider that only fails partway); success at the first event plus a failure at the end (two outcomes for one call, as above).
+- **Risk:** A half-open probe holds its slot for the whole stream, so a long probe keeps refusing others for its length; they fall back, or get 503. D-070 and D-072 bound the wait for a silent provider or a stalled client, but a healthy long stream holds it to the end. Closing the breaker takes as long as the probe's answer.
+- **Revisit when:** M18's measurement 8 runs streams, or a long probe is seen delaying recovery.
+
+## D-072 A client that leaves closes the upstream at once; `EventStream` owns that
+
+- **Decision:** Settles D-062's "M12 needs its own check". `llmgateway/streaming.py` holds `EventStream`, a `StreamingResponse` subclass with its own `__call__`, and the app's streaming path.
+  - **The watcher.** For a streaming request the app starts one task that waits on `request.receive` for `http.disconnect`. It is the only reader of `receive` from then on, and the router's `is_disconnected` for that request reads its state. It starts before `open_stream` and runs until the response ends.
+  - **While opening:** a disconnect cancels `open_stream` at once, attempt in flight included. Unlike D-062's non-streaming path, the upstream is closed and nothing more is billed. The outcome is neutral, no line is written beyond the request line, and that line says `status=499`, as in D-062. D-062's checks before retries and moves still run.
+  - **After the first event:** a disconnect cancels the task sending the body, then closes the `ServedStream`, which closes the adapter's generator and so the upstream connection. The outcome is neutral. One line goes to `llmgateway.router` at INFO: `stream_abandoned request_id=%s alias=%r provider=%s model=%r reason=%s`, with reason `client_gone`. The request line keeps `status=200`.
+  - **A client that stays connected but stops reading:** each `send` runs under `stream_idle_timeout`. If it fires, the stream closes the same way with reason `client_stalled`, and `EventStream` returns without ending the body, so the server drops the connection.
+  - `ServedStream.aclose(reason="client_gone")` is idempotent, and on a stream that has already ended it does nothing and writes nothing. `EventStream` calls it in a `finally`, so every path closes the upstream.
+- **Why:** Output nobody reads is still billed, so the close has to be prompt and cannot wait for the next chunk. Read from the installed source: uvicorn 0.54.0 reports ASGI spec 2.3, so Starlette 1.8.0's `StreamingResponse` does listen for the disconnect, and cancels the body task. It does not close the iterator, though: `async for` leaves a generator suspended if the cancel lands in `send`, which is where a slow client's task waits, and then the upstream stays open until garbage collection. Under spec 2.4 it would not listen at all, and uvicorn's `send` returns silently after a disconnect, so a stream would run to the end unnoticed. A subclass that owns the watcher and the close depends on neither path. A stalled reader bills the same as a client that left, and without the limit it would also hold a probe slot for good (D-071). asyncio, not anyio: anyio is only a transitive dependency, and M12 adds none.
+- **Alternatives:** Plain `StreamingResponse` (the two gaps above); poll `is_disconnected` between events (a stalled provider is never noticed, because the loop is blocked on the provider); `BaseHTTPMiddleware` (it hides `receive`).
+- **Risk:** A cancelled generation may still be billed for what was produced. Whether closing the connection stops generation at the provider is not documented by either provider and is unverified, so "stops billing" is the intent, and what is proven is that the connection closes. Returning without ending the body makes uvicorn write one error line with no request content. httptools is not installed, so this is proven on h11 only.
+- **Revisit when:** M15 shows what abandoned streams cost, or the server stack changes.
+
+## D-073 `StreamEnd` carries what `ChatResponse` carries; `StreamError` joins the events
+
+- **Decision:** Settles PLAN.md M12's issue on `StreamEnd`. A schema change. Superseding D-022's 501, `stream=true` on `POST /v1/chat` now streams. The response is `text/event-stream`, with `cache-control: no-cache`, `x-accel-buffering: no` and `x-request-id`.
+  - `StreamDelta` is unchanged: `{"type": "delta", "text": ...}`.
+  - `StreamEnd` becomes `{"type": "end", "id", "provider", "provider_instance", "model", "finish_reason", "usage", "provider_response_id"}`, typed exactly as in `ChatResponse` (D-011, D-045, D-063). Only `content` is absent, because the deltas are the content.
+  - `StreamError` is new: `{"type": "error", "code", "message", "request_id"}`, each a non-empty string. `StreamEvent` is the union of the three, discriminated on `type`.
+  - On the wire each event is `event: <type>\ndata: <json>\n\n`, with the JSON on one line from `model_dump_json()`, `provider_response_id` included even when null. A stream is zero or more `delta`s, then exactly one `end` or one `error`. An empty answer is just an `end` (D-049).
+  - A `ChatRequest` is unchanged, and the alias check still comes first: a `stream=true` request for an unknown alias gets the 400 `unknown_model` JSON error.
+  - `streaming_not_implemented` is gone from the mapping.
+- **Why:** PLAN.md asks for one final event with usage and provider. A streaming client needs the same facts as a non-streaming one: its request ID, which instance served (D-063), the provider model and the finish reason. So the final event mirrors `ChatResponse`, and a client's code for the two can share a model. The `event:` line lets browser `EventSource` clients dispatch by name, and the `type` field keeps the JSON self-describing. A flat `StreamError` matches the other two events, and its fields are `ErrorInfo`'s.
+- **Alternatives:** Only `provider` added to `StreamEnd` (the client loses the ID and the instance); a first `start` event with the metadata (one more event, and the first byte would then come before the provider has produced anything, D-068); `data:` lines only (works, but drops named dispatch); OpenAI's `[DONE]` sentinel (D-006 rejected compatibility, and `end` already says it).
+- **Risk:** Any client written against the old two-field `StreamEnd` breaks, though nothing could have received one before now. U+2028 can appear raw in the JSON, which is valid SSE, but a client that splits on every Unicode line break would break, as httpx's own `aiter_lines` does (D-076).
+- **Revisit when:** Tool use needs its own events.
+
+## D-074 Claude streaming: which events are read, and what an in-stream error means
+
+- **Decision:** `ClaudeAdapter.stream` sends the same request as `complete` plus `"stream": true`, after the same local check. Status handling is the same table as `complete`; a non-2xx body is read first, and a transport failure while reading it maps as usual. Events are read by the JSON `type` field, not the SSE event name:
+  - `message_start`: `message.id` (a non-empty string) and `message.usage.input_tokens` (required) and `output_tokens` (optional), as strict non-negative integers.
+  - `content_block_delta` with `delta.type` `text_delta`: `delta.text` must be a string. Non-empty text is yielded. Other delta types are skipped: `thinking_delta`, `signature_delta`, `input_json_delta` and any added later.
+  - `message_delta`: `delta.stop_reason`, when a string. `usage` is optional, because Anthropic's own example has one without it. Its counts are cumulative, per Anthropic's docs, so a later value replaces an earlier one, and a count left out keeps the earlier one. Counts are never added up.
+  - `message_stop`: the end. The adapter needs an ID, a stop reason, `input_tokens` and `output_tokens` by now, yields `ProviderStreamEnd`, and stops reading. `stop_reason` maps as in D-035.
+  - `error`: see below.
+  - `ping`, `content_block_start`, `content_block_stop` and every unknown type are skipped, as Anthropic's versioning policy requires.
+  - A frame whose `data` is not a JSON object, a field above with the wrong type, or `message_stop` with something missing: `ProviderUnavailable`, reason `malformed_body`, the 2xx status.
+  - The body ending before `message_stop`: `ProviderUnavailable`, reason `stream_truncated`, the 2xx status. So D-052 applies: not retried, and it falls back before the first event.
+  - httpx failures while reading: `ProviderTimeout` reason `timeout`, `ProviderUnavailable` reason `connection` or `undecodable_body`, status none, so retried before the first event. D-052's split between a failure the router can see as a 2xx and one it cannot is unchanged.
+  - **An in-stream `error` event** is classified by the machine-readable `error.type` alone, compared against constants, and treated as the HTTP status it stands for: `invalid_request_error` 400, `authentication_error` 401, `billing_error` 402, `permission_error` 403, `not_found_error` 404, `request_too_large` 413, `rate_limit_error` 429, `api_error` 500, `overloaded_error` 529. It takes that status's class, reason and retryable flag from `complete`'s table, with no `retry-after`. Any other type, or a shape that cannot be read, is `ProviderUnavailable`, reason `stream_error`, status none. `error.message` is never read.
+- **Why:** Anthropic documents that an `overloaded_error` in the stream "would normally correspond to an HTTP 529", so giving it 529's treatment means the common case retries and falls back exactly as a real 529 does. Using the error's type and not its message keeps D-054's rule on provider text. Latest-value-wins is what "cumulative" requires, and summing would overstate billing.
+- **Alternatives:** Treat every in-stream error as unavailable (a bad request would be retried and moved to another provider); treat it as a 2xx failure under D-052 (an overload would never be retried, though nothing was generated); use the SSE event name (the docs say both carry the type, and the JSON is the one being parsed anyway).
+- **Risk:** Whether an in-stream error after a 200 is billed is not documented; a retry could bill twice, the risk D-052 accepted for no-status failures. Thinking on `claude-haiku-5-5` is on by default and billed in `output_tokens`, and its silence counts against the idle limit (D-070). A refusal arrives as a `stop_reason`, which maps to `other`.
+- **Revisit when:** The owner's live streaming test shows a different event order, or the gateway adds tools or thinking display.
+
+Sources: https://platform.claude.com/docs/en/build-with-claude/streaming, read 2026-11-06 (event flow, cumulative usage warning, ping, error events, unknown events). Error types from the Claude API skill's `shared/error-codes.md`, 2026-11-06.
+
+## D-075 Gemini streaming: `streamGenerateContent`, D-049's thinking, and usage reported the same way
+
+- **Decision:** `GeminiAdapter.stream` runs the same local checks as `complete` and posts the same body, built by the same function, to `{API_BASE}/{model}:streamGenerateContent?alt=sse`. So every stream keeps `thinkingConfig: {"thinkingLevel": "MINIMAL"}` (D-049), and `maxOutputTokens` is the client's `max_tokens`, unchanged. Status handling is `complete`'s table, including the D-048 body check, after the body is read. Each SSE `data` is one `GenerateContentResponse`:
+  - A chunk with `promptFeedback.blockReason` not null: `ProviderBadRequest`, reason `prompt_blocked`, the 2xx status, as in D-041.
+  - A chunk with a top-level `error` object: `ProviderUnavailable`, reason `stream_error`, status none. Nothing in it is read.
+  - The first candidate's parts: text that is not marked `"thought": true` is yielded if non-empty. Thought parts and parts without text are skipped, so they produce no event and do not cross D-068's line.
+  - `finishReason`, when present, is kept; it is optional on a chunk, unlike D-041's whole response. It maps as in D-041.
+  - `usageMetadata`, when present: a later count replaces the earlier one, a count left out keeps the earlier one, and counts are never added up. `responseId`: the latest non-empty string.
+  - The adapter reads to the end of the body, because usage may follow the finish reason. Then it yields `ProviderStreamEnd`, with `input_tokens` as `promptTokenCount` and `output_tokens` as `candidatesTokenCount + thoughtsTokenCount`, an absent count being 0: the same arithmetic as `complete` (D-041, D-049). It may exceed `max_tokens`, and it is never capped.
+  - A candidate with empty text and `MAX_TOKENS` is a success (D-049): no delta, then the end.
+  - A chunk that is not a JSON object, or has `candidates` that is not a list, or a first candidate or a count that fails D-041's types, or a body that ends with a finish reason but no `usageMetadata` at all: `ProviderUnavailable`, reason `malformed_body`, the 2xx status.
+  - A body that ends with no finish reason: `ProviderUnavailable`, reason `stream_truncated`, the 2xx status.
+  - httpx failures map as in D-074.
+- **Why:** The owner's brief: streaming keeps D-049's thinking, and the final usage reports thinking as the non-streaming path does. Sharing the body builder makes the first impossible to drift, and sharing the arithmetic gives the second. Google does not say how `usageMetadata` behaves across chunks on this route. Replacing per field is right if the counts are cumulative, and it survives a final chunk that omits a count; adding them would be badly wrong if they are cumulative. A truncated Gemini stream has no terminator to miss, so the finish reason is the only proof it ended.
+- **Alternatives:** Stop at the first `finishReason` (could miss usage in a later chunk); the Interactions API (D-039 chose `generateContent`); keep only the last chunk's `usageMetadata` (loses a count that the last chunk leaves out).
+- **Risk:** **Unverified, for the owner's live test:** that this route accepts `alt=sse` as sent, and that `usageMetadata` counts are cumulative. Google's API reference (https://aistudio.google.com/api-reference/generate-content, read 2026-11-06) gives only `POST /v1beta/models/{model}:streamGenerateContent`; its text-generation page now shows `alt=sse` on the Interactions API, and a Google Cloud Apigee example shows it on this route with `usageMetadata` in early chunks. If counts are per chunk and not cumulative, reported usage is too low. Developer-forum reports disagree on whether `thoughtsTokenCount` is present on streams, and an absent count reads as 0. The top-level `error` chunk is defensive; Google does not document it. A connection left open after the last chunk ends as a failure after a complete answer.
+- **Revisit when:** The owner runs the live tests, or a chunk shape not listed here appears.
+
+## D-076 One byte-level SSE decoder, not httpx's `aiter_lines`
+
+- **Decision:** `providers/sse.py` holds `async def iter_sse(chunks: AsyncIterable[bytes]) -> AsyncIterator[SseEvent]`, used by both adapters over `response.aiter_bytes()`. `SseEvent` is a frozen dataclass with `event: str | None` and `data: str`. It follows the WHATWG parsing rules for what the gateway needs:
+  - Lines end at `\n`, `\r\n` or `\r`, split on bytes, including when a chunk boundary falls inside a `\r\n` or inside a multi-byte character. Each complete line is then decoded as strict UTF-8, and a failure raises `ValueError`, which the adapters map to `malformed_body`.
+  - A leading UTF-8 byte order mark on the first line is removed.
+  - A line starting with `:` is a comment. `data` lines join with `\n`. One space after the colon is removed. `event` sets the name. Other fields are ignored.
+  - A blank line dispatches the event if it has data. Data left over at the end of the body is dropped, never dispatched, so a cut-off frame looks like truncation and not like a short event.
+- **Why:** Read from the installed source: httpx 0.28.1's `LineDecoder` has the semantics of `str.splitlines()`, so it also splits on U+2028, U+2029, U+0085 and other separators. Those are legal unescaped inside a JSON string, so a model that writes one would break a frame in half, and a good answer would fail as `malformed_body`. SSE allows only the three line endings above. One shared decoder means one tested parser for both providers.
+- **Alternatives:** `aiter_lines` (above); `httpx-sse` (a new dependency, and M12 allows none); a per-adapter parser (two copies of a subtle thing).
+- **Risk:** A line has no length limit, so a broken upstream that never sends a newline grows a buffer until the router's idle limit fires. The providers are trusted to the same degree as their response bodies.
+- **Revisit when:** A provider's stream needs an SSE field beyond `event` and `data`.
+
+## D-077 The mock streams its one answer, word by word
+
+- **Decision:** `MockProvider.stream` uses the same call count, latency, fault window and seeded roll as `complete`: one call, one roll, and `failure_type` raised before any delta. Then it splits `complete`'s reply into pieces that join back to exactly that reply: each word with the space after it, the last word bare. It awaits `sleep(0)` before each delta, so a client can really disconnect between them, and finishes with the same `finish_reason`, usage and `provider_response_id` `mock-<n>`. No new config setting. A failure *after* the first event is not injectable through the mock; tests use a fake adapter on the same protocol.
+- **Why:** The mock is the default provider (D-001), so the streaming path must work with no keys, and its answer must equal `complete`'s so the tests can compare them. The same roll keeps seeded sequences and M11's fallback behavior true for streams. Per-word latency and mid-stream injection have no consumer yet: measurement 4 and measurement 8 are not defined over streams.
+- **Alternatives:** A `stream_failure_after` setting (config, validation and docs for something only tests need, and fakes do it already); one delta holding the whole reply (it would hide bugs that need two events).
+- **Risk:** `LLMGATEWAY_FAULTS` cannot show a mid-stream failure in a demo.
+- **Revisit when:** M18 measures streams.

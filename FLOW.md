@@ -65,7 +65,7 @@ flowchart TD
 
 Why each check sits where it does:
 
-1. **Validate the body first.** It is the cheapest check and needs no database or Redis call. A malformed request should not cost a key lookup. Rejected with 422 (D-019). Then the `model` must exactly match a configured alias (D-045), another check that needs nothing but the config. An unknown alias gets 400 `unknown_model`, before the `stream=true` 501 and before any provider call.
+1. **Validate the body first.** It is the cheapest check and needs no database or Redis call. A malformed request should not cost a key lookup. Rejected with 422 (D-019). Then the `model` must exactly match a configured alias (D-045), another check that needs nothing but the config. An unknown alias gets 400 `unknown_model`, for a stream too, before any provider call.
 2. **API key next.** Every later check is per key (rate limit, cache key, spend cap), so the gateway must know who is calling before it can apply them.
 3. **Rate limit before any expensive work.** A caller over its limit should be turned away before the gateway does a cache lookup or calls a provider. Whether cache hits also count against the limit is an open question (section 11). PLAN.md measurement 5 expects 429 for this case, and D-019 reserves 429 for the gateway's own rate limiter.
 4. **Cache lookup before calling anyone.** Only cacheable requests are looked up; the rest go straight to the spend cap. A hit made no upstream call, so it is returned at once and billed zero (D-012). The cache key includes the caller, so one tenant never sees another tenant's response (D-003).
@@ -78,7 +78,7 @@ Why each check sits where it does:
 
 ## 5. Router flow
 
-The router tries the entries of the requested alias in order (D-010). Each entry is a (provider instance, provider model) pair from the config (D-044). The adapter gets a copy of the request whose `model` is the entry's provider model, and the response reports that provider model, the instance's provider type (D-045) and the instance's name in `provider_instance` (D-063). Errors are classified by their `retryable` flag (D-014). `Router.serve` runs this for non-streaming requests; streams get the pre-first-byte rule in M12.
+The router tries the entries of the requested alias in order (D-010). Each entry is a (provider instance, provider model) pair from the config (D-044). The adapter gets a copy of the request whose `model` is the entry's provider model, and the response reports that provider model, the instance's provider type (D-045) and the instance's name in `provider_instance` (D-063). Errors are classified by their `retryable` flag (D-014). `Router.serve` runs this for non-streaming requests, and `Router.open_stream` runs it for streams up to the first event.
 
 ```mermaid
 flowchart TD
@@ -126,6 +126,48 @@ Fallback rules (D-060 to D-062):
 
 **Streaming rule:** a streaming request can only fall back **before the first byte is sent** to the client. After that, the client has already received part of one provider's answer, and switching providers would splice two different answers together. A failure mid-stream ends the stream with an error instead.
 
+### Streams (D-067 to D-073)
+
+```mermaid
+flowchart TD
+    A[stream=true, alias valid] --> W[Start the disconnect watcher]
+    W --> O[open_stream: this section's rules, pulling until the first event]
+    O -->|every entry failed| E[JSON error, usual status]
+    O -->|client left| G[Close upstream, status 499]
+    O -->|first event| S[Send 200 and the first event]
+    S --> N{Next event}
+    N -->|delta| D[Send it]
+    D --> N
+    N -->|end| F[Send end, record success, close upstream]
+    N -->|provider failed, or 60 s of silence| X[Send error, log stream_failed, record the outcome, close upstream]
+    N -->|client left or stalled| Y[Log stream_abandoned, neutral, close upstream]
+```
+
+**The line is the first event** (D-068): a delta with non-empty text, or the end. An attempt pulls from the adapter until one exists, and the response starts only then.
+
+- **Before the first event** a stream is an ordinary request. Every rule above applies: 3 attempts per entry, the breaker before each, D-060's fallback, the 60 s attempt limit, the 90 s deadline and 30 s reserve, the client checks, and the same `attempt_failed` and `fallback_taken` lines. A failure that ends the request is a JSON error with the status in section 13, never a 200. An HTTP 200, a ping, a thinking part or an empty delta is not the first event, so a failure after any of them still retries or falls back. Nothing is sent before the first event: no headers, no comment, no keep-alive.
+- **After the first event** there is no retry, no fallback and no other entry. A later failure ends the stream (D-069): one `error` event with the fixed code and message from section 13's mapping and the gateway `request_id`, then the body ends normally, with no `end` event. It writes `stream_failed request_id=%s alias=%r provider=%s model=%r status=%s reason=%s error=%s` to `llmgateway.router` at WARNING, and the request line keeps `status=200`. A bug gets `internal_error` the same way, no `stream_failed` line, and a request line at ERROR with `status=200` and `error=<class>`.
+- **Time** (D-070): after the first event the attempt limit and the deadline stop applying. `stream_idle_timeout`, 60 s, limits each wait for the next event, and if it fires the failure is `ProviderTimeout`, reason `stream_idle`. The wait counts only time spent on the adapter. A stream has no total limit.
+- **The breaker** (D-071) gates opening only, and a running stream is never cut when it opens. A stream is one outcome, decided when it ends: section 6.
+- **A client that leaves** (D-072) is noticed at once by a watcher task on `receive`. While opening, the attempt in flight is cancelled, the upstream is closed, and the request line says `status=499`. After the first event, the send is cancelled, the upstream is closed, and `stream_abandoned request_id=%s alias=%r provider=%s model=%r reason=client_gone` goes to `llmgateway.router` at INFO. A client that stays connected but does not read for `stream_idle_timeout` is dropped the same way, with `reason=client_stalled`.
+
+On the wire (D-073), each event is `event: <type>\ndata: <json>\n\n`, and a stream is zero or more `delta`s and then exactly one `end` or one `error`:
+
+```
+event: delta
+data: {"type":"delta","text":"Hello"}
+
+event: end
+data: {"type":"end","id":"gw_...","provider":"claude","provider_instance":"claude","model":"claude-haiku-5-5","finish_reason":"stop","usage":{"input_tokens":12,"output_tokens":3},"provider_response_id":"msg_..."}
+```
+
+```
+event: error
+data: {"type":"error","code":"provider_unavailable","message":"The provider is unavailable.","request_id":"gw_..."}
+```
+
+The response has `content-type: text/event-stream`, `cache-control: no-cache`, `x-accel-buffering: no` and `x-request-id`. Streams are never cached (D-003).
+
 ## 6. Circuit breaker
 
 A circuit breaker stops the gateway from repeatedly calling a provider that is failing. There is one per config instance, held in process memory (D-055). Each adapter call is an outcome, retries included (D-056), and the trip rule and values are `BreakerPolicy` defaults (D-057).
@@ -146,12 +188,16 @@ stateDiagram-v2
 | Outcome of an adapter call | Breaker |
 | --- | --- |
 | A result | Success |
+| A stream that reached its end | Success, recorded at the end (D-071) |
 | `ProviderTimeout`, including the router's `attempt_timeout` | Failure |
 | `ProviderUnavailable`, including a malformed 2xx | Failure |
 | `ProviderAuthError`, including 402 | Failure |
 | `ProviderRateLimited` | Neutral |
 | `ProviderBadRequest` | Neutral |
 | Any other exception, or a cancellation | Neutral |
+| A client that left or stalled during a stream | Neutral |
+
+A stream is one call and has one outcome (D-071). A failure before its first event is recorded then. After the first event the permit stays open until the stream ends, and a mid-stream failure is classified by the rows above, so a provider that drops every stream partway still trips the breaker. A half-open probe that streams holds its slot until the stream ends.
 
 A neutral outcome is not added to the window. On a probe it frees the slot and changes nothing, so the state stays half-open and the next request is the next probe.
 
@@ -206,8 +252,10 @@ src/llmgateway/
 │   ├── base.py          ProviderResult, ProviderAdapter, ProviderError classes
 │   ├── mock.py          MockProvider
 │   ├── claude.py        ClaudeAdapter, Messages API over httpx
-│   └── gemini.py        GeminiAdapter, generateContent over httpx
+│   ├── gemini.py        GeminiAdapter, generateContent over httpx
+│   └── sse.py           iter_sse: the byte-level SSE decoder for both adapters
 ├── app.py               create_app, request middleware, endpoints
+├── streaming.py         EventStream: SSE frames, the disconnect watcher
 ├── errors.py            error body, status mapping, exception handlers
 ├── config.py            TOML config: provider instances and aliases, validated at startup
 ├── breaker.py           CircuitBreaker, BreakerPolicy: one per config instance
@@ -248,6 +296,7 @@ src/llmgateway/
 - **Fallback:** if one provider cannot answer, try the next provider and model in the alias's list (D-010). The list is explicit, so the gateway never guesses which models are equivalent.
 - **Retryable error:** an error where trying again might work, such as a timeout, a provider rate limit, or a provider outage. A bad request or a credential problem will fail the same way every time, so it is not retryable (D-014).
 - **Spend cap (stretch, D-031):** a budget per API key. Once a key's recorded spend reaches its cap, further paid requests are refused. The check must be atomic so concurrent requests cannot overshoot it; PLAN.md measurement 7 targets zero overshoot.
+- **First event:** the first delta with text, or the end, of a stream. It is the line after which a stream can no longer retry or fall back (D-068).
 - **Mock provider:** a fake provider built into the gateway. It answers instantly or with a set delay, fails on demand at a set rate, and gives the same answer every time, so tests are free and repeatable. Its token counts are word counts, not real tokens (D-001, D-016).
 
 ## 11. Open design questions
@@ -293,6 +342,17 @@ Every `ProviderError` also carries `status` (the provider's HTTP status, or none
 
 On success, `stop_reason` maps to `finish_reason`: `end_turn` to `stop`, `max_tokens` to `max_tokens`, `stop_sequence` to `stop_sequence`, and every other value, including ones added later, to `other` (D-035). The adapter never retries (D-032); the error is raised once, without the httpx exception chained to it.
 
+**Streaming** (`stream`, D-074): the same request with `"stream": true`, and every row above applies; a non-2xx body is read first. These rows are added. Before the first event each is a JSON error with the client status shown; after it, an `error` event with the client code shown (D-069).
+
+| Provider outcome | Error type | Retryable | Status, reason | Client status | Client code |
+| --- | --- | --- | --- | --- | --- |
+| An `error` event whose `error.type` is one of `invalid_request_error`, `authentication_error`, `billing_error`, `permission_error`, `not_found_error`, `request_too_large`, `rate_limit_error`, `api_error`, `overloaded_error` | The row above for the status it stands for: 400, 401, 402, 403, 404, 413, 429, 500, 529, with no `retry_after_seconds` | per that row | that status, that row's reason | per that row | per that row |
+| An `error` event of any other type or shape; `error.message` is never read | `ProviderUnavailable` | yes | none, `stream_error` | 502 | `provider_unavailable` |
+| A frame whose `data` is not a JSON object; a field D-074 reads with the wrong type; `message_stop` with no ID, stop reason, `input_tokens` or `output_tokens`; a line that is not valid UTF-8 | `ProviderUnavailable` (not retried by the router, D-052) | yes | the 2xx status, `malformed_body` | 502 | `provider_unavailable` |
+| The body ends before `message_stop` | `ProviderUnavailable` (not retried by the router, D-052) | yes | the 2xx status, `stream_truncated` | 502 | `provider_unavailable` |
+
+Text comes from `content_block_delta` events with `delta.type` `text_delta`; every other delta type, `ping`, and unknown event types are skipped. `message_start` gives the ID and the first usage, and each `message_delta` may replace a count, because counts are cumulative; they are never added. `message_stop` ends the stream.
+
 ### Gemini (`providers/gemini.py`, D-039 to D-042, D-048, D-049, D-053, D-054)
 
 Request (D-039, D-040): `POST https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent` with the `x-goog-api-key` header. The body has `contents`, one `{"role", "parts": [{"text"}]}` entry per message with `assistant` sent as `model`; `systemInstruction: {"parts": [{"text"}]}` only when `system` is set; and `generationConfig` with `maxOutputTokens` (the client's `max_tokens`, unchanged) and `thinkingConfig: {"thinkingLevel": "MINIMAL"}` on every request (D-049), plus `stopSequences`, `temperature` and `topP` only when set. `includeThoughts` and `thinkingBudget` are never sent.
@@ -318,6 +378,17 @@ Request (D-039, D-040): `POST https://generativelanguage.googleapis.com/v1beta/m
 
 On success (D-041): the first candidate's text is the concatenation of the `text` of its parts that are not marked `"thought": true`; parts without `text` are skipped, and a candidate with no `content` or `parts` gives empty text. `finishReason` `STOP` maps to `stop`, `MAX_TOKENS` to `max_tokens`, and every other value (`SAFETY`, `RECITATION`, ..., and ones added later) to `other`; Gemini never produces `stop_sequence`. `input_tokens` is `promptTokenCount`, `output_tokens` is `candidatesTokenCount + thoughtsTokenCount`, and an absent count is 0; `output_tokens` may exceed `max_tokens` and is reported as Google sends it, never capped (D-049). A candidate with empty text and `MAX_TOKENS` (the budget went to thinking) is a success: 200, `content` "", `finish_reason` `max_tokens` (D-049). A non-empty `responseId` becomes `provider_response_id`. `temperature` and `top_p` are sent as `generationConfig.temperature` and `topP` when set (D-040). The adapter never retries (D-032); the error is raised once, without the httpx exception chained to it.
 
+**Streaming** (`stream`, D-075): the same body, including `thinkingConfig` `MINIMAL` (D-049), sent to `POST https://generativelanguage.googleapis.com/v1beta/models/{model}:streamGenerateContent?alt=sse`, and every row above applies; a non-2xx body is read first. Each SSE `data` is one `GenerateContentResponse`. These rows are added or replace the 2xx rows. Before the first event each is a JSON error with the client status shown; after it, an `error` event with the client code shown (D-069).
+
+| Provider outcome | Error type | Retryable | Status, reason | Client status | Client code |
+| --- | --- | --- | --- | --- | --- |
+| A chunk with `promptFeedback.blockReason` present and not null | `ProviderBadRequest` | no | the 2xx status, `prompt_blocked` | 400 | `provider_bad_request` |
+| A chunk with a top-level `error` object, which is not read | `ProviderUnavailable` | yes | none, `stream_error` | 502 | `provider_unavailable` |
+| A chunk that is not a JSON object; `candidates` that is not a list; a first candidate or a count that fails D-041's types; a body that ends with a finish reason and no `usageMetadata` in any chunk; a line that is not valid UTF-8 | `ProviderUnavailable` (not retried by the router, D-052) | yes | the 2xx status, `malformed_body` | 502 | `provider_unavailable` |
+| The body ends with no `finishReason` in any chunk | `ProviderUnavailable` (not retried by the router, D-052) | yes | the 2xx status, `stream_truncated` | 502 | `provider_unavailable` |
+
+The first candidate's non-thought text is streamed; thought parts produce no event. The adapter reads to the end of the body. A later `usageMetadata` count replaces an earlier one, a count left out keeps the earlier one, and counts are never added. The final `output_tokens` is `candidatesTokenCount + thoughtsTokenCount`, exactly as on the non-streaming path, and may exceed `max_tokens`. Empty text with `MAX_TOKENS` is a success: no delta, then the end (D-049).
+
 ### Mock provider and router (`providers/mock.py`, `router.py`, D-016, D-050, D-054, D-058)
 
 | Outcome | Error type | Retryable | Status, reason | Client status | Client code |
@@ -325,20 +396,22 @@ On success (D-041): the first candidate's text is the concatenation of the `text
 | Mock failure injection, any `failure_type`, from the config or `LLMGATEWAY_FAULTS` (D-064) | the class for that type (D-016) | per class | none, `injected` | per class | per class |
 | The router's per-attempt timeout fires (`min(attempt_timeout, time left)`) | `ProviderTimeout` | yes | none, `attempt_timeout` | 504 | `provider_timeout` |
 | Every entry's breaker refuses its first attempt (no adapter call); a refusal with another entry left moves on instead (D-060) | `ProviderCircuitOpen` | yes | none, `circuit_open` | 503, with `Retry-After` set to the smallest cooldown left, rounded up; no header when every refusal is a half-open probe | `provider_circuit_open` |
+| An adapter's stream stops with no end event (D-068) | `ProviderUnavailable` | yes | none, `stream_truncated` | 502, or an `error` event after the first event | `provider_unavailable` |
+| No event for `stream_idle_timeout` after the first event (D-070) | `ProviderTimeout` | n/a, always after the first event | none, `stream_idle` | an `error` event | `provider_timeout` |
 
 ### Gateway errors (`errors.py`, `app.py`)
 
 | Outcome | Client status | Client code |
 | --- | --- | --- |
 | Body fails validation, or is not valid JSON (`details` holds `loc` and `msg` only); a body that is not valid UTF-8 gets 400 `http_error` instead (row below) | 422 | `validation_error` |
-| `model` is not a configured alias (exact, case-sensitive match; the value is not echoed; no provider is called; checked before the `stream=true` 501, D-045) | 400 | `unknown_model` |
+| `model` is not a configured alias (exact, case-sensitive match; the value is not echoed; no provider is called; for a stream too, D-045) | 400 | `unknown_model` |
 | Unknown route | 404 | `not_found` |
 | Method not allowed | 405 | `method_not_allowed` |
 | Any other HTTP exception raised by the framework (message is the standard phrase, never its detail) | its own status | `http_error` |
-| `stream=true` until streaming exists (D-022) | 501 | `streaming_not_implemented` |
-| The client disconnected before a retry or fallback attempt (D-062); nobody reads this response, and it shows in the request line | 499 | `client_disconnected` |
+| The client disconnected before a retry or fallback attempt (D-062), or while a stream was opening (D-072); nobody reads this response, and it shows in the request line | 499 | `client_disconnected` |
 | A `ProviderError` subclass with no mapping of its own and no mapped parent | 502 | `provider_error` |
 | Any other exception | 500 | `internal_error` |
+| Any other exception after a stream's first event (D-069) | 200 already sent; an `error` event | `internal_error` |
 
 Every response, including errors, carries `x-request-id` (D-020).
 

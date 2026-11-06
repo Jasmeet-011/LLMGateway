@@ -87,6 +87,17 @@ Owner-approved edits, with no change to `tests/` or `src/`.
 - PLAN.md M13 gains two scope items, and its time-limit sentence now names D-066.
 - `tests/test_main.py`'s docstring still says a hung child blocks the run, and it points at the mistakes log in PROGRESS.md. Both went stale here. Tests were out of scope for this commit, so M12's tester fixes the wording.
 
+### 2026-11-06: M12 Normalized SSE streaming
+
+**Plan.** Spec first, as in M9 to M11: D-067 to D-077 and FLOW.md in a docs commit. Then the tester writes the tests from that spec (Mode 1), and the builder runs them against an untouched `src/` and records the red run here before any `src/` change. Then the implementation, Mode 2 mutation checks, the reviewer, and the push.
+
+- Adapters gain `stream`, an async generator (D-067). `Router.open_stream` reuses M9 to M11's rules up to the first event, which is the line (D-068).
+- After the line: an `error` event and a clean end (D-069), a 60 s limit between events (D-070), one breaker outcome per stream (D-071).
+- `EventStream` owns the disconnect watcher, and every path closes the upstream (D-072).
+- New files: `providers/sse.py`, `streaming.py`. `schema.py` changes (D-073).
+- Facts read before the spec: Anthropic's streaming page, Google's API reference, and the installed Starlette, uvicorn and httpx. Two things came out of the installed source: `StreamingResponse` can leave a generator open, and httpx's `aiter_lines` splits on U+2028.
+- Unverified until the owner's live run: `alt=sse` on `streamGenerateContent`, and whether Gemini's usage counts are cumulative (D-075).
+
 ## Agent Mistakes Log
 
 Older rows are in [docs/archive/2026-11-sessions.md](docs/archive/2026-11-sessions.md).
