@@ -109,7 +109,7 @@ flowchart TD
 Retry rules for one entry (D-050 to D-052, `RetryPolicy` defaults):
 
 - At most 3 attempts. Only a `ProviderError` with `retryable` true is retried; anything else is raised after one attempt, and the router raises the adapter's own exception object when it gives up.
-- Not retried: an error whose provider `status` is 2xx, such as a malformed body, because the provider already billed that generation (D-052); a rate limit whose `retry-after` is over 5 s, which goes to the client as 503 with `Retry-After` (D-051).
+- Not retried: an error whose provider `status` is 2xx, such as a malformed body, because the provider already billed that generation (D-052); a rate limit whose `retry-after` is over 5 s, which is not waited for: the fallback rules below apply, and from the last entry the client gets 503 with `Retry-After` (D-051, D-060).
 - Wait after failed attempt `n`: `random() * min(2.0, 0.2 * 2 ** (n - 1))` seconds (full jitter), or `retry-after` when that is longer. No wait before the first attempt or after the last.
 - Before every attempt, retries included, the router asks the breaker (D-058). Refused before the first attempt: no adapter call, and the request moves to the next entry; the client gets 503 `provider_circuit_open` only when every entry refused (D-060). Refused before a retry: no further call, the entry's last failure is raised, and the fallback rules below apply. If the breaker is open after a failed attempt, there is no wait and no retry, and the line says `retry=no`. `retry=yes` is the intent when the line is written: a breaker that opens during the wait still stops the retry.
 - Each attempt runs under `min(60 s, time left)`, where the time left runs to the entry's limit; if that fires, the attempt fails with `ProviderTimeout` reason `attempt_timeout` (retryable). The whole request has one 90 s deadline, and a non-last entry's limit is 30 s before it, so 60 s by default (D-061): a retry whose wait would reach the entry's limit is not made.
@@ -140,8 +140,8 @@ stateDiagram-v2
 ```
 
 - **Closed:** the normal state. Calls go through. The window holds the last 20 success and failure outcomes; 15 failures in it open the breaker, even before it is full.
-- **Open:** the provider is treated as down. Calls are not sent. The router moves straight to the next entry in the alias list, and if every entry refused, the client gets 503 `provider_circuit_open` with `Retry-After` set to the cooldown left, rounded up (D-058). This protects a struggling provider and saves the time a doomed call would take.
-- **HalfOpen:** the first request at or after the cooldown is the probe, and there is one at a time; every other request is refused, with no `Retry-After`. A success closes the breaker and empties the window. A failure reopens it and restarts the full cooldown. Nothing moves the breaker with no traffic: there is no timer.
+- **Open:** the provider is treated as down. Calls are not sent. The router moves straight to the next entry in the alias list, and if every entry refused, the client gets 503 `provider_circuit_open` with `Retry-After` set to the smallest cooldown left, rounded up (D-058, D-060). This protects a struggling provider and saves the time a doomed call would take.
+- **HalfOpen:** the first request at or after the cooldown is the probe, and there is one at a time; every other request is refused, and this breaker gives no `Retry-After`. A success closes the breaker and empties the window. A failure reopens it and restarts the full cooldown. Nothing moves the breaker with no traffic: there is no timer.
 
 | Outcome of an adapter call | Breaker |
 | --- | --- |
