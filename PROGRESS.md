@@ -1919,7 +1919,7 @@ So `test_retries.py`'s leak checks were blind to DEBUG lines in normal order, an
 
 **The 59 weaker catches.** 59 leak mutants had first failed only through exact-line or response-equality tests, the pattern M10 warned about. Rerun against the final tests, all 59 are caught by a leak-purpose test: 51 by a test named `leak` or `echo`, and 8 by `test_a_startup_error..._writes_no_value_to_any_logger_or_stream`. The builder's list of IDs and the tester's matched both ways.
 
-**New tests.** `tests/test_fallback.py` 195 functions, 446 cases; `tests/test_faults.py` 104 and 350; `tests/test_main.py` 29 and 51. No test function removed, and no skip or xfail added. The 10 removed lines (`git diff`) are the old forms of strengthened lines, docstrings and an import.
+**New tests.** `tests/test_fallback.py` 195 functions, 446 cases; `tests/test_faults.py` 104 and 350; `tests/test_main.py` 29 and 51. No test function removed, and no skip or xfail added. The 9 lines removed from `tests/` are the old forms of strengthened lines, docstrings and an import.
 
 `.\scripts\check.ps1` with these tests: PASS, 2478 passed, 5 deselected in 34.49 s; `ruff check` all checks passed; 39 files already formatted; mypy no issues in 30 source files.
 
