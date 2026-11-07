@@ -13,6 +13,7 @@ from typing import Any
 
 import httpx
 import pytest
+from conftest import CompleteOnly
 
 from llmgateway.breaker import BreakerPolicy
 from llmgateway.config import ConfigError, load_config, parse_config
@@ -40,7 +41,7 @@ BOTH_KEYS = {"ANTHROPIC_API_KEY": ANTHROPIC_KEY, "GEMINI_API_KEY": GEMINI_KEY}
 # Fakes
 
 
-class FakeAdapter:
+class FakeAdapter(CompleteOnly):
     """Records the requests it gets and returns a fixed result."""
 
     def __init__(self, name: Provider = "mock") -> None:

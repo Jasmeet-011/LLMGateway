@@ -8,12 +8,13 @@ developer's shell may have set.
 Subprocess tests run the real startup path, `import llmgateway.main`, as uvicorn
 does, and check that a bad configuration exits with one clean line on stderr:
 no traceback, and none of the planted values. They wait for the child with no
-timeout, and the probe child makes no real waits, so a result never depends on how
-long the host took: a limit here failed a healthy child when the laptop stalled
-coming out of Modern Standby (PROGRESS.md, Agent Mistakes Log). A child that really
-hangs blocks the run instead of failing it, which cannot give a false pass. M13's
-CI job brings its own time limit (PLAN.md); a local run has none and is stopped
-by hand.
+timeout of their own, and the probe child makes no real waits, so a result never
+depends on how long the host took: a 60 s limit here failed a healthy child when the
+laptop stalled coming out of Modern Standby (mistakes log, 2026-11-04, in
+docs/archive/2026-11-sessions.md). A child that really hangs meets the one 300 s limit
+on every test (D-066): on Windows that ends the whole run with exit 1, which cannot give
+a false pass, and the child outlives pytest and has to be stopped by hand. M13's CI job
+keeps its own time limit as the outer guard (PLAN.md).
 """
 
 import importlib

@@ -27,6 +27,7 @@ from typing import Any
 
 import httpx
 import pytest
+from conftest import CompleteOnly
 
 from llmgateway.app import create_app
 from llmgateway.breaker import BreakerPolicy
@@ -119,7 +120,7 @@ class SequenceRandom:
         return value
 
 
-class ScriptedAdapter:
+class ScriptedAdapter(CompleteOnly):
     """Each call takes the next step of the script: an exception is raised, a result
     is returned. After the last step, the last step repeats. With a clock, each call
     first moves it forward by `duration`, as a slow provider would.
@@ -150,7 +151,7 @@ class ScriptedAdapter:
         return step
 
 
-class HangingAdapter:
+class HangingAdapter(CompleteOnly):
     """Never answers its first `hangs` calls; answers later ones with RESULT."""
 
     def __init__(self, hangs: int) -> None:
@@ -173,7 +174,7 @@ class HangingAdapter:
         return RESULT
 
 
-class HangOnceAdapter:
+class HangOnceAdapter(CompleteOnly):
     """Raises `failures` in order, then hangs until cancelled; later calls answer RESULT.
 
     Later calls answer so that a router that swallows the cancel ends with a result
@@ -205,7 +206,7 @@ class HangOnceAdapter:
         return RESULT
 
 
-class SlowCleanupAdapter:
+class SlowCleanupAdapter(CompleteOnly):
     """Hangs; the first cancel starts a cleanup that only a second cancel ends.
 
     The test cancels only after `cleaning_up` is set, so the order of the two cancels
@@ -1078,7 +1079,7 @@ async def test_attempt_timeout_is_capped_by_the_time_left_before_the_deadline() 
     policy = RetryPolicy(max_attempts=2, attempt_timeout=30.0, total_timeout=50.0)
     clock = FakeClock(100.0)
 
-    class SlowThenHanging:
+    class SlowThenHanging(CompleteOnly):
         def __init__(self) -> None:
             self.requests: list[ChatRequest] = []
 
@@ -1123,7 +1124,7 @@ async def test_attempt_timeout_is_capped_by_total_timeout_on_the_first_attempt()
 async def test_an_attempt_that_answers_in_time_is_not_timed_out() -> None:
     policy = RetryPolicy(attempt_timeout=1.0)
 
-    class Quick:
+    class Quick(CompleteOnly):
         @property
         def name(self) -> Provider:
             return "mock"

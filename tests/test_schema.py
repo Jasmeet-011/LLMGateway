@@ -1,8 +1,11 @@
+import importlib
+import json
 from typing import Any
 
 import pytest
 from pydantic import TypeAdapter, ValidationError
 
+from llmgateway.providers.base import ProviderResult
 from llmgateway.schema import (
     ChatRequest,
     ChatResponse,
@@ -295,13 +298,36 @@ def test_negative_usage_rejected() -> None:
     assert exc_info.value.errors()[0]["loc"] == ("output_tokens",)
 
 
+def _stream_end(**overrides: Any) -> dict[str, Any]:
+    body: dict[str, Any] = {
+        "type": "end",
+        "id": "gw_123",
+        "provider": "claude",
+        "provider_instance": "claude-primary",
+        "model": "claude-haiku-5-5",
+        "finish_reason": "stop",
+        "usage": {"input_tokens": 12, "output_tokens": 3},
+        "provider_response_id": "msg_1",
+    }
+    body.update(overrides)
+    return body
+
+
+def _stream_error(**overrides: Any) -> dict[str, Any]:
+    body: dict[str, Any] = {
+        "type": "error",
+        "code": "provider_unavailable",
+        "message": "The provider is unavailable.",
+        "request_id": "gw_123",
+    }
+    body.update(overrides)
+    return body
+
+
 def test_stream_events_discriminated() -> None:
     adapter: TypeAdapter[StreamDelta | StreamEnd] = TypeAdapter(StreamEvent)
     delta = adapter.validate_json('{"type": "delta", "text": "he"}')
-    end = adapter.validate_json(
-        '{"type": "end", "finish_reason": "max_tokens",'
-        ' "usage": {"input_tokens": 1, "output_tokens": 16}}'
-    )
+    end = adapter.validate_json(json.dumps(_stream_end(finish_reason="max_tokens")))
     assert delta == StreamDelta(text="he")
     assert isinstance(end, StreamEnd)
     assert end.finish_reason == "max_tokens"
@@ -313,6 +339,9 @@ def test_stream_events_discriminated() -> None:
     "payload",
     [
         '{"type": "end", "finish_reason": "stop"}',
+        # D-073: the two fields the old StreamEnd had are no longer an end event.
+        '{"type": "end", "finish_reason": "stop",'
+        ' "usage": {"input_tokens": 1, "output_tokens": 2}}',
         '{"type": "delta"}',
         '{"text": "hi"}',
         "{}",
@@ -322,3 +351,199 @@ def test_malformed_stream_events_rejected(payload: str) -> None:
     adapter: TypeAdapter[StreamDelta | StreamEnd] = TypeAdapter(StreamEvent)
     with pytest.raises(ValidationError):
         adapter.validate_json(payload)
+
+
+# D-073: StreamEnd carries what ChatResponse carries, and StreamError joins the events.
+# StreamError and ProviderStreamEnd are reached at call time, so this file collects and
+# each test fails on its own until they exist.
+
+
+def _stream_error_class() -> Any:
+    return importlib.import_module("llmgateway.schema").StreamError
+
+
+def _provider_stream_end() -> Any:
+    return importlib.import_module("llmgateway.providers.base").ProviderStreamEnd
+
+
+def _event_adapter() -> TypeAdapter[Any]:
+    return TypeAdapter(StreamEvent)
+
+
+def test_stream_end_has_exactly_the_fields_of_chat_response_but_content() -> None:
+    fields = set(StreamEnd.model_fields) - {"type"}
+    assert fields == set(ChatResponse.model_fields) - {"content"}
+
+
+@pytest.mark.parametrize("name", sorted(set(ChatResponse.model_fields) - {"content"}))
+def test_stream_end_fields_are_typed_as_in_chat_response(name: str) -> None:
+    assert StreamEnd.model_fields[name].annotation == ChatResponse.model_fields[name].annotation
+    assert StreamEnd.model_fields[name].metadata == ChatResponse.model_fields[name].metadata
+    assert (
+        StreamEnd.model_fields[name].is_required() == ChatResponse.model_fields[name].is_required()
+    )
+
+
+def test_stream_end_round_trips() -> None:
+    end = StreamEnd.model_validate(_stream_end())
+    assert json.loads(end.model_dump_json()) == _stream_end()
+
+
+def test_stream_end_dumps_its_fields_in_the_documented_order() -> None:
+    assert list(json.loads(StreamEnd.model_validate(_stream_end()).model_dump_json())) == [
+        "type",
+        "id",
+        "provider",
+        "provider_instance",
+        "model",
+        "finish_reason",
+        "usage",
+        "provider_response_id",
+    ]
+
+
+def test_a_null_provider_response_id_stays_in_the_json() -> None:
+    body = _stream_end()
+    del body["provider_response_id"]
+    assert '"provider_response_id":null' in StreamEnd.model_validate(body).model_dump_json()
+
+
+@pytest.mark.parametrize(
+    "name", ["id", "provider", "provider_instance", "model", "finish_reason", "usage"]
+)
+def test_stream_end_requires_each_field(name: str) -> None:
+    StreamEnd.model_validate(_stream_end())
+    body = _stream_end()
+    del body[name]
+    with pytest.raises(ValidationError) as exc_info:
+        StreamEnd.model_validate(body)
+    assert exc_info.value.errors()[0]["loc"] == (name,)
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        pytest.param({"id": ""}, id="empty_id"),
+        pytest.param({"provider": "openai"}, id="unknown_provider"),
+        pytest.param({"provider_instance": ""}, id="empty_instance"),
+        pytest.param({"provider_instance": "x" * 129}, id="long_instance"),
+        pytest.param({"model": ""}, id="empty_model"),
+        pytest.param({"model": "x" * 129}, id="long_model"),
+        pytest.param({"finish_reason": "done"}, id="unknown_finish_reason"),
+        pytest.param({"usage": {"input_tokens": -1, "output_tokens": 0}}, id="negative_usage"),
+        pytest.param({"content": "text"}, id="content_is_not_a_field"),
+        pytest.param({"unknown": 1}, id="unknown_field"),
+    ],
+)
+def test_invalid_stream_ends_rejected(overrides: dict[str, Any]) -> None:
+    # The control: only the override makes this body invalid.
+    StreamEnd.model_validate(_stream_end())
+    with pytest.raises(ValidationError):
+        StreamEnd.model_validate(_stream_end(**overrides))
+
+
+def test_stream_end_is_frozen() -> None:
+    end: Any = StreamEnd.model_validate(_stream_end())
+    with pytest.raises(ValidationError):
+        end.id = "gw_other"
+
+
+def test_stream_error_round_trips() -> None:
+    error = _stream_error_class().model_validate(_stream_error())
+    assert json.loads(error.model_dump_json()) == _stream_error()
+
+
+def test_stream_error_has_the_fields_of_error_info_in_order() -> None:
+    error = _stream_error_class().model_validate(_stream_error())
+    assert list(json.loads(error.model_dump_json())) == ["type", "code", "message", "request_id"]
+
+
+@pytest.mark.parametrize("name", ["code", "message", "request_id"])
+def test_stream_error_requires_each_field(name: str) -> None:
+    body = _stream_error()
+    del body[name]
+    with pytest.raises(ValidationError):
+        _stream_error_class().model_validate(body)
+
+
+@pytest.mark.parametrize("name", ["code", "message", "request_id"])
+def test_stream_error_fields_must_be_non_empty(name: str) -> None:
+    with pytest.raises(ValidationError):
+        _stream_error_class().model_validate(_stream_error(**{name: ""}))
+
+
+def test_stream_error_forbids_extra_fields_and_is_frozen() -> None:
+    cls = _stream_error_class()
+    with pytest.raises(ValidationError):
+        cls.model_validate(_stream_error(details=[]))
+    error = cls.model_validate(_stream_error())
+    with pytest.raises(ValidationError):
+        error.code = "other"
+
+
+def test_stream_event_discriminates_all_three_types() -> None:
+    adapter = _event_adapter()
+    assert isinstance(adapter.validate_python({"type": "delta", "text": "x"}), StreamDelta)
+    assert isinstance(adapter.validate_python(_stream_end()), StreamEnd)
+    assert isinstance(adapter.validate_python(_stream_error()), _stream_error_class())
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        pytest.param({"type": "error"}, id="an_error_with_no_fields"),
+        pytest.param({"type": "error", "code": "x"}, id="an_error_with_only_a_code"),
+        pytest.param({"code": "x", "message": "y", "request_id": "z"}, id="no_type"),
+    ],
+)
+def test_malformed_stream_error_events_rejected(payload: dict[str, Any]) -> None:
+    # Against a union that has the error type, so `{"type": "error"}` is not rejected
+    # just for naming a type the union lacks.
+    _stream_error_class()
+    with pytest.raises(ValidationError):
+        _event_adapter().validate_python(payload)
+
+
+# ProviderStreamEnd (D-067): what an adapter yields last
+
+
+def _end_arguments(**overrides: Any) -> dict[str, Any]:
+    body: dict[str, Any] = {
+        "finish_reason": "stop",
+        "usage": {"input_tokens": 1, "output_tokens": 2},
+        "provider_response_id": "msg_1",
+    }
+    body.update(overrides)
+    return body
+
+
+def test_provider_stream_end_holds_the_non_content_fields_of_provider_result() -> None:
+    result_fields = set(ProviderResult.model_fields) - {"content"}
+    assert set(_provider_stream_end().model_fields) == result_fields
+
+
+def test_provider_stream_end_response_id_is_optional() -> None:
+    body = _end_arguments()
+    del body["provider_response_id"]
+    assert _provider_stream_end().model_validate(body).provider_response_id is None
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        pytest.param({"provider_response_id": ""}, id="an_empty_id"),
+        pytest.param({"finish_reason": "done"}, id="an_unknown_finish_reason"),
+        pytest.param({"usage": None}, id="no_usage"),
+        pytest.param({"content": "text"}, id="content"),
+        pytest.param({"unknown": 1}, id="an_unknown_field"),
+    ],
+)
+def test_invalid_provider_stream_ends_rejected(overrides: dict[str, Any]) -> None:
+    with pytest.raises(ValidationError):
+        _provider_stream_end().model_validate(_end_arguments(**overrides))
+
+
+def test_provider_stream_end_is_frozen() -> None:
+    end = _provider_stream_end().model_validate(_end_arguments())
+    with pytest.raises(ValidationError):
+        end.finish_reason = "other"

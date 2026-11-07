@@ -1,3 +1,7 @@
+import asyncio
+import importlib
+import inspect
+import itertools
 from typing import Any
 
 import pytest
@@ -12,7 +16,7 @@ from llmgateway.providers.base import (
     ProviderUnavailable,
 )
 from llmgateway.providers.mock import FailureType, MockProvider
-from llmgateway.schema import ChatRequest
+from llmgateway.schema import ChatRequest, StreamDelta
 
 
 class FakeSleep:
@@ -286,3 +290,261 @@ async def test_failure_rate_is_honest() -> None:
     # deviations: wide enough not to be flaky, narrow enough to catch a biased roll.
     # Seeds 0-49 are fixed, so the result is deterministic (0.312 when measured).
     assert abs(observed - 0.3) <= 0.02
+
+
+# Streaming (D-077): one answer, split word by word
+#
+# The mock is the default provider, so its stream must equal `complete` in every way a
+# later test leans on: call count, roll, latency, fault window and `mock-<n>`.
+# `ProviderStreamEnd` is reached through `_is_end`, at call time, and the provider is
+# typed `Any` where `stream` is called, so this file collects and each test fails on its
+# own until `stream` exists.
+
+
+def _is_end(event: Any) -> bool:
+    return isinstance(event, importlib.import_module("llmgateway.providers.base").ProviderStreamEnd)
+
+
+async def _streamed(provider: Any, request: ChatRequest | None = None) -> list[Any]:
+    return [event async for event in provider.stream(request or _request())]
+
+
+def _text_of(events: list[Any]) -> str:
+    return "".join(event.text for event in events if isinstance(event, StreamDelta))
+
+
+async def _stream_outcomes(provider: Any, calls: int) -> list[bool]:
+    results: list[bool] = []
+    for _ in range(calls):
+        try:
+            await _streamed(provider)
+        except ProviderError:
+            results.append(False)
+        else:
+            results.append(True)
+    return results
+
+
+def test_stream_is_an_async_generator_function() -> None:
+    assert inspect.isasyncgenfunction(MockProvider.stream)
+
+
+@pytest.mark.asyncio
+async def test_calling_stream_does_no_work() -> None:
+    sleep = FakeSleep()
+    provider: Any = MockProvider(latency_ms=250, sleep=sleep)
+    generator = provider.stream(_request())
+    assert provider.call_count == 0
+    assert sleep.calls == []
+    await generator.aclose()
+    assert provider.call_count == 0
+
+
+@pytest.mark.asyncio
+async def test_the_stream_is_each_word_with_the_space_after_it_and_the_last_bare() -> None:
+    events = await _streamed(MockProvider(sleep=FakeSleep()))
+    assert [event.text for event in events[:-1]] == ["mock ", "reply ", "to: ", "hello ", "there"]
+    assert _is_end(events[-1])
+    assert len(events) == 6
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        pytest.param("hello there", id="plain"),
+        pytest.param("one", id="one_word"),
+        pytest.param("two  spaces", id="two_spaces"),
+        pytest.param("trailing space ", id="a_trailing_space"),
+        pytest.param(" leading", id="a_leading_space"),
+        pytest.param("tab\tand\nnewline", id="other_whitespace"),
+        pytest.param("   ", id="only_spaces"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_the_deltas_join_to_exactly_completes_content(content: str) -> None:
+    request = _request(messages=[{"role": "user", "content": content}])
+    whole = await MockProvider(sleep=FakeSleep()).complete(request)
+    events = await _streamed(MockProvider(sleep=FakeSleep()), request)
+    assert _text_of(events) == whole.content
+    assert all(event.text for event in events[:-1])
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        pytest.param({}, id="whole"),
+        pytest.param(
+            {"messages": [{"role": "user", "content": "one two three"}], "max_tokens": 4},
+            id="cut_by_max_tokens",
+        ),
+        pytest.param({"max_tokens": 1}, id="one_word_left"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_the_end_matches_complete(overrides: dict[str, Any]) -> None:
+    request = _request(**overrides)
+    whole = await MockProvider(sleep=FakeSleep()).complete(request)
+    events = await _streamed(MockProvider(sleep=FakeSleep()), request)
+    end = events[-1]
+    assert _text_of(events) == whole.content
+    assert end.finish_reason == whole.finish_reason
+    assert end.usage == whole.usage
+    assert end.provider_response_id == whole.provider_response_id
+
+
+@pytest.mark.asyncio
+async def test_max_tokens_cuts_the_stream_as_it_cuts_complete() -> None:
+    request = _request(messages=[{"role": "user", "content": "one two three"}], max_tokens=4)
+    events = await _streamed(MockProvider(sleep=FakeSleep()), request)
+    assert _text_of(events) == "mock reply to: one"
+    assert events[-1].finish_reason == "max_tokens"
+    assert events[-1].usage.output_tokens == 4
+
+
+@pytest.mark.asyncio
+async def test_a_stream_counts_as_one_call() -> None:
+    provider: Any = MockProvider(sleep=FakeSleep())
+    await _streamed(provider)
+    assert provider.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_stream_and_complete_share_the_call_count_and_response_ids() -> None:
+    provider: Any = MockProvider(sleep=FakeSleep())
+    first = await _streamed(provider)
+    second = await provider.complete(_request())
+    third = await _streamed(provider)
+    assert first[-1].provider_response_id == "mock-1"
+    assert second.provider_response_id == "mock-2"
+    assert third[-1].provider_response_id == "mock-3"
+    assert provider.call_count == 3
+
+
+@pytest.mark.parametrize("seed", [1, 7, 42])
+@pytest.mark.asyncio
+async def test_a_seeded_stream_fails_exactly_when_complete_would(seed: int) -> None:
+    whole = MockProvider(failure_rate=0.5, seed=seed, sleep=FakeSleep())
+    streamed = MockProvider(failure_rate=0.5, seed=seed, sleep=FakeSleep())
+    assert await _stream_outcomes(streamed, 40) == await _outcomes(whole, 40)
+
+
+@pytest.mark.asyncio
+async def test_stream_and_complete_draw_from_one_seeded_sequence() -> None:
+    # One roll per call, whichever method makes it, so a stream cannot shift the sequence.
+    expected = await _outcomes(MockProvider(failure_rate=0.5, seed=3, sleep=FakeSleep()), 20)
+    provider: Any = MockProvider(failure_rate=0.5, seed=3, sleep=FakeSleep())
+    actual: list[bool] = []
+    for index in range(20):
+        if index % 2:
+            actual += await _outcomes(provider, 1)
+        else:
+            actual += await _stream_outcomes(provider, 1)
+    assert actual == expected
+
+
+@pytest.mark.asyncio
+async def test_the_latency_comes_first_and_once() -> None:
+    sleep = FakeSleep()
+    await _streamed(MockProvider(latency_ms=250, sleep=sleep))
+    assert sleep.calls[0] == 0.25
+    assert all(delay == 0 for delay in sleep.calls[1:])
+
+
+@pytest.mark.asyncio
+async def test_a_failed_stream_waits_the_latency_too() -> None:
+    sleep = FakeSleep()
+    provider = MockProvider(latency_ms=250, failure_rate=1.0, sleep=sleep)
+    with pytest.raises(ProviderError):
+        await _streamed(provider)
+    assert sleep.calls == [0.25]
+
+
+@pytest.mark.asyncio
+async def test_the_loop_gets_a_turn_before_each_delta() -> None:
+    # So a client can really disconnect between deltas (D-077).
+    ticks = 0
+
+    async def ticker() -> None:
+        nonlocal ticks
+        while True:
+            ticks += 1
+            await asyncio.sleep(0)
+
+    provider: Any = MockProvider()
+    task = asyncio.ensure_future(ticker())
+    seen: list[int] = []
+    try:
+        async for event in provider.stream(_request()):
+            if isinstance(event, StreamDelta):
+                seen.append(ticks)
+    finally:
+        task.cancel()
+    assert len(seen) == 5
+    assert all(later > earlier for earlier, later in itertools.pairwise(seen))
+
+
+@pytest.mark.parametrize(
+    ("failure_type", "error_type", "retryable"),
+    [
+        ("timeout", ProviderTimeout, True),
+        ("rate_limited", ProviderRateLimited, True),
+        ("unavailable", ProviderUnavailable, True),
+        ("bad_request", ProviderBadRequest, False),
+        ("auth", ProviderAuthError, False),
+    ],
+)
+@pytest.mark.asyncio
+async def test_a_failure_comes_before_any_delta_with_its_class_and_reason(
+    failure_type: FailureType, error_type: type[ProviderError], retryable: bool
+) -> None:
+    provider: Any = MockProvider(failure_rate=1.0, failure_type=failure_type, sleep=FakeSleep())
+    generator = provider.stream(_request())
+    with pytest.raises(ProviderError) as info:
+        await anext(generator)
+    assert type(info.value) is error_type
+    assert info.value.retryable is retryable
+    assert (info.value.status, info.value.reason) == (None, "injected")
+    assert provider.call_count == 1
+
+
+class _Clock:
+    def __init__(self) -> None:
+        self.now = 1000.0
+
+    def __call__(self) -> float:
+        return self.now
+
+
+@pytest.mark.asyncio
+async def test_a_fault_window_applies_to_a_stream_from_its_first_call() -> None:
+    clock = _Clock()
+    window = importlib.import_module("llmgateway.providers.mock").FaultWindow(1.0, 10.0, 5.0)
+    provider: Any = MockProvider(fault=window, clock=clock, sleep=FakeSleep())
+    assert await _stream_outcomes(provider, 1) == [True]
+    clock.now += 10.0
+    assert await _stream_outcomes(provider, 1) == [False]
+    clock.now += 4.75
+    assert await _stream_outcomes(provider, 1) == [False]
+    clock.now += 0.25
+    assert await _stream_outcomes(provider, 1) == [True]
+
+
+@pytest.mark.asyncio
+async def test_a_stream_and_complete_share_one_fault_window_origin() -> None:
+    clock = _Clock()
+    window = importlib.import_module("llmgateway.providers.mock").FaultWindow(1.0, 10.0, 5.0)
+    provider: Any = MockProvider(fault=window, clock=clock, sleep=FakeSleep())
+    await _streamed(provider)
+    clock.now += 10.0
+    with pytest.raises(ProviderError):
+        await provider.complete(_request())
+
+
+@pytest.mark.asyncio
+async def test_closing_a_stream_early_is_harmless() -> None:
+    provider: Any = MockProvider(sleep=FakeSleep())
+    generator = provider.stream(_request())
+    await anext(generator)
+    await generator.aclose()
+    assert provider.call_count == 1
+    assert _text_of(await _streamed(provider)) == "mock reply to: hello there"

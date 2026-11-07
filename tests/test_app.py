@@ -6,6 +6,7 @@ from typing import Any
 
 import httpx
 import pytest
+from conftest import CompleteOnly
 from fastapi import FastAPI
 
 from llmgateway.app import create_app
@@ -33,14 +34,14 @@ class FakeSleep:
         return None
 
 
-class RateLimitedProvider:
+class RateLimitedProvider(CompleteOnly):
     name: Provider = "mock"
 
     async def complete(self, request: ChatRequest) -> ProviderResult:
         raise ProviderRateLimited("limited", retry_after_seconds=7)
 
 
-class RaisingProvider:
+class RaisingProvider(CompleteOnly):
     """Raises a given provider error on every call."""
 
     name: Provider = "mock"
@@ -60,7 +61,7 @@ class UnknownProviderError(ProviderError):
     """A subclass with no mapping of its own and no mapped parent."""
 
 
-class BrokenProvider:
+class BrokenProvider(CompleteOnly):
     name: Provider = "mock"
 
     async def complete(self, request: ChatRequest) -> ProviderResult:
@@ -208,13 +209,18 @@ async def test_provider_called_once_per_request() -> None:
 
 
 @pytest.mark.asyncio
-async def test_stream_true_returns_501() -> None:
+async def test_stream_true_streams_the_answer() -> None:
+    # D-073 supersedes D-022's 501.
     provider = MockProvider(sleep=FakeSleep())
     async with _client(_app(provider)) as client:
         response = await client.post("/v1/chat", json=_body(stream=True))
-    error = _assert_error(response, 501, "streaming_not_implemented")
-    assert error.error.request_id.startswith("gw_")
-    assert provider.call_count == 0
+    assert response.status_code == 200
+    assert response.headers["content-type"].split(";")[0] == "text/event-stream"
+    assert response.headers["x-request-id"].startswith("gw_")
+    assert response.text.startswith("event: delta\n")
+    assert '"type":"end"' in response.text
+    assert "streaming_not_implemented" not in response.text
+    assert provider.call_count == 1
 
 
 @pytest.mark.parametrize(
@@ -543,7 +549,7 @@ async def test_same_request_is_routed_to_mock_claude_and_gemini_by_alias() -> No
 async def test_adapter_receives_the_route_model_not_the_alias() -> None:
     received: list[ChatRequest] = []
 
-    class Recording:
+    class Recording(CompleteOnly):
         name: Provider = "mock"
 
         async def complete(self, request: ChatRequest) -> ProviderResult:
@@ -590,7 +596,7 @@ async def test_select_uses_the_first_entry_of_the_alias() -> None:
 async def test_unknown_alias_is_400_unknown_model_without_echo_or_provider_call(
     stream: bool,
 ) -> None:
-    # Checked before the stream=true 501, so the result is the same either way.
+    # Checked before a stream starts, so the result is the same either way (D-073).
     provider = MockProvider(sleep=FakeSleep())
     async with _client(_app(provider)) as client:
         response = await client.post("/v1/chat", json=_body(model=ALIAS_MARKER, stream=stream))

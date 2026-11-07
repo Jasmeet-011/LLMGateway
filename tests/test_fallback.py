@@ -44,6 +44,7 @@ from typing import Any
 
 import httpx
 import pytest
+from conftest import CompleteOnly
 from fastapi import FastAPI
 from pydantic import ValidationError
 
@@ -326,7 +327,7 @@ async def _hang(clock: FakeClock) -> ProviderResult:
     return RESULT
 
 
-class ScriptedAdapter:
+class ScriptedAdapter(CompleteOnly):
     """Each call takes the next step; after the last step, the last step repeats.
 
     `Gateway` attaches its clock and journal. `started` holds the fake time of each
@@ -382,7 +383,7 @@ class HeldCall:
         self.release.set()
 
 
-class GatedAdapter:
+class GatedAdapter(CompleteOnly):
     """Every call parks until the test finishes it, so the test owns the order."""
 
     def __init__(self) -> None:

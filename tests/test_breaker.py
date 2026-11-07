@@ -44,6 +44,7 @@ from typing import Any
 
 import httpx
 import pytest
+from conftest import CompleteOnly
 
 from llmgateway.app import create_app
 from llmgateway.config import parse_config
@@ -204,7 +205,7 @@ class SequenceRandom:
         return value
 
 
-class ScriptedAdapter:
+class ScriptedAdapter(CompleteOnly):
     """Each call takes the next step: an exception is raised, a result is returned.
 
     After the last step, the last step repeats.
@@ -238,7 +239,7 @@ class HeldCall:
         self.release.set()
 
 
-class GatedAdapter:
+class GatedAdapter(CompleteOnly):
     """Every call parks until the test finishes it, so the test owns the order.
 
     While `refusing` is set a call raises instead: nobody would ever finish it, so a
@@ -266,7 +267,7 @@ class GatedAdapter:
         return call.outcome
 
 
-class SpinningAdapter:
+class SpinningAdapter(CompleteOnly):
     """Gives the event loop `SPIN_TICKS` turns, then answers.
 
     Under a `NEAR_ZERO` attempt timeout it never gets that far. Counting turns and
@@ -287,7 +288,7 @@ class SpinningAdapter:
         return RESULT
 
 
-class SlowCleanupAdapter:
+class SlowCleanupAdapter(CompleteOnly):
     """Spins; the first cancel starts a cleanup that only a second cancel ends."""
 
     def __init__(self) -> None:
