@@ -7,9 +7,12 @@ Key design choices:
 
 - `ProviderAdapter` is a `Protocol`, not a base class, so adapters and test fakes
   match it structurally without inheriting anything.
-- It is non-streaming only for now; streaming is added in the streaming step.
-- Adapters return a `ProviderResult`, not a `ChatResponse`. The gateway builds the
-  response because only it knows the gateway response ID and the requested alias.
+- `stream` is an async generator on every adapter (D-067): non-empty deltas, then
+  exactly one `ProviderStreamEnd`. A generator closes its connection on `aclose()`
+  and on cancellation, which is what stops a stream nobody is reading.
+- Adapters return a `ProviderResult`, not a `ChatResponse`, and end a stream with a
+  `ProviderStreamEnd`, not a `StreamEnd`. The gateway builds those because only it
+  knows the gateway response ID and the requested alias.
 - Every error carries a `retryable` flag so callers classify failures without
   knowing which provider raised them. Error messages must never contain prompt
   text, API keys or secrets.
@@ -23,11 +26,12 @@ Key design choices:
 """
 
 import math
+from collections.abc import AsyncIterator
 from typing import Annotated, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from llmgateway.schema import ChatRequest, FinishReason, Provider, Usage
+from llmgateway.schema import ChatRequest, FinishReason, Provider, StreamDelta, Usage
 
 
 class ProviderResult(BaseModel):
@@ -41,12 +45,28 @@ class ProviderResult(BaseModel):
     provider_response_id: Annotated[str, Field(min_length=1)] | None = None
 
 
+class ProviderStreamEnd(BaseModel):
+    """The last thing an adapter's stream yields: a `ProviderResult` without content."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    finish_reason: FinishReason
+    usage: Usage
+    provider_response_id: Annotated[str, Field(min_length=1)] | None = None
+
+
+ProviderStreamEvent = StreamDelta | ProviderStreamEnd
+
+
 class ProviderAdapter(Protocol):
     # A read-only property, so an adapter may declare `name` as a constant.
     @property
     def name(self) -> Provider: ...
 
     async def complete(self, request: ChatRequest) -> ProviderResult: ...
+
+    # An async generator: calling it does no work, and the first pull makes the request.
+    def stream(self, request: ChatRequest) -> AsyncIterator[ProviderStreamEvent]: ...
 
 
 class ProviderError(Exception):

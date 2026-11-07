@@ -344,6 +344,7 @@ def test_retry_policy_is_a_frozen_dataclass() -> None:
         "attempt_timeout",
         "total_timeout",
         "fallback_reserve",
+        "stream_idle_timeout",
     }
     policy = RetryPolicy()
     with pytest.raises(dataclasses.FrozenInstanceError):

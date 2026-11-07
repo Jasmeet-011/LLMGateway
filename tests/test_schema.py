@@ -325,7 +325,7 @@ def _stream_error(**overrides: Any) -> dict[str, Any]:
 
 
 def test_stream_events_discriminated() -> None:
-    adapter: TypeAdapter[StreamDelta | StreamEnd] = TypeAdapter(StreamEvent)
+    adapter: TypeAdapter[Any] = TypeAdapter(StreamEvent)
     delta = adapter.validate_json('{"type": "delta", "text": "he"}')
     end = adapter.validate_json(json.dumps(_stream_end(finish_reason="max_tokens")))
     assert delta == StreamDelta(text="he")
@@ -348,7 +348,7 @@ def test_stream_events_discriminated() -> None:
     ],
 )
 def test_malformed_stream_events_rejected(payload: str) -> None:
-    adapter: TypeAdapter[StreamDelta | StreamEnd] = TypeAdapter(StreamEvent)
+    adapter: TypeAdapter[Any] = TypeAdapter(StreamEvent)
     with pytest.raises(ValidationError):
         adapter.validate_json(payload)
 

@@ -35,12 +35,30 @@ Key design choices:
   attached as `__context__`.
 - The API key lives only in the client's default headers, never in an attribute
   of the adapter, and `repr()` does not show it.
+- `stream` sends the same request with `"stream": true` and keeps the same table for
+  the status (D-074). Events are read by their JSON `type`; thinking, `ping` and
+  anything unknown produce nothing, because new event types may be added. Usage is
+  cumulative, so a later count replaces an earlier one, and counts are never added.
+  An in-stream `error` is treated as the HTTP status its `error.type` stands for, so
+  an overload right after the 200 retries and falls back like a real 529. Its
+  `message` is never read. `async with client.stream` around the yields closes the
+  connection on every exit, cancellation included.
 """
 
+from collections.abc import AsyncGenerator, AsyncIterator
+from contextlib import aclosing
 from typing import Annotated, Any, Final
 
 import httpx
-from pydantic import BaseModel, ConfigDict, Field, StrictInt, ValidationError
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StrictInt,
+    StrictStr,
+    TypeAdapter,
+    ValidationError,
+)
 
 from llmgateway.providers.base import (
     ProviderAuthError,
@@ -48,11 +66,14 @@ from llmgateway.providers.base import (
     ProviderError,
     ProviderRateLimited,
     ProviderResult,
+    ProviderStreamEnd,
+    ProviderStreamEvent,
     ProviderTimeout,
     ProviderUnavailable,
     parse_retry_after,
 )
-from llmgateway.schema import ChatRequest, FinishReason, Provider, Usage
+from llmgateway.providers.sse import iter_sse
+from llmgateway.schema import ChatRequest, FinishReason, Provider, StreamDelta, Usage
 
 API_URL: Final = "https://api.anthropic.com/v1/messages"
 ANTHROPIC_VERSION: Final = "2026-10-21"
@@ -63,6 +84,25 @@ _STOP_REASONS: Final[dict[str, FinishReason]] = {
     "max_tokens": "max_tokens",
     "stop_sequence": "stop_sequence",
 }
+
+# What an in-stream `error.type` stands for (D-074), from Anthropic's error table.
+_IN_STREAM_ERRORS: Final[dict[str, int]] = {
+    "invalid_request_error": 400,
+    "authentication_error": 401,
+    "billing_error": 402,
+    "permission_error": 403,
+    "not_found_error": 404,
+    "request_too_large": 413,
+    "rate_limit_error": 429,
+    "api_error": 500,
+    "overloaded_error": 529,
+}
+
+# pydantic's parser, not json.loads: it rejects a frame that is not a JSON object, and
+# it turns very deep nesting into a ValidationError instead of a RecursionError.
+_FRAME: Final = TypeAdapter(dict[str, Any])
+
+_Count = Annotated[StrictInt, Field(ge=0)]
 
 
 class _Block(BaseModel):
@@ -90,8 +130,57 @@ class _Message(BaseModel):
     usage: _Usage
 
 
+class _StartUsage(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    input_tokens: _Count
+    # Left out is fine, and `model_fields_set` tells it from a real 0; a null is not.
+    output_tokens: _Count = 0
+
+
+class _StartMessage(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    id: Annotated[str, Field(min_length=1)]
+    usage: _StartUsage
+
+
+class _StopDelta(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    stop_reason: StrictStr | None = None
+
+
+class _DeltaUsage(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    # A null keeps the earlier count, like a count left out (D-074).
+    input_tokens: _Count | None = None
+    output_tokens: _Count | None = None
+
+
+class _MessageDelta(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    delta: _StopDelta = Field(default_factory=_StopDelta)
+    usage: _DeltaUsage | None = None
+
+
+class _TextDelta(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    text: StrictStr
+
+
 def _status_error(response: httpx.Response) -> ProviderError:
-    status = response.status_code
+    return _failure_for_status(
+        response.status_code,
+        # Anthropic sends whole seconds.
+        parse_retry_after(response.headers.get("retry-after")),
+    )
+
+
+def _failure_for_status(status: int, retry_after: float | None) -> ProviderError:
     if status in (401, 403):
         return ProviderAuthError(
             "claude: authentication or permission failure", status=status, reason="auth"
@@ -107,8 +196,7 @@ def _status_error(response: httpx.Response) -> ProviderError:
     if status == 429:
         return ProviderRateLimited(
             "claude: rate limited",
-            # Anthropic sends whole seconds.
-            retry_after_seconds=parse_retry_after(response.headers.get("retry-after")),
+            retry_after_seconds=retry_after,
             status=status,
             reason="rate_limited",
         )
@@ -155,6 +243,109 @@ def _result(message: _Message) -> ProviderResult:
     )
 
 
+def _in_stream_error(frame: dict[str, Any]) -> ProviderError:
+    """The failure an `error` event stands for; `error.message` is never read (D-074)."""
+    error = frame.get("error")
+    kind = error.get("type") if isinstance(error, dict) else None
+    if isinstance(kind, str) and kind in _IN_STREAM_ERRORS:
+        return _failure_for_status(_IN_STREAM_ERRORS[kind], None)
+    return ProviderUnavailable("claude: error in the stream", reason="stream_error")
+
+
+class _StreamProgress:
+    """What the frames of one stream have said so far (D-074)."""
+
+    def __init__(self) -> None:
+        self.response_id: str | None = None
+        self.stop_reason: str | None = None
+        self.input_tokens: int | None = None
+        self.output_tokens: int | None = None
+
+    def read(self, frame: dict[str, Any]) -> ProviderStreamEvent | None:
+        """The event this frame produces, if any; raises `ValueError` on a bad one."""
+        match frame.get("type"):
+            case "content_block_delta":
+                return self._text(frame)
+            case "message_start":
+                self._start(frame)
+            case "message_delta":
+                self._delta(frame)
+            case "message_stop":
+                return self._end()
+            case "error":
+                raise _in_stream_error(frame)
+        return None
+
+    def _text(self, frame: dict[str, Any]) -> StreamDelta | None:
+        delta = frame.get("delta")
+        if not isinstance(delta, dict):
+            raise ValueError("content_block_delta without a delta")
+        if delta.get("type") != "text_delta":
+            return None
+        text = _TextDelta.model_validate(delta).text
+        return StreamDelta(text=text) if text else None
+
+    def _start(self, frame: dict[str, Any]) -> None:
+        message = _StartMessage.model_validate(frame.get("message"))
+        self.response_id = message.id
+        self.input_tokens = message.usage.input_tokens
+        if "output_tokens" in message.usage.model_fields_set:
+            self.output_tokens = message.usage.output_tokens
+
+    def _delta(self, frame: dict[str, Any]) -> None:
+        parsed = _MessageDelta.model_validate(frame)
+        if parsed.delta.stop_reason is not None:
+            self.stop_reason = parsed.delta.stop_reason
+        usage = parsed.usage
+        if usage is None:
+            return
+        # Cumulative, so a later count replaces an earlier one; never added.
+        if usage.input_tokens is not None:
+            self.input_tokens = usage.input_tokens
+        if usage.output_tokens is not None:
+            self.output_tokens = usage.output_tokens
+
+    def _end(self) -> ProviderStreamEnd:
+        if (
+            self.response_id is None
+            or self.stop_reason is None
+            or self.input_tokens is None
+            or self.output_tokens is None
+        ):
+            raise ValueError("message_stop before the stream said everything")
+        return ProviderStreamEnd(
+            finish_reason=_STOP_REASONS.get(self.stop_reason, "other"),
+            usage=Usage(input_tokens=self.input_tokens, output_tokens=self.output_tokens),
+            provider_response_id=self.response_id,
+        )
+
+
+async def _stream_events(
+    response: httpx.Response,
+) -> AsyncGenerator[ProviderStreamEvent, None]:
+    progress = _StreamProgress()
+    try:
+        async with aclosing(iter_sse(response.aiter_bytes())) as frames:
+            async for frame in frames:
+                event = progress.read(_FRAME.validate_json(frame.data))
+                if event is not None:
+                    yield event
+                if isinstance(event, ProviderStreamEnd):
+                    return
+    except ValueError:
+        # ValidationError and UnicodeDecodeError are both ValueErrors. The 2xx status
+        # tells the router this generation was billed (D-052).
+        failure = ProviderUnavailable(
+            "claude: malformed stream", status=response.status_code, reason="malformed_body"
+        )
+    else:
+        failure = ProviderUnavailable(
+            "claude: stream ended early", status=response.status_code, reason="stream_truncated"
+        )
+    # Outside the except block, so the ValueError is not chained onto it.
+    raise failure
+
+
 class ClaudeAdapter:
     name: Final[Provider] = "claude"
 
@@ -184,11 +375,42 @@ class ClaudeAdapter:
     async def aclose(self) -> None:
         await self._client.aclose()
 
-    async def complete(self, request: ChatRequest) -> ProviderResult:
+    def _check(self, request: ChatRequest) -> None:
         if request.temperature is not None or request.top_p is not None:
             raise ProviderBadRequest(
                 "claude: temperature and top_p are not supported", reason="local_check"
             )
+
+    async def stream(self, request: ChatRequest) -> AsyncIterator[ProviderStreamEvent]:
+        self._check(request)
+        failure: ProviderError | None = None
+        try:
+            async with self._client.stream(
+                "POST", API_URL, json={**_request_body(request), "stream": True}
+            ) as response:
+                if response.is_success:
+                    async with aclosing(_stream_events(response)) as events:
+                        async for event in events:
+                            yield event
+                else:
+                    # The status table reads the body, and a stream has not read it yet.
+                    await response.aread()
+                    failure = _status_error(response)
+        except httpx.TimeoutException:
+            failure = ProviderTimeout("claude: request timed out", reason="timeout")
+        except httpx.TransportError:
+            failure = ProviderUnavailable("claude: connection failed", reason="connection")
+        except httpx.DecodingError:
+            failure = ProviderUnavailable(
+                "claude: undecodable response body", reason="undecodable_body"
+            )
+        # Raised here, not inside the except blocks, so the httpx exception is not
+        # chained onto the provider error.
+        if failure is not None:
+            raise failure
+
+    async def complete(self, request: ChatRequest) -> ProviderResult:
+        self._check(request)
 
         failure: ProviderError | None = None
         try:

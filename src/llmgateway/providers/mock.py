@@ -20,6 +20,9 @@ Key design choices:
 - Failed calls wait the configured latency too, because real failures take time.
   Injected errors carry reason `injected` and no status (D-054).
 - `sleep` is injectable so tests run instantly and can check the delay.
+- `stream` is `complete` cut into words (D-077): one call, one roll, the same answer,
+  and any failure comes before the first delta, so it falls back. A failure after
+  the first event is not injectable here; tests use a fake adapter for that.
 - A `FaultWindow` raises the failure rate for a stretch of time, counted from the
   instance's first call, because the configured rate is fixed for the process and
   measurement 8 needs an outage mid-run (D-064). It changes the rate and not the
@@ -29,8 +32,9 @@ Key design choices:
 import asyncio
 import math
 import random
+import re
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
 from typing import Final, Literal, get_args
 
@@ -40,16 +44,20 @@ from llmgateway.providers.base import (
     ProviderError,
     ProviderRateLimited,
     ProviderResult,
+    ProviderStreamEnd,
+    ProviderStreamEvent,
     ProviderTimeout,
     ProviderUnavailable,
 )
-from llmgateway.schema import ChatRequest, Provider, Usage
+from llmgateway.schema import ChatRequest, Provider, StreamDelta, Usage
 
 FailureType = Literal["timeout", "rate_limited", "unavailable", "bad_request", "auth"]
 Sleep = Callable[[float], Awaitable[None]]
 Clock = Callable[[], float]
 
 _FAILURE_TYPES: Final = frozenset(get_args(FailureType))
+# Each word with the space after it, so the pieces join back to exactly the reply.
+_PIECE: Final = re.compile(r"\S+\s*")
 
 
 def _injected_error(failure_type: FailureType) -> ProviderError:
@@ -170,6 +178,18 @@ class MockProvider:
             finish_reason=finish_reason,
             usage=usage,
             provider_response_id=f"mock-{call_number}",
+        )
+
+    async def stream(self, request: ChatRequest) -> AsyncIterator[ProviderStreamEvent]:
+        result = await self.complete(request)
+        for piece in _PIECE.findall(result.content):
+            # A real await between deltas, so a client can leave partway.
+            await self._sleep(0)
+            yield StreamDelta(text=piece)
+        yield ProviderStreamEnd(
+            finish_reason=result.finish_reason,
+            usage=result.usage,
+            provider_response_id=result.provider_response_id,
         )
 
     def _current_rate(self) -> float:

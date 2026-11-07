@@ -55,6 +55,23 @@ Key design choices:
 - `LLMGATEWAY_FAULTS` windows go to the mock instances it names, and each writes one
   `fault_injection_on` line at startup, so a run with faults cannot pass unnoticed
   (D-064).
+- `open_stream` is `serve` for a stream, up to the first event (D-068): an attempt
+  pulls until a delta with text or the end exists, under the same retries, breaker
+  checks, fallback, limits and lines. An HTTP 200, a ping or an empty delta is not that
+  event, so a failure after one still retries or falls back. Once it exists the entry
+  is committed, and the app has sent nothing yet, so a failure before it is an ordinary
+  JSON error. `_with_retries` and `_go_down` hold those rules once for both paths.
+- A `ServedStream` is the committed stream. There is no retry or fallback from here;
+  a failure is raised once, and the client gets an `error` event (D-069). The 60 s
+  attempt limit and the 90 s deadline stop applying, because a long answer that keeps
+  arriving is healthy, and `stream_idle_timeout` limits each wait instead (D-070).
+- A stream is one adapter call, so it has one breaker outcome, and the permit stays
+  open until it ends (D-071). Recording a success at the first event and a failure
+  later would cap a provider at 50% failures, under the trip rule, so one that drops
+  every stream partway would never open the breaker.
+- Every path closes the adapter's generator. A cancellation in `__anext__` leaves the
+  stream unsettled on purpose: `aclose` then records it as neutral and writes the
+  `stream_abandoned` line, whoever cancelled it (D-072).
 - The router owns its adapters: `aclose()` closes each one once, on app shutdown.
 """
 
@@ -62,7 +79,7 @@ import asyncio
 import logging
 import math
 import time
-from collections.abc import Awaitable, Callable, Mapping, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from random import Random
 from types import MappingProxyType
@@ -86,13 +103,15 @@ from llmgateway.providers.base import (
     ProviderError,
     ProviderRateLimited,
     ProviderResult,
+    ProviderStreamEnd,
+    ProviderStreamEvent,
     ProviderTimeout,
     ProviderUnavailable,
 )
 from llmgateway.providers.claude import ClaudeAdapter
 from llmgateway.providers.gemini import GeminiAdapter
 from llmgateway.providers.mock import MockProvider
-from llmgateway.schema import ChatRequest
+from llmgateway.schema import ChatRequest, StreamDelta
 
 Sleep = Callable[[float], Awaitable[None]]
 Clock = Callable[[], float]
@@ -123,6 +142,8 @@ class RetryPolicy:
     total_timeout: float = 90.0
     # Held back from a non-last entry for the entries after it (D-061).
     fallback_reserve: float = 30.0
+    # The longest wait for a stream's next event, after its first (D-070).
+    stream_idle_timeout: float = 60.0
 
     def __post_init__(self) -> None:
         if (
@@ -135,7 +156,7 @@ class RetryPolicy:
             value = getattr(self, name)
             if not _is_number(value) or not math.isfinite(value) or value < 0:
                 raise ValueError(f"{name} must be a finite number >= 0")
-        for name in ("attempt_timeout", "total_timeout"):
+        for name in ("attempt_timeout", "total_timeout", "stream_idle_timeout"):
             value = getattr(self, name)
             if not _is_number(value) or not math.isfinite(value) or value <= 0:
                 raise ValueError(f"{name} must be a finite number > 0")
@@ -165,6 +186,164 @@ class Served:
 
 class ClientDisconnected(Exception):
     """The client left before a retry or fallback attempt (D-062). No provider failed."""
+
+
+async def _next_event(upstream: AsyncIterator[ProviderStreamEvent]) -> ProviderStreamEvent | None:
+    """The next real event, or None if the stream stopped. An empty delta is not one."""
+    async for event in upstream:
+        if not isinstance(event, StreamDelta) or event.text:
+            return event
+    return None
+
+
+async def _close(upstream: AsyncIterator[ProviderStreamEvent] | None) -> None:
+    # The protocol says only AsyncIterator, and a generator is what has `aclose`.
+    close = getattr(upstream, "aclose", None)
+    if close is not None:
+        await close()
+
+
+def _no_end() -> ProviderUnavailable:
+    # The router saw no response, so there is no status: the adapter just stopped.
+    return ProviderUnavailable("router: stream stopped with no end", reason="stream_truncated")
+
+
+def _record(breaker: CircuitBreaker, permit: Permit, failure: ProviderError) -> None:
+    if counts_as_failure(failure):
+        breaker.record_failure(permit)
+    else:
+        breaker.record_neutral(permit)
+
+
+@dataclass(frozen=True)
+class _Opened:
+    """An attempt that reached its first event: the generator, the event, the permit."""
+
+    upstream: AsyncIterator[ProviderStreamEvent]
+    first: ProviderStreamEvent
+    permit: Permit
+
+
+class ServedStream:
+    """A stream past its first event: no retry and no fallback from here (D-068).
+
+    Iterating yields the first event, then the rest. A failure is raised once, then
+    iteration stops. `aclose` must always be called: it is what closes the upstream
+    when the client leaves.
+    """
+
+    def __init__(
+        self,
+        route: Route,
+        opened: _Opened,
+        breaker: CircuitBreaker,
+        *,
+        alias: str,
+        request_id: str | None,
+        idle_timeout: float,
+    ) -> None:
+        self.route = route
+        self._upstream = opened.upstream
+        self._pending: ProviderStreamEvent | None = opened.first
+        self._breaker = breaker
+        self._permit = opened.permit
+        self._alias = alias
+        self._request_id = request_id
+        self._idle_timeout = idle_timeout
+        self._settled = False
+        self._closed = False
+        if isinstance(opened.first, ProviderStreamEnd):
+            self._settle_success()
+
+    def __aiter__(self) -> "ServedStream":
+        return self
+
+    async def __anext__(self) -> ProviderStreamEvent:
+        if self._pending is not None:
+            event, self._pending = self._pending, None
+            if isinstance(event, ProviderStreamEnd):
+                await self._close_upstream()
+            return event
+        if self._settled or self._closed:
+            raise StopAsyncIteration
+        limit = asyncio.timeout(self._idle_timeout)
+        failure: ProviderError
+        try:
+            async with limit:
+                pulled = await _next_event(self._upstream)
+        except ProviderError as exc:
+            failure = exc
+        except TimeoutError:
+            # As in `_attempt`: only our own timeout is ours to translate.
+            if not limit.expired():
+                await self._abandon_for_bug()
+                raise
+            failure = ProviderTimeout("router: stream went silent", reason="stream_idle")
+        except asyncio.CancelledError:
+            # Left unsettled, so `aclose` records it and writes the line.
+            raise
+        except BaseException:
+            await self._abandon_for_bug()
+            raise
+        else:
+            if isinstance(pulled, ProviderStreamEnd):
+                self._settle_success()
+                await self._close_upstream()
+                return pulled
+            if pulled is not None:
+                return pulled
+            failure = _no_end()
+        self._settled = True
+        _record(self._breaker, self._permit, failure)
+        self._log_failure(failure)
+        await self._close_upstream()
+        # Outside any except block, so nothing new is chained onto it.
+        raise failure
+
+    async def aclose(self, reason: str = "client_gone") -> None:
+        """Closes the upstream; idempotent, and silent on a stream that already ended."""
+        if not self._settled:
+            self._settled = True
+            self._breaker.record_neutral(self._permit)
+            # Fixed fields only, as in `Router._log_failure`.
+            logger.info(
+                "stream_abandoned request_id=%s alias=%r provider=%s model=%r reason=%s",
+                self._request_id if self._request_id is not None else "-",
+                self._alias,
+                self.route.provider,
+                self.route.model,
+                reason,
+            )
+        await self._close_upstream()
+
+    def _settle_success(self) -> None:
+        self._settled = True
+        self._breaker.record_success(self._permit)
+
+    async def _abandon_for_bug(self) -> None:
+        # A bug says nothing about the provider, and gets no router line (D-054, D-069).
+        self._settled = True
+        self._breaker.record_neutral(self._permit)
+        await self._close_upstream()
+
+    async def _close_upstream(self) -> None:
+        if not self._closed:
+            self._closed = True
+            await _close(self._upstream)
+
+    def _log_failure(self, error: ProviderError) -> None:
+        # Fixed fields only: never error.message, provider text, prompts or keys (D-054).
+        logger.warning(
+            "stream_failed request_id=%s alias=%r provider=%s model=%r status=%s reason=%s "
+            "error=%s",
+            self._request_id if self._request_id is not None else "-",
+            self._alias,
+            self.route.provider,
+            self.route.model,
+            error.status if error.status is not None else "-",
+            error.reason if error.reason is not None else "-",
+            type(error).__name__,
+        )
 
 
 def falls_back(error: ProviderError) -> bool:
@@ -224,6 +403,10 @@ class Router:
             for route in entries
         }
 
+    @property
+    def policy(self) -> RetryPolicy:
+        return self._policy
+
     def breaker(self, provider: str) -> CircuitBreaker:
         """The breaker of a config instance; raises KeyError for an unknown name."""
         return self._breakers[provider]
@@ -247,6 +430,61 @@ class Router:
         is_disconnected: IsDisconnected | None = None,
     ) -> Served:
         """Try the alias's entries in order; raises what the client should see (D-060)."""
+
+        async def serve_entry(route: Route, limit: float) -> Served:
+            result = await self.complete(
+                route,
+                request,
+                request_id=request_id,
+                deadline=limit,
+                is_disconnected=is_disconnected,
+            )
+            return Served(route, result)
+
+        return await self._go_down(
+            request, serve_entry, request_id=request_id, is_disconnected=is_disconnected
+        )
+
+    async def open_stream(
+        self,
+        request: ChatRequest,
+        *,
+        request_id: str | None = None,
+        is_disconnected: IsDisconnected | None = None,
+    ) -> ServedStream:
+        """`serve` up to a stream's first event; raises what the client should see (D-068)."""
+        alias = request.model
+
+        async def open_entry(route: Route, limit: float) -> ServedStream:
+            opened = await self._with_retries(
+                route,
+                request,
+                self._open_attempt,
+                request_id=request_id,
+                deadline=limit,
+                is_disconnected=is_disconnected,
+            )
+            return ServedStream(
+                route,
+                opened,
+                self._breakers[route.provider],
+                alias=alias,
+                request_id=request_id,
+                idle_timeout=self._policy.stream_idle_timeout,
+            )
+
+        return await self._go_down(
+            request, open_entry, request_id=request_id, is_disconnected=is_disconnected
+        )
+
+    async def _go_down[T](
+        self,
+        request: ChatRequest,
+        try_entry: Callable[[Route, float], Awaitable[T]],
+        *,
+        request_id: str | None,
+        is_disconnected: IsDisconnected | None,
+    ) -> T:
         alias = request.model
         entries = self.routes(alias)
         deadline = self._clock() + self._policy.total_timeout
@@ -263,13 +501,7 @@ class Router:
                     raise ClientDisconnected("client disconnected")
                 self._log_fallback(request_id, alias, left[0], left[1], route)
             try:
-                result = await self.complete(
-                    route,
-                    request,
-                    request_id=request_id,
-                    deadline=limit,
-                    is_disconnected=is_disconnected,
-                )
+                return await try_entry(route, limit)
             except ProviderError as error:
                 if not falls_back(error):
                     raise
@@ -278,8 +510,6 @@ class Router:
                     refusals.append(error)
                 else:
                     failure = error
-            else:
-                return Served(route, result)
         # Outside any except block, so nothing new is chained onto it.
         if failure is not None:
             raise failure
@@ -295,6 +525,27 @@ class Router:
         is_disconnected: IsDisconnected | None = None,
     ) -> ProviderResult:
         """Call one entry's adapter, retrying per the policy; raises the last error."""
+        return await self._with_retries(
+            route,
+            request,
+            self._attempt,
+            request_id=request_id,
+            deadline=deadline,
+            is_disconnected=is_disconnected,
+        )
+
+    async def _with_retries[T](
+        self,
+        route: Route,
+        request: ChatRequest,
+        attempt_once: Callable[
+            [Route, ChatRequest, float, CircuitBreaker, Permit], Awaitable[T | ProviderError]
+        ],
+        *,
+        request_id: str | None,
+        deadline: float | None,
+        is_disconnected: IsDisconnected | None,
+    ) -> T:
         # The request's model is still the alias the client sent (D-045).
         alias = request.model
         routed = request.model_copy(update={"model": route.model})
@@ -312,8 +563,8 @@ class Router:
                     "router: circuit open", retry_after_seconds=breaker.retry_after()
                 )
             attempt += 1
-            outcome = await self._attempt(route, routed, deadline, breaker, permit)
-            if isinstance(outcome, ProviderResult):
+            outcome = await attempt_once(route, routed, deadline, breaker, permit)
+            if not isinstance(outcome, ProviderError):
                 return outcome
             failure = outcome
             wait = self._retry_wait(failure, attempt, deadline, breaker)
@@ -358,10 +609,44 @@ class Router:
         else:
             breaker.record_success(permit)
             return result
-        if counts_as_failure(failure):
-            breaker.record_failure(permit)
-        else:
+        _record(breaker, permit, failure)
+        return failure
+
+    async def _open_attempt(
+        self,
+        route: Route,
+        request: ChatRequest,
+        deadline: float,
+        breaker: CircuitBreaker,
+        permit: Permit,
+    ) -> _Opened | ProviderError:
+        """Pull until the first event. The permit stays open if there is one (D-071)."""
+        upstream: AsyncIterator[ProviderStreamEvent] | None = None
+        timeout = asyncio.timeout(min(self._policy.attempt_timeout, deadline - self._clock()))
+        first: ProviderStreamEvent | None = None
+        try:
+            async with timeout:
+                upstream = route.adapter.stream(request)
+                first = await _next_event(upstream)
+        except ProviderError as exc:
+            failure = exc
+        except TimeoutError:
+            # As in `_attempt`: only our own timeout is ours to translate.
+            if not timeout.expired():
+                breaker.record_neutral(permit)
+                await _close(upstream)
+                raise
+            failure = ProviderTimeout("router: attempt timed out", reason="attempt_timeout")
+        except BaseException:
             breaker.record_neutral(permit)
+            await _close(upstream)
+            raise
+        else:
+            if upstream is not None and first is not None:
+                return _Opened(upstream, first, permit)
+            failure = _no_end()
+        _record(breaker, permit, failure)
+        await _close(upstream)
         return failure
 
     def _retry_wait(

@@ -44,9 +44,19 @@ Key design choices:
   the prompt, or the API key, and httpx exceptions are not chained onto them.
 - Every error carries the HTTP status when there was one and a fixed reason code
   (D-054) for the router's attempt log; neither reaches the client.
+- `stream` posts the same body to `streamGenerateContent?alt=sse` (D-075), built by the
+  same function, so it cannot lose `MINIMAL` thinking (D-049). Thought parts produce no
+  event. It reads to the end of the body, because usage may follow the finish reason. A
+  later count replaces an earlier one, a count left out keeps it, and counts are never
+  added, because Google does not say how they behave across chunks and adding would
+  be badly wrong if they are cumulative. The final `output_tokens` is the same
+  `candidatesTokenCount + thoughtsTokenCount` as `complete`. Gemini has no terminator,
+  so the finish reason is the only proof that a stream ended.
 """
 
 import re
+from collections.abc import AsyncGenerator, AsyncIterator
+from contextlib import aclosing
 from typing import Annotated, Any, Final
 
 import httpx
@@ -67,11 +77,14 @@ from llmgateway.providers.base import (
     ProviderError,
     ProviderRateLimited,
     ProviderResult,
+    ProviderStreamEnd,
+    ProviderStreamEvent,
     ProviderTimeout,
     ProviderUnavailable,
     parse_retry_after,
 )
-from llmgateway.schema import ChatRequest, FinishReason, Provider, Role, Usage
+from llmgateway.providers.sse import iter_sse
+from llmgateway.schema import ChatRequest, FinishReason, Provider, Role, StreamDelta, Usage
 
 API_BASE: Final = "https://generativelanguage.googleapis.com/v1beta/models"
 DEFAULT_TIMEOUT: Final = httpx.Timeout(connect=5.0, read=60.0, write=10.0, pool=5.0)
@@ -135,6 +148,24 @@ class _Response(BaseModel):
     # Only the first candidate is read, so later ones are not validated.
     candidates: list[Any] = Field(default_factory=list)
     usage_metadata: _UsageMetadata = Field(alias="usageMetadata")
+    response_id: Any = Field(default=None, alias="responseId")
+
+
+class _StreamCandidate(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    content: _Content | None = None
+    # Optional on a chunk, unlike D-041's whole response, but a string when present.
+    finish_reason: StrictStr = Field(default="", alias="finishReason")
+
+
+class _StreamChunk(BaseModel):
+    """The fields of one `streamGenerateContent` chunk that the adapter reads."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    candidates: list[Any] = Field(default_factory=list)
+    usage_metadata: _UsageMetadata | None = Field(default=None, alias="usageMetadata")
     response_id: Any = Field(default=None, alias="responseId")
 
 
@@ -250,6 +281,88 @@ def _result(body: dict[str, Any]) -> ProviderResult:
     )
 
 
+class _StreamProgress:
+    """What the chunks of one stream have said so far (D-075)."""
+
+    def __init__(self) -> None:
+        self.finish_reason = ""
+        self.response_id: str | None = None
+        self.usage: _UsageMetadata | None = None
+
+    def read(self, body: dict[str, Any], status: int) -> StreamDelta | None:
+        """The text in this chunk, if any; raises `ValueError` on a bad chunk."""
+        if _is_blocked(body):
+            raise ProviderBadRequest(
+                "gemini: prompt blocked", status=status, reason="prompt_blocked"
+            )
+        # Nothing in it is read; a provider's error text never goes further.
+        if isinstance(body.get("error"), dict):
+            raise ProviderUnavailable("gemini: error in the stream", reason="stream_error")
+        chunk = _StreamChunk.model_validate(body)
+        if isinstance(chunk.response_id, str) and chunk.response_id:
+            self.response_id = chunk.response_id
+        if chunk.usage_metadata is not None:
+            self._merge(chunk.usage_metadata)
+        if not chunk.candidates:
+            return None
+        candidate = _StreamCandidate.model_validate(chunk.candidates[0])
+        if candidate.finish_reason:
+            self.finish_reason = candidate.finish_reason
+        parts = candidate.content.parts if candidate.content is not None else []
+        text = "".join(p.text for p in parts if p.text is not None and not p.thought)
+        return StreamDelta(text=text) if text else None
+
+    def _merge(self, usage: _UsageMetadata) -> None:
+        # Per field: a later count replaces an earlier one, one left out keeps it.
+        if self.usage is None:
+            self.usage = usage
+            return
+        fresh = {name: getattr(usage, name) for name in usage.model_fields_set}
+        self.usage = self.usage.model_copy(update=fresh)
+
+    def end(self) -> ProviderStreamEnd:
+        usage = self.usage
+        if usage is None:
+            raise ValueError("no usageMetadata in any chunk")
+        return ProviderStreamEnd(
+            finish_reason=_FINISH_REASONS.get(self.finish_reason, "other"),
+            usage=Usage(
+                input_tokens=usage.prompt_token_count,
+                output_tokens=usage.candidates_token_count + usage.thoughts_token_count,
+            ),
+            provider_response_id=self.response_id,
+        )
+
+
+async def _stream_events(
+    response: httpx.Response,
+) -> AsyncGenerator[ProviderStreamEvent, None]:
+    progress = _StreamProgress()
+    status = response.status_code
+    failure: ProviderError
+    try:
+        async with aclosing(iter_sse(response.aiter_bytes())) as frames:
+            async for frame in frames:
+                delta = progress.read(_BODY.validate_json(frame.data), status)
+                if delta is not None:
+                    yield delta
+        if progress.finish_reason:
+            yield progress.end()
+            return
+    except ValueError:
+        # ValidationError and UnicodeDecodeError are both ValueErrors. The 2xx status
+        # tells the router this generation was billed (D-052).
+        failure = ProviderUnavailable(
+            "gemini: malformed stream", status=status, reason="malformed_body"
+        )
+    else:
+        failure = ProviderUnavailable(
+            "gemini: stream ended early", status=status, reason="stream_truncated"
+        )
+    # Outside the except block, so the ValueError is not chained onto it.
+    raise failure
+
+
 class GeminiAdapter:
     name: Final[Provider] = "gemini"
 
@@ -279,7 +392,7 @@ class GeminiAdapter:
     async def aclose(self) -> None:
         await self._client.aclose()
 
-    async def complete(self, request: ChatRequest) -> ProviderResult:
+    def _check(self, request: ChatRequest) -> None:
         # fullmatch, not match with "$", which would also accept a trailing newline.
         if MODEL_ID_PATTERN.fullmatch(request.model) is None:
             raise ProviderBadRequest("gemini: invalid model ID", reason="local_check")
@@ -287,6 +400,40 @@ class GeminiAdapter:
             raise ProviderBadRequest(
                 "gemini: at most 5 stop sequences are supported", reason="local_check"
             )
+
+    async def stream(self, request: ChatRequest) -> AsyncIterator[ProviderStreamEvent]:
+        self._check(request)
+        failure: ProviderError | None = None
+        try:
+            async with self._client.stream(
+                "POST",
+                f"{API_BASE}/{request.model}:streamGenerateContent",
+                params={"alt": "sse"},
+                json=_request_body(request),
+            ) as response:
+                if response.is_success:
+                    async with aclosing(_stream_events(response)) as events:
+                        async for event in events:
+                            yield event
+                else:
+                    # The status table reads the body, and a stream has not read it yet.
+                    await response.aread()
+                    failure = _status_error(response)
+        except httpx.TimeoutException:
+            failure = ProviderTimeout("gemini: request timed out", reason="timeout")
+        except httpx.TransportError:
+            failure = ProviderUnavailable("gemini: connection failed", reason="connection")
+        except httpx.DecodingError:
+            failure = ProviderUnavailable(
+                "gemini: undecodable response body", reason="undecodable_body"
+            )
+        # Raised here, not inside the except blocks, so the httpx exception is not
+        # chained onto the provider error.
+        if failure is not None:
+            raise failure
+
+    async def complete(self, request: ChatRequest) -> ProviderResult:
+        self._check(request)
 
         failure: ProviderError | None = None
         try:

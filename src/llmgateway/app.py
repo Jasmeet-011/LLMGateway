@@ -10,13 +10,19 @@ Key design choices:
   config, so nothing calls a real provider unless configured to. The server's
   router is built from its config in `main` (D-044).
 - `model` must be a configured alias (D-045): otherwise 400 `unknown_model`, with
-  the value not echoed and no provider called, before the `stream=true` 501. The
-  response's `model` is the provider model that served, `provider` is that
+  the value not echoed and no provider called, for a stream too. The response's
+  `model` is the provider model that served, `provider` is that
   instance's provider type, and `provider_instance` is its config name (D-063).
 - `Router.serve` owns fallback. The app only passes it `request.is_disconnected` and
   turns `ClientDisconnected` into a 499 nobody reads, so the request line says what
   happened (D-062). The line names the entry that served, or on a failure the
   alias's first entry (D-060).
+- `stream=true` goes to `streaming.py`. The stream is opened before the response
+  starts, so a failure before the first event is the same JSON error as above, and
+  after that `EventStream` owns the response (D-068, D-072). The request line keeps
+  the status the client got, so a stream that failed partway says 200; a bug during
+  a stream adds its class name through `state`, and the rest is in the router's
+  `stream_failed` line (D-069).
 - The app owns its router: on shutdown its lifespan calls `router.aclose()`,
   which closes each adapter's HTTP client.
 - A small pure ASGI middleware, not `BaseHTTPMiddleware`, assigns the request ID,
@@ -39,7 +45,7 @@ import uuid
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Response
 from fastapi.exceptions import RequestValidationError
 from starlette.datastructures import MutableHeaders
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -58,6 +64,7 @@ from llmgateway.errors import (
 from llmgateway.providers.base import ProviderError
 from llmgateway.router import ClientDisconnected, Router, UnknownAlias, build_router
 from llmgateway.schema import ChatRequest, ChatResponse
+from llmgateway.streaming import open_event_stream
 
 logger = logging.getLogger("llmgateway.request")
 
@@ -103,6 +110,9 @@ class RequestContextMiddleware:
                 raise
             await internal_error_response(request_id)(scope, receive, send_with_request_id)
         finally:
+            # A bug during a stream is caught there, after the status went out (D-069).
+            if error_type is None:
+                error_type = state.get("stream_error")
             latency_ms = (time.perf_counter() - started) * 1000
             model = state.get("model")
             provider_model = state.get("provider_model")
@@ -149,7 +159,7 @@ def create_app(
         return {"status": "ok"}
 
     @app.post("/v1/chat", response_model=ChatResponse)
-    async def chat(body: ChatRequest, request: Request) -> ChatResponse:
+    async def chat(body: ChatRequest, request: Request) -> ChatResponse | Response:
         request.state.model = body.model
         try:
             first = gateway.select(body.model)
@@ -158,12 +168,16 @@ def create_app(
             raise GatewayError(
                 400, "unknown_model", "The model is not a configured alias."
             ) from None
-        if body.stream:
-            raise GatewayError(
-                501, "streaming_not_implemented", "Streaming is not implemented yet."
-            )
         request.state.provider = first.provider
         request.state.provider_model = first.model
+        if body.stream:
+            try:
+                stream = await open_event_stream(gateway, body, request)
+            except ClientDisconnected:
+                raise GatewayError(499, "client_disconnected", "The client disconnected.") from None
+            request.state.provider = stream.route.provider
+            request.state.provider_model = stream.route.model
+            return stream
         # The router retries and falls back (D-050, D-060), and logs both with this ID.
         try:
             served = await gateway.serve(

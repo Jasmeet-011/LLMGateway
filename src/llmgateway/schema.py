@@ -89,9 +89,25 @@ class StreamDelta(_Model):
 
 
 class StreamEnd(_Model):
+    """What `ChatResponse` carries, less `content`: the deltas are the content (D-073)."""
+
     type: Literal["end"] = "end"
+    id: Annotated[str, Field(min_length=1)]
+    provider: Provider
+    provider_instance: Annotated[str, Field(min_length=1, max_length=128)]
+    model: Annotated[str, Field(min_length=1, max_length=128)]
     finish_reason: FinishReason
     usage: Usage
+    provider_response_id: str | None = None
 
 
-StreamEvent = Annotated[StreamDelta | StreamEnd, Field(discriminator="type")]
+class StreamError(_Model):
+    """The last event of a stream that failed after its first event (D-069)."""
+
+    type: Literal["error"] = "error"
+    code: Annotated[str, Field(min_length=1)]
+    message: Annotated[str, Field(min_length=1)]
+    request_id: Annotated[str, Field(min_length=1)]
+
+
+StreamEvent = Annotated[StreamDelta | StreamEnd | StreamError, Field(discriminator="type")]
