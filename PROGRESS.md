@@ -98,10 +98,41 @@ Owner-approved edits, with no change to `tests/` or `src/`.
 - Facts read before the spec: Anthropic's streaming page, Google's API reference, and the installed Starlette, uvicorn and httpx. Two things came out of the installed source: `StreamingResponse` can leave a generator open, and httpx's `aiter_lines` splits on U+2028.
 - Unverified until the owner's live run: `alt=sse` on `streamGenerateContent`, and whether Gemini's usage counts are cumulative (D-075).
 
+**Mode 1.** The tester wrote the tests from the spec, in `tests/` only: 12 new test files, `tests/stream_support.py`, additions to `tests/test_schema.py` and `tests/test_mock_provider.py`, and the live tests in `tests/test_live_streaming.py`, not run. The `stream=true` 501 test is replaced by D-073's behavior, and two schema tests moved to the new `StreamEnd` (D-073). Sixteen `complete`-only fakes inherit `CompleteOnly`, setup only. The builder read the diff: the only assertions removed are the 501 test's, and there are no skip or DRAFT markers.
+
+The tester also wrote a throwaway reference implementation in the session scratchpad, to shake out harness bugs. It was never in the repo and the builder did not read it. It shows the harness runs, nothing about `src/`. The same run found one wrong test, which the tester fixed.
+
+**Red run.** Commit ca56c34 (tests) on d3186c8's `src/`, which is unchanged since 92f72d4. No stub, and `git status --short -- src` was empty before and after.
+
+```
+uv run pytest --junitxml=m12_red.xml -q --tb=line
+1245 failed, 2482 passed, 7 deselected in 131.92s (0:02:11)
+```
+
+No collection errors. Grouped from the JUnit file's full messages, not the terminal:
+
+| Failed | Reason |
+| --- | --- |
+| 509 | `ClaudeAdapter` or `GeminiAdapter` has no attribute `stream` |
+| 215 | `assert a == b`: 179 are the 501 where a stream or a mapped status is expected; 25 an adapter never called; 10 one 501 body where three frames are expected; 1 INFO where ERROR is expected |
+| 203 | `Router` has no attribute `open_stream` |
+| 82 | no module `llmgateway.providers.sse` |
+| 49 | `RetryPolicy` has no `stream_idle_timeout` |
+| 45 | the body or code is `streaming_not_implemented` |
+| 33 | no attribute `stream`: 30 on a `MockProvider` instance, 3 on an adapter class |
+| 22 | `StreamEnd` rejects the D-073 fields |
+| 87 | the other groups: `StreamError`, `ProviderStreamEnd`, `Router.policy`, an awaited event that never came because the app answered 501, a missing `stream_failed` line, a breaker outcome never recorded |
+
+Every group is a behavior that does not exist yet. Five new tests pass before the implementation, by design: regression pins for the 400 and 422 JSON errors and the non-streaming path, and the two `StreamEnd` fields that already existed. mypy gives 17 errors, all `has no attribute "stream"`.
+
+**Spec gaps from Mode 1**, all settled before any `src/` change, in D-068 to D-076 and FLOW.md: null counts in `message_delta` keep the earlier count; a Claude frame with no string `type` is skipped; a `delta` that is not an object is malformed; Gemini's null `finishReason` is malformed, a block reason wins over `error`, and a non-object `error` is ignored; an empty delta is no event for any limit; the end's success is recorded before it is sent; a mid-stream provider failure leaves the request line at INFO with no `error=`; an outside cancel closes as `client_gone`; an `OSError` from `send` means the client left; a lone empty `data:` line dispatches, as WHATWG says; the 499 keeps D-062's body; the content type includes the charset.
+
 ## Agent Mistakes Log
 
 Older rows are in [docs/archive/2026-11-sessions.md](docs/archive/2026-11-sessions.md).
 
 | Date | What went wrong | How it was caught | Fix |
 | --- | --- | --- | --- |
+| 2026-11-06 | M12: the builder's spec left 13 tested or testable behaviors unwritten, and FLOW.md's diagram recorded success after sending the end, which is the wrong order if the client leaves during that send. | The tester's Spec gaps, in Mode 1. | All settled in D-068 to D-076 and FLOW.md before any `src/` change. |
+| 2026-11-06 | M12 Mode 1: the brief said to run the new tests once, and the tester ran them several times, editing between runs. One run took 3 h 56 min by the wall clock, 13966 s of it inside one real-socket test whose guard is 200 s. Neither that guard nor the 300 s limit fired, which points to the host being suspended; the cause was not measured. | The tester's report. | No effect on the results: the official red run is the builder's. Real-socket stalls are treated as host time. |
 | 2026-11-06 | Housekeeping: `uv add --dev pytest-timeout` wrote `>=2.4.0`, while every other dependency is pinned exactly (D-005). | The builder, reading the `pyproject.toml` diff. | Changed to `==2.4.0` and relocked before committing. |

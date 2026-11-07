@@ -138,7 +138,7 @@ flowchart TD
     S --> N{Next event}
     N -->|delta| D[Send it]
     D --> N
-    N -->|end| F[Send end, record success, close upstream]
+    N -->|end| F[Record success, send end, close upstream]
     N -->|provider failed, or 60 s of silence| X[Send error, log stream_failed, record the outcome, close upstream]
     N -->|client left or stalled| Y[Log stream_abandoned, neutral, close upstream]
 ```
@@ -146,10 +146,10 @@ flowchart TD
 **The line is the first event** (D-068): a delta with non-empty text, or the end. An attempt pulls from the adapter until one exists, and the response starts only then.
 
 - **Before the first event** a stream is an ordinary request. Every rule above applies: 3 attempts per entry, the breaker before each, D-060's fallback, the 60 s attempt limit, the 90 s deadline and 30 s reserve, the client checks, and the same `attempt_failed` and `fallback_taken` lines. A failure that ends the request is a JSON error with the status in section 13, never a 200. An HTTP 200, a ping, a thinking part or an empty delta is not the first event, so a failure after any of them still retries or falls back. Nothing is sent before the first event: no headers, no comment, no keep-alive.
-- **After the first event** there is no retry, no fallback and no other entry. A later failure ends the stream (D-069): one `error` event with the fixed code and message from section 13's mapping and the gateway `request_id`, then the body ends normally, with no `end` event. It writes `stream_failed request_id=%s alias=%r provider=%s model=%r status=%s reason=%s error=%s` to `llmgateway.router` at WARNING, and the request line keeps `status=200`. A bug gets `internal_error` the same way, no `stream_failed` line, and a request line at ERROR with `status=200` and `error=<class>`.
-- **Time** (D-070): after the first event the attempt limit and the deadline stop applying. `stream_idle_timeout`, 60 s, limits each wait for the next event, and if it fires the failure is `ProviderTimeout`, reason `stream_idle`. The wait counts only time spent on the adapter. A stream has no total limit.
+- **After the first event** there is no retry, no fallback and no other entry. A later failure ends the stream (D-069): one `error` event with the fixed code and message from section 13's mapping and the gateway `request_id`, then the body ends normally, with no `end` event. It writes `stream_failed request_id=%s alias=%r provider=%s model=%r status=%s reason=%s error=%s` to `llmgateway.router` at WARNING, and the request line stays at INFO with `status=200` and no `error=` field. A bug gets `internal_error` the same way, no `stream_failed` line, and a request line at ERROR with `status=200` and `error=<class>`.
+- **Time** (D-070): after the first event the attempt limit and the deadline stop applying. `stream_idle_timeout`, 60 s, limits each wait for the next event, and if it fires the failure is `ProviderTimeout`, reason `stream_idle`. The wait counts only time spent on the adapter, and an empty delta does not reset it. A stream has no total limit.
 - **The breaker** (D-071) gates opening only, and a running stream is never cut when it opens. A stream is one outcome, decided when it ends: section 6.
-- **A client that leaves** (D-072) is noticed at once by a watcher task on `receive`. While opening, the attempt in flight is cancelled, the upstream is closed, and the request line says `status=499`. After the first event, the send is cancelled, the upstream is closed, and `stream_abandoned request_id=%s alias=%r provider=%s model=%r reason=client_gone` goes to `llmgateway.router` at INFO. A client that stays connected but does not read for `stream_idle_timeout` is dropped the same way, with `reason=client_stalled`.
+- **A client that leaves** (D-072) is noticed at once by a watcher task on `receive`. While opening, the attempt in flight is cancelled, the upstream is closed, and the request line says `status=499`. After the first event, the send is cancelled, the upstream is closed, and `stream_abandoned request_id=%s alias=%r provider=%s model=%r reason=client_gone` goes to `llmgateway.router` at INFO. A client that stays connected but does not read for `stream_idle_timeout` is dropped the same way, with `reason=client_stalled`. An `OSError` from `send` counts as the client leaving. A stream cancelled from outside, such as at shutdown, closes as `client_gone`.
 
 On the wire (D-073), each event is `event: <type>\ndata: <json>\n\n`, and a stream is zero or more `delta`s and then exactly one `end` or one `error`:
 
@@ -166,7 +166,7 @@ event: error
 data: {"type":"error","code":"provider_unavailable","message":"The provider is unavailable.","request_id":"gw_..."}
 ```
 
-The response has `content-type: text/event-stream`, `cache-control: no-cache`, `x-accel-buffering: no` and `x-request-id`. Streams are never cached (D-003).
+The response has `content-type: text/event-stream; charset=utf-8`, `cache-control: no-cache`, `x-accel-buffering: no` and `x-request-id`. Streams are never cached (D-003).
 
 ## 6. Circuit breaker
 
