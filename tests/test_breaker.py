@@ -81,9 +81,9 @@ REQUEST_ID_MARKER = "gw_marker"
 
 COOLDOWN = 30.0
 CLOCK_START = 100.0
-# 2026-11-04T21:00:00Z. Far from CLOCK_START, so the two clocks cannot be mixed up.
+# 2026-11-04T21:00:00+00:00. Far from CLOCK_START, so the two clocks cannot be mixed up.
 WALL_START = 1793826000.0
-TS_START = "2026-11-04T21:00:00.000Z"
+TS_START = "2026-11-04T21:00:00.000+00:00"
 
 CIRCUIT_OPEN_CODE = "provider_circuit_open"
 CIRCUIT_OPEN_MESSAGE = "The provider is temporarily unavailable."
@@ -1329,7 +1329,7 @@ def test_closed_to_open_writes_its_exact_line(caplog: pytest.LogCaptureFixture) 
     rig.wall.advance(1.5)
     rig.fail()
     assert _state_lines(caplog) == [
-        _state_line("closed", "open", "threshold_hit", ts="2026-11-04T21:00:01.500Z")
+        _state_line("closed", "open", "threshold_hit", ts="2026-11-04T21:00:01.500+00:00")
     ]
 
 
@@ -1341,7 +1341,7 @@ def test_open_to_half_open_writes_its_exact_line(caplog: pytest.LogCaptureFixtur
     rig.wall.advance(30.25)
     rig.probe()
     assert _state_lines(caplog) == [
-        _state_line("open", "half_open", "cooldown_over", ts="2026-11-04T21:00:30.250Z")
+        _state_line("open", "half_open", "cooldown_over", ts="2026-11-04T21:00:30.250+00:00")
     ]
 
 
@@ -1354,7 +1354,7 @@ def test_half_open_to_closed_writes_its_exact_line(caplog: pytest.LogCaptureFixt
     rig.wall.advance(31.125)
     rig.breaker.record_success(probe)
     assert _state_lines(caplog) == [
-        _state_line("half_open", "closed", "probe_passed", ts="2026-11-04T21:00:31.125Z")
+        _state_line("half_open", "closed", "probe_passed", ts="2026-11-04T21:00:31.125+00:00")
     ]
 
 
@@ -1367,7 +1367,7 @@ def test_half_open_to_open_writes_its_exact_line(caplog: pytest.LogCaptureFixtur
     rig.wall.advance(32.75)
     rig.breaker.record_failure(probe)
     assert _state_lines(caplog) == [
-        _state_line("half_open", "open", "probe_failed", ts="2026-11-04T21:00:32.750Z")
+        _state_line("half_open", "open", "probe_failed", ts="2026-11-04T21:00:32.750+00:00")
     ]
 
 
@@ -1404,13 +1404,13 @@ def test_every_line_goes_to_the_breaker_logger_at_warning(
 @pytest.mark.parametrize(
     ("wall_seconds", "ts"),
     [
-        (1793826000.0, "2026-11-04T21:00:00.000Z"),
-        (1793826000.5, "2026-11-04T21:00:00.500Z"),
-        (1793826000.125, "2026-11-04T21:00:00.125Z"),
-        (1793826000.25, "2026-11-04T21:00:00.250Z"),
-        (946684799.75, "1999-12-31T23:59:59.750Z"),
-        (1835395200.0, "2028-02-29T00:00:00.000Z"),
-        (0.0, "1970-01-01T00:00:00.000Z"),
+        (1793826000.0, "2026-11-04T21:00:00.000+00:00"),
+        (1793826000.5, "2026-11-04T21:00:00.500+00:00"),
+        (1793826000.125, "2026-11-04T21:00:00.125+00:00"),
+        (1793826000.25, "2026-11-04T21:00:00.250+00:00"),
+        (946684799.75, "1999-12-31T23:59:59.750+00:00"),
+        (1835395200.0, "2028-02-29T00:00:00.000+00:00"),
+        (0.0, "1970-01-01T00:00:00.000+00:00"),
     ],
     ids=["whole_second", "half", "eighth", "quarter", "last_of_a_year", "leap_day", "epoch"],
 )
@@ -1429,10 +1429,10 @@ def test_ts_is_utc_to_the_millisecond_from_the_wall_clock(
 @pytest.mark.parametrize(
     ("fraction", "ts"),
     [
-        (127 / 1024, "2026-11-04T21:00:00.124Z"),
-        (255 / 2048, "2026-11-04T21:00:00.124Z"),
-        (4095 / 4096, "2026-11-04T21:00:00.999Z"),
-        (1 - 2**-21, "2026-11-04T21:00:00.999Z"),
+        (127 / 1024, "2026-11-04T21:00:00.124+00:00"),
+        (255 / 2048, "2026-11-04T21:00:00.124+00:00"),
+        (4095 / 4096, "2026-11-04T21:00:00.999+00:00"),
+        (1 - 2**-21, "2026-11-04T21:00:00.999+00:00"),
     ],
     ids=[
         "just_over_a_millisecond",
@@ -1706,7 +1706,7 @@ async def test_router_uses_its_clock_for_the_breaker_and_its_wall_clock_for_the_
     gateway.wall.advance(1e6)
     await gateway.refused()
     assert _state_lines(caplog) == [
-        _state_line("closed", "open", "threshold_hit", ts="2026-11-16T10:46:40.000Z")
+        _state_line("closed", "open", "threshold_hit", ts="2026-11-16T10:46:40.000+00:00")
     ]
 
 
@@ -1731,10 +1731,10 @@ async def test_router_full_cycle_writes_the_timeline_and_nothing_else(
 
     assert _state_lines(caplog) == [
         TRIPPED,
-        _state_line("open", "half_open", "cooldown_over", ts="2026-11-04T21:00:30.000Z"),
-        _state_line("half_open", "open", "probe_failed", ts="2026-11-04T21:00:30.000Z"),
-        _state_line("open", "half_open", "cooldown_over", ts="2026-11-04T21:01:00.500Z"),
-        _state_line("half_open", "closed", "probe_passed", ts="2026-11-04T21:01:00.500Z"),
+        _state_line("open", "half_open", "cooldown_over", ts="2026-11-04T21:00:30.000+00:00"),
+        _state_line("half_open", "open", "probe_failed", ts="2026-11-04T21:00:30.000+00:00"),
+        _state_line("open", "half_open", "cooldown_over", ts="2026-11-04T21:01:00.500+00:00"),
+        _state_line("half_open", "closed", "probe_passed", ts="2026-11-04T21:01:00.500+00:00"),
     ]
 
 

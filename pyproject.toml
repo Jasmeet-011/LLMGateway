@@ -53,9 +53,11 @@ warn_required_dynamic_aliases = true
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 # Live tests call real provider APIs; only the owner runs them, with `pytest -m live`.
-addopts = "-ra --strict-markers --strict-config -m 'not live'"
+# Integration tests need the Compose stack; CI runs them with `pytest -m integration` (D-081).
+addopts = "-ra --strict-markers --strict-config -m 'not live and not integration'"
 markers = [
     "live: calls a real provider API; needs a key and costs money; excluded by default",
+    "integration: needs the Compose stack at LLMGATEWAY_BASE_URL; excluded by default (D-081)",
 ]
 # One limit for every test, so a hang ends the run instead of blocking it (D-066).
 timeout = 300

@@ -3,9 +3,12 @@
 Derived from PLAN.md M9's proof, D-050 to D-054 and FLOW.md sections 5 and 13.
 Every delay is checked through an injected sleep, clock and random, so no test
 waits for a backoff: the fake sleep records each wait and moves a fake clock
-forward by it. The only real waits are the per-attempt timeout tests, which use
-timeouts of a few hundredths of a second, under an outer guard so that a router
-that waits for the wrong timeout fails the test instead of hanging it.
+forward by it. Nothing waits on real time (D-084). The per-attempt timeout tests run
+the event loop on the same fake clock the router reads (`_fake_loop_time`), so
+`asyncio.timeout` fires on exact fake seconds, when the test moves the clock a tick at a
+time. Every wait is bounded by event loop turns, not seconds (`stream_support`'s `until`
+and `pass_time`, M12's technique): a router that waits for the wrong timeout, or swallows
+a cancel, fails the test at once, and a host that stalls costs no turns.
 
 Exact-delay tests use dyadic values (0.25, 0.5, ...) so that any correct way of
 computing `random() * min(max_delay, base_delay * 2 ** (n - 1))` gives the same
@@ -22,12 +25,13 @@ import logging
 import math
 import random as random_module
 import time
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from typing import Any
 
 import httpx
 import pytest
 from conftest import CompleteOnly
+from stream_support import TICK, FakeClock, pass_time, until
 
 from llmgateway.app import create_app
 from llmgateway.breaker import BreakerPolicy
@@ -61,11 +65,11 @@ PROVIDER_TEXT = "provider-error-text-marker"
 ANTHROPIC_KEY = "sk-ant-retries-test-key-marker"
 GEMINI_KEY = "gemini-retries-test-key-marker"
 
-# Outer limit on tests that use a real per-attempt timeout. A router that used a
-# longer timeout than the spec gives would hit this and fail the test.
-GUARD_SECONDS = 2.0
-# A per-attempt timeout short enough to keep the suite fast.
-TINY_TIMEOUT = 0.02
+# The per-attempt (or total) timeout of the tests that hang an attempt, in fake seconds,
+# and how many fake seconds a test lets go by before it says the router is wrong. A
+# router that used a longer timeout than the spec gives would not finish inside it.
+HUNG_TIMEOUT = 1.0
+FAKE_SECONDS_ALLOWED = 4.0
 
 # Exact-arithmetic policy: bounds 0.25, 0.5, 1.0, 2.0, 4.0, then capped at 4.0.
 DYADIC = RetryPolicy(max_attempts=3, base_delay=0.25, max_delay=4.0)
@@ -81,17 +85,47 @@ RESULT = ProviderResult(
 # Fakes
 
 
-class FakeClock:
-    """A monotonic clock that only moves when a test (or the fake sleep) moves it."""
+def _fake_loop_time(monkeypatch: pytest.MonkeyPatch, clock: FakeClock) -> None:
+    """Runs the event loop on the fake clock the router gets (D-084).
 
-    def __init__(self, start: float = 100.0) -> None:
-        self.now = start
+    `asyncio.timeout` reads `loop.time`, so the router's per-attempt timeout then fires
+    when the test moves `clock`, and never because the host was slow. The loop's real
+    time is not read by anything the test waits on: it waits in turns.
+    """
+    monkeypatch.setattr(asyncio.get_running_loop(), "time", clock)
 
-    def __call__(self) -> float:
-        return self.now
 
-    def advance(self, seconds: float) -> None:
-        self.now += seconds
+async def _advance_until(
+    clock: FakeClock,
+    condition: Callable[[], bool],
+    what: str,
+    *,
+    task: "asyncio.Future[Any] | None" = None,
+    within: float = FAKE_SECONDS_ALLOWED,
+) -> None:
+    """Moves fake time a tick at a time until `condition` holds, for at most `within`.
+
+    The bound is a number of ticks, each a fixed number of event loop turns, so it takes
+    no real time to fail. On failure the task, if given, is cancelled first.
+    """
+    for _ in range(round(within / TICK)):
+        if condition():
+            return
+        await pass_time(clock, TICK)
+    for _ in range(50):
+        if condition():
+            return
+        await asyncio.sleep(0)
+    if task is not None and not task.done():
+        task.cancel()
+        for _ in range(50):
+            await asyncio.sleep(0)
+    pytest.fail(f"not true after {within} fake seconds: {what}")
+
+
+async def _run_on_fake_time(clock: FakeClock, task: "asyncio.Task[Any]") -> None:
+    """Lets fake time go by until the task is done, or fails the test."""
+    await _advance_until(clock, task.done, "the router to finish on its timeouts", task=task)
 
 
 class RecordingSleep:
@@ -1033,14 +1067,19 @@ async def test_retry_after_wait_that_would_reach_the_deadline_is_not_made() -> N
 
 
 @pytest.mark.asyncio
-async def test_hung_attempt_becomes_an_attempt_timeout_and_is_retried() -> None:
+async def test_hung_attempt_becomes_an_attempt_timeout_and_is_retried(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     policy = RetryPolicy(
-        max_attempts=3, base_delay=0.25, max_delay=4.0, attempt_timeout=TINY_TIMEOUT
+        max_attempts=3, base_delay=0.25, max_delay=4.0, attempt_timeout=HUNG_TIMEOUT
     )
     adapter = HangingAdapter(hangs=1)
-    router, route, sleep = _setup(adapter, policy)
-    async with asyncio.timeout(GUARD_SECONDS):
-        result = await router.complete(route, _request())
+    clock = FakeClock()
+    router, route, sleep = _setup(adapter, policy, clock=clock)
+    _fake_loop_time(monkeypatch, clock)
+    task = asyncio.create_task(router.complete(route, _request()))
+    await _run_on_fake_time(clock, task)
+    result = await task
     assert result is RESULT
     assert len(adapter.requests) == 2
     assert adapter.cancelled == 1
@@ -1048,15 +1087,20 @@ async def test_hung_attempt_becomes_an_attempt_timeout_and_is_retried() -> None:
 
 
 @pytest.mark.asyncio
-async def test_attempt_timeout_error_is_a_retryable_provider_timeout_without_status() -> None:
+async def test_attempt_timeout_error_is_a_retryable_provider_timeout_without_status(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     policy = RetryPolicy(
-        max_attempts=2, base_delay=0.25, max_delay=4.0, attempt_timeout=TINY_TIMEOUT
+        max_attempts=2, base_delay=0.25, max_delay=4.0, attempt_timeout=HUNG_TIMEOUT
     )
     adapter = HangingAdapter(hangs=99)
-    router, route, sleep = _setup(adapter, policy)
-    async with asyncio.timeout(GUARD_SECONDS):
-        with pytest.raises(ProviderTimeout) as info:
-            await router.complete(route, _request())
+    clock = FakeClock()
+    router, route, sleep = _setup(adapter, policy, clock=clock)
+    _fake_loop_time(monkeypatch, clock)
+    task = asyncio.create_task(router.complete(route, _request()))
+    await _run_on_fake_time(clock, task)
+    with pytest.raises(ProviderTimeout) as info:
+        await task
     exc = info.value
     assert type(exc) is ProviderTimeout
     assert exc.retryable is True
@@ -1072,11 +1116,13 @@ async def test_attempt_timeout_error_is_a_retryable_provider_timeout_without_sta
 
 
 @pytest.mark.asyncio
-async def test_attempt_timeout_is_capped_by_the_time_left_before_the_deadline() -> None:
+async def test_attempt_timeout_is_capped_by_the_time_left_before_the_deadline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     # Deadline 100 + 50 = 150. Attempt 1 takes 49.97 s of fake time and fails;
     # random 0 makes the wait 0, so the retry is made with about 0.03 s left. That
     # attempt hangs, and must time out after the 0.03 s left, not attempt_timeout's
-    # 30 s (the guard would fire first and fail the test).
+    # 30 s (it would not finish inside the fake seconds the test allows).
     policy = RetryPolicy(max_attempts=2, attempt_timeout=30.0, total_timeout=50.0)
     clock = FakeClock(100.0)
 
@@ -1102,28 +1148,38 @@ async def test_attempt_timeout_is_capped_by_the_time_left_before_the_deadline() 
     router = Router(
         {ALIAS: [route]}, policy=policy, sleep=sleep, clock=clock, random=SequenceRandom(0.0)
     )
-    async with asyncio.timeout(GUARD_SECONDS):
-        with pytest.raises(ProviderTimeout) as info:
-            await router.complete(route, _request())
+    _fake_loop_time(monkeypatch, clock)
+    task = asyncio.create_task(router.complete(route, _request()))
+    await _run_on_fake_time(clock, task)
+    with pytest.raises(ProviderTimeout) as info:
+        await task
     assert info.value.reason == "attempt_timeout"
     assert len(adapter.requests) == 2
 
 
 @pytest.mark.asyncio
-async def test_attempt_timeout_is_capped_by_total_timeout_on_the_first_attempt() -> None:
-    policy = RetryPolicy(max_attempts=1, attempt_timeout=30.0, total_timeout=TINY_TIMEOUT)
+async def test_attempt_timeout_is_capped_by_total_timeout_on_the_first_attempt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    policy = RetryPolicy(max_attempts=1, attempt_timeout=30.0, total_timeout=HUNG_TIMEOUT)
     adapter = HangingAdapter(hangs=99)
-    router, route, _ = _setup(adapter, policy)
-    async with asyncio.timeout(GUARD_SECONDS):
-        with pytest.raises(ProviderTimeout) as info:
-            await router.complete(route, _request())
+    clock = FakeClock()
+    router, route, _ = _setup(adapter, policy, clock=clock)
+    _fake_loop_time(monkeypatch, clock)
+    task = asyncio.create_task(router.complete(route, _request()))
+    await _run_on_fake_time(clock, task)
+    with pytest.raises(ProviderTimeout) as info:
+        await task
     assert info.value.reason == "attempt_timeout"
     assert len(adapter.requests) == 1
 
 
 @pytest.mark.asyncio
-async def test_an_attempt_that_answers_in_time_is_not_timed_out() -> None:
+async def test_an_attempt_that_answers_in_time_is_not_timed_out(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     policy = RetryPolicy(attempt_timeout=1.0)
+    clock = FakeClock()
 
     class Quick(CompleteOnly):
         @property
@@ -1131,26 +1187,35 @@ async def test_an_attempt_that_answers_in_time_is_not_timed_out() -> None:
             return "mock"
 
         async def complete(self, request: ChatRequest) -> ProviderResult:
-            await asyncio.sleep(0.005)
+            # Three quarters of the attempt timeout, in fake time that the test moves
+            # a tick at a time, so a shorter timeout than the spec's would fire first.
+            await asyncio.sleep(0.75)
             return RESULT
 
     route = Route(provider=INSTANCE, model=MODEL, adapter=Quick())
-    router = Router({ALIAS: [route]}, policy=policy, sleep=RecordingSleep())
-    assert await router.complete(route, _request()) is RESULT
+    router = Router({ALIAS: [route]}, policy=policy, sleep=RecordingSleep(clock), clock=clock)
+    _fake_loop_time(monkeypatch, clock)
+    task = asyncio.create_task(router.complete(route, _request()))
+    await _run_on_fake_time(clock, task)
+    assert await task is RESULT
 
 
 @pytest.mark.asyncio
-async def test_time_left_for_an_attempt_is_read_from_the_injected_clock() -> None:
+async def test_time_left_for_an_attempt_is_read_from_the_injected_clock(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     # The fake clock is far ahead of the real monotonic clock, so a time left computed
-    # from the real one would be huge and the hang would run into the guard. D-050
-    # reads the deadline from the injected clock only.
-    policy = RetryPolicy(max_attempts=1, attempt_timeout=30.0, total_timeout=TINY_TIMEOUT)
+    # from the real one would be huge and the hang would not end inside the fake seconds
+    # the test allows. D-050 reads the deadline from the injected clock only.
+    policy = RetryPolicy(max_attempts=1, attempt_timeout=30.0, total_timeout=HUNG_TIMEOUT)
     clock = FakeClock(time.monotonic() + 1_000_000.0)
     adapter = HangingAdapter(hangs=99)
     router, route, _ = _setup(adapter, policy, clock=clock)
-    async with asyncio.timeout(GUARD_SECONDS):
-        with pytest.raises(ProviderTimeout) as info:
-            await router.complete(route, _request())
+    _fake_loop_time(monkeypatch, clock)
+    task = asyncio.create_task(router.complete(route, _request()))
+    await _run_on_fake_time(clock, task)
+    with pytest.raises(ProviderTimeout) as info:
+        await task
     assert info.value.reason == "attempt_timeout"
 
 
@@ -1161,6 +1226,7 @@ def _cancel_setup(
     adapter: ProviderAdapter,
     policy: RetryPolicy = DYADIC,
     sleep: BlockingSleep | None = None,
+    clock: FakeClock | None = None,
 ) -> tuple[Router, Route, BlockingSleep]:
     sleep = sleep if sleep is not None else BlockingSleep()
     route = Route(provider=INSTANCE, model=MODEL, adapter=adapter)
@@ -1168,23 +1234,22 @@ def _cancel_setup(
         {ALIAS: [route]},
         policy=policy,
         sleep=sleep,
-        clock=FakeClock(),
+        clock=clock if clock is not None else FakeClock(),
         random=SequenceRandom(0.5),
     )
     return router, route, sleep
 
 
-async def _reached(event: asyncio.Event) -> None:
-    async with asyncio.timeout(GUARD_SECONDS):
-        await event.wait()
+async def _reached(event: asyncio.Event, task: "asyncio.Future[Any]") -> None:
+    # Event loop turns, not seconds (D-084). If the router ends first, this fails at once.
+    await until(event.is_set, "the router to reach the point under test", task=task)
 
 
 async def _cancel_and_expect_cancelled(task: asyncio.Task[ProviderResult]) -> None:
-    # asyncio.wait, not `await task`: a router that swallows the cancel has to fail
-    # this test, and awaiting it would hand it the guard's cancel to swallow as well.
+    # Wait for the task to be done by turns, not `await task`: a router that swallows the
+    # cancel has to fail this test, and awaiting it would wait on the task for good.
     task.cancel()
-    await asyncio.wait({task}, timeout=GUARD_SECONDS)
-    assert task.done()
+    await until(task.done, "the router to stop when it is cancelled")
     with pytest.raises(asyncio.CancelledError):
         task.result()
 
@@ -1202,7 +1267,7 @@ async def test_cancel_during_an_attempt_propagates_with_no_retry_and_no_router_l
     adapter = HangOnceAdapter()
     router, route, sleep = _cancel_setup(adapter)
     task = asyncio.create_task(router.complete(route, _request()))
-    await _reached(adapter.hanging)
+    await _reached(adapter.hanging, task)
     await _cancel_and_expect_cancelled(task)
     assert adapter.cancelled == 1
     assert len(adapter.requests) == 1
@@ -1219,7 +1284,7 @@ async def test_cancel_during_a_retry_keeps_only_the_line_of_the_attempt_that_fai
     # The backoff wait returns at once here; only a second wait would block.
     router, route, sleep = _cancel_setup(adapter, sleep=BlockingSleep(block_on=2))
     task = asyncio.create_task(router.complete(route, _request()))
-    await _reached(adapter.hanging)
+    await _reached(adapter.hanging, task)
     await _cancel_and_expect_cancelled(task)
     assert adapter.cancelled == 1
     assert len(adapter.requests) == 2
@@ -1235,7 +1300,7 @@ async def test_cancel_during_the_backoff_wait_propagates_with_no_further_attempt
     adapter = ScriptedAdapter(_unavailable(), RESULT)
     router, route, sleep = _cancel_setup(adapter)
     task = asyncio.create_task(router.complete(route, _request()))
-    await _reached(sleep.waiting)
+    await _reached(sleep.waiting, task)
     await _cancel_and_expect_cancelled(task)
     assert sleep.cancelled == 1
     assert sleep.calls == [0.125]
@@ -1245,17 +1310,23 @@ async def test_cancel_during_the_backoff_wait_propagates_with_no_further_attempt
 
 @pytest.mark.asyncio
 async def test_cancel_from_outside_after_the_attempt_timeout_fired_stays_a_cancel(
-    caplog: pytest.LogCaptureFixture,
+    caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # The timeout has fired (only it can have started the cleanup) and the adapter is
     # still unwinding when the outside cancel lands. The timeout counts as expired, but
     # the task was cancelled by someone else too, so this is not an attempt timeout.
     caplog.set_level(logging.DEBUG)
     adapter = SlowCleanupAdapter()
-    policy = RetryPolicy(max_attempts=3, attempt_timeout=TINY_TIMEOUT)
-    router, route, sleep = _cancel_setup(adapter, policy)
+    policy = RetryPolicy(max_attempts=3, attempt_timeout=HUNG_TIMEOUT)
+    clock = FakeClock()
+    router, route, sleep = _cancel_setup(adapter, policy, clock=clock)
+    _fake_loop_time(monkeypatch, clock)
     task = asyncio.create_task(router.complete(route, _request()))
-    await _reached(adapter.cleaning_up)
+    # Only the attempt timeout can start the adapter's cleanup, and it fires when the
+    # test moves the clock: so the cleanup starts on the exact fake second.
+    await _advance_until(
+        clock, adapter.cleaning_up.is_set, "the attempt timeout to start the cleanup", task=task
+    )
     await _cancel_and_expect_cancelled(task)
     assert len(adapter.requests) == 1
     assert sleep.calls == []
@@ -1373,15 +1444,20 @@ async def test_attempt_line_names_the_subclass_of_the_error(
 
 
 @pytest.mark.asyncio
-async def test_attempt_lines_for_router_attempt_timeouts(caplog: pytest.LogCaptureFixture) -> None:
+async def test_attempt_lines_for_router_attempt_timeouts(
+    caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
     caplog.set_level(logging.DEBUG)
     policy = RetryPolicy(
-        max_attempts=2, base_delay=0.25, max_delay=4.0, attempt_timeout=TINY_TIMEOUT
+        max_attempts=2, base_delay=0.25, max_delay=4.0, attempt_timeout=HUNG_TIMEOUT
     )
-    router, route, _ = _setup(HangingAdapter(hangs=99), policy)
-    async with asyncio.timeout(GUARD_SECONDS):
-        with pytest.raises(ProviderTimeout):
-            await router.complete(route, _request(), request_id="gw_hang")
+    clock = FakeClock()
+    router, route, _ = _setup(HangingAdapter(hangs=99), policy, clock=clock)
+    _fake_loop_time(monkeypatch, clock)
+    task = asyncio.create_task(router.complete(route, _request(), request_id="gw_hang"))
+    await _run_on_fake_time(clock, task)
+    with pytest.raises(ProviderTimeout):
+        await task
     assert _attempt_lines(caplog) == [
         _line(1, "-", "attempt_timeout", "ProviderTimeout", "yes", request_id="gw_hang"),
         _line(2, "-", "attempt_timeout", "ProviderTimeout", "no", request_id="gw_hang"),
@@ -1769,9 +1845,15 @@ def _app_client(
     *,
     model: str = MODEL,
     fixed_id: bool = False,
+    clock: FakeClock | None = None,
 ) -> httpx.AsyncClient:
     route = Route(provider=INSTANCE, model=model, adapter=adapter)
-    router = Router({ALIAS: [route]}, policy=policy, sleep=RecordingSleep())
+    router = Router(
+        {ALIAS: [route]},
+        policy=policy,
+        sleep=RecordingSleep(),
+        clock=clock if clock is not None else time.monotonic,
+    )
     app = create_app(router=router, id_factory=(lambda: "gw_fixed") if fixed_id else None)
     return httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test")
 
@@ -1898,13 +1980,19 @@ async def test_app_client_body_never_carries_the_failure_status_or_reason(
 
 
 @pytest.mark.asyncio
-async def test_app_hung_provider_is_504_provider_timeout() -> None:
+async def test_app_hung_provider_is_504_provider_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     policy = RetryPolicy(
-        max_attempts=2, base_delay=0.25, max_delay=4.0, attempt_timeout=TINY_TIMEOUT
+        max_attempts=2, base_delay=0.25, max_delay=4.0, attempt_timeout=HUNG_TIMEOUT
     )
     adapter = HangingAdapter(hangs=99)
-    async with _app_client(adapter, policy) as client, asyncio.timeout(GUARD_SECONDS):
-        response = await client.post("/v1/chat", json=_chat_body())
+    clock = FakeClock()
+    _fake_loop_time(monkeypatch, clock)
+    async with _app_client(adapter, policy, clock=clock) as client:
+        task = asyncio.create_task(client.post("/v1/chat", json=_chat_body()))
+        await _run_on_fake_time(clock, task)
+        response = await task
     assert response.status_code == 504
     assert ErrorBody.model_validate(response.json()).error.code == "provider_timeout"
     assert len(adapter.requests) == 2

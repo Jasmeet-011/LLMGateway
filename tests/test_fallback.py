@@ -99,9 +99,9 @@ STOP_MARKER = "secret-stop-sequence-marker"
 
 COOLDOWN = 30.0
 CLOCK_START = 100.0
-# 2026-11-04T21:00:00Z. Far from CLOCK_START, so the two clocks cannot be mixed up.
+# 2026-11-04T21:00:00+00:00. Far from CLOCK_START, so the two clocks cannot be mixed up.
 WALL_START = 1793826000.0
-TS_START = "2026-11-04T21:00:00.000Z"
+TS_START = "2026-11-04T21:00:00.000+00:00"
 
 # How far one turn of a hung call moves the fake clock, and how long a router that
 # ignores its timer is given before the call answers and the test fails.
