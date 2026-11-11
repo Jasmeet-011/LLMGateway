@@ -201,6 +201,8 @@ class EventStream(StreamingResponse):
             if isinstance(failure, _ClientStalled):
                 reason = "client_stalled"
             elif failure is not None and not isinstance(failure, OSError):
+                # A bug, not a client that left, so the line says so (D-072).
+                reason = "send_failed"
                 raise failure
         finally:
             await _stop(pump)
