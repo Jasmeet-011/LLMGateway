@@ -25,6 +25,7 @@ from pathlib import Path
 
 import httpx
 import pytest
+from auth_support import AUTH_HEADERS, make_authenticator
 
 from llmgateway.app import create_app
 from llmgateway.config import GeminiProviderConfig, parse_config
@@ -68,11 +69,16 @@ async def test_gemini_model_in_providers_toml_answers(
 ) -> None:
     entry = f"{{ provider = {json.dumps(instance)}, model = {json.dumps(model)} }}"
     text = f'[providers.{instance}]\ntype = "gemini"\n\n[aliases]\nlive = [{entry}]\n'
-    app = create_app(router=build_router(parse_config(text), os.environ))
+    app = create_app(
+        router=build_router(parse_config(text), os.environ), authenticator=make_authenticator()
+    )
     async with (
         app.router.lifespan_context(app),
         httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=app), base_url="http://test", timeout=90.0
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://test",
+            headers=AUTH_HEADERS,
+            timeout=90.0,
         ) as client,
     ):
         response = await client.post(

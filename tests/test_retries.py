@@ -30,6 +30,7 @@ from typing import Any
 
 import httpx
 import pytest
+from auth_support import AUTH_HEADERS, make_authenticator
 from conftest import CompleteOnly
 from stream_support import TICK, FakeClock, pass_time, until
 
@@ -1854,8 +1855,14 @@ def _app_client(
         sleep=RecordingSleep(),
         clock=clock if clock is not None else time.monotonic,
     )
-    app = create_app(router=router, id_factory=(lambda: "gw_fixed") if fixed_id else None)
-    return httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test")
+    app = create_app(
+        router=router,
+        id_factory=(lambda: "gw_fixed") if fixed_id else None,
+        authenticator=make_authenticator(),
+    )
+    return httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test", headers=AUTH_HEADERS
+    )
 
 
 def _chat_body(**overrides: Any) -> dict[str, Any]:

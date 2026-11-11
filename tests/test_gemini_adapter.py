@@ -7,6 +7,7 @@ from typing import Any
 
 import httpx
 import pytest
+from auth_support import AUTH_HEADERS, make_authenticator
 
 from llmgateway.app import create_app
 from llmgateway.errors import ErrorBody
@@ -1844,8 +1845,11 @@ def _router(adapter: ProviderAdapter, model: str = MODEL) -> Router:
 
 def _client(adapter: ProviderAdapter, model: str = MODEL) -> httpx.AsyncClient:
     return httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=create_app(router=_router(adapter, model))),
+        transport=httpx.ASGITransport(
+            app=create_app(router=_router(adapter, model), authenticator=make_authenticator())
+        ),
         base_url="http://test",
+        headers=AUTH_HEADERS,
     )
 
 
@@ -2025,9 +2029,9 @@ async def test_app_returns_200_empty_max_tokens_answer_with_uncapped_usage(
                 ]
             }
         )
-        app = create_app(router=router)
+        app = create_app(router=router, authenticator=make_authenticator())
         async with httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=app), base_url="http://test"
+            transport=httpx.ASGITransport(app=app), base_url="http://test", headers=AUTH_HEADERS
         ) as client:
             response = await client.post("/v1/chat", json=_chat_body(max_tokens=LIVE_MAX_TOKENS))
     assert response.status_code == 200, response.text
@@ -2059,7 +2063,7 @@ async def test_app_returns_200_empty_max_tokens_answer_with_uncapped_usage(
 async def test_lifespan_closes_gemini_client() -> None:
     transport = ClosingTransport(Recorder())
     adapter = GeminiAdapter(API_KEY, transport=transport)
-    app = create_app(router=_router(adapter))
+    app = create_app(router=_router(adapter), authenticator=make_authenticator())
     async with app.router.lifespan_context(app):
         assert transport.closed == 0
     assert transport.closed == 1

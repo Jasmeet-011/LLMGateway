@@ -6,6 +6,7 @@ from typing import Any
 
 import httpx
 import pytest
+from auth_support import AUTH_HEADERS, make_authenticator
 
 from llmgateway.app import create_app
 from llmgateway.errors import ErrorBody
@@ -842,7 +843,11 @@ def _client(adapter: ProviderAdapter) -> httpx.AsyncClient:
         sleep=_no_sleep,
     )
     return httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=create_app(router=router)), base_url="http://test"
+        transport=httpx.ASGITransport(
+            app=create_app(router=router, authenticator=make_authenticator())
+        ),
+        base_url="http://test",
+        headers=AUTH_HEADERS,
     )
 
 
@@ -990,7 +995,7 @@ async def test_app_rejects_claude_model_name_as_unknown_alias() -> None:
 async def test_lifespan_closes_claude_client() -> None:
     adapter = ClaudeAdapter(API_KEY, transport=httpx.MockTransport(Recorder()))
     router = Router({ALIAS: [Route(provider="claude", model="claude-haiku-5-5", adapter=adapter)]})
-    app = create_app(router=router)
+    app = create_app(router=router, authenticator=make_authenticator())
     async with app.router.lifespan_context(app):
         assert not adapter._client.is_closed
     assert adapter._client.is_closed
@@ -999,7 +1004,7 @@ async def test_lifespan_closes_claude_client() -> None:
 @pytest.mark.asyncio
 async def test_lifespan_with_provider_without_aclose() -> None:
     router = Router({"mock": [Route(provider="mock", model="mock-1", adapter=MockProvider())]})
-    app = create_app(router=router)
+    app = create_app(router=router, authenticator=make_authenticator())
     async with app.router.lifespan_context(app):
         pass
 

@@ -15,12 +15,22 @@ with `-m integration` as CI does, and reads the child's junit XML:
   they do attempt a connection (and fail, since there is no stack). Without it, an empty
   attempt list for a wrong host could mean only that the recorder is broken.
 
+M14 (D-094): the integration files also run `docker compose` to make keys and read the
+table. The child's recorder therefore refuses and writes down every process start, through
+`subprocess.Popen`, so "nothing happened" covers docker commands as well as connections:
+with a bad or missing URL no docker command is started, and with a local one the first
+docker command is attempted (and refused), which is the control. The child gets
+`tests/compose_support.py` next to the integration file, which is where the guard now
+lives. Every integration file is run this way: `test_compose_stack.py` by the tests from
+M13, and `test_compose_stack_auth.py` by the tests at the end of this file.
+
 The child gets only what it needs. `LLMGATEWAY_BASE_URL` is set or removed explicitly, so
 a CI job that has it set does not change what is checked here.
 """
 
 import os
 import re
+import shutil
 import subprocess
 import sys
 import xml.etree.ElementTree as ET
@@ -31,6 +41,8 @@ import pytest
 
 TESTS_DIR = Path(__file__).resolve().parent
 INTEGRATION_FILE = TESTS_DIR / "test_compose_stack.py"
+AUTH_INTEGRATION_FILE = TESTS_DIR / "test_compose_stack_auth.py"
+SUPPORT_FILE = TESTS_DIR / "compose_support.py"
 VARIABLE = "LLMGATEWAY_BASE_URL"
 
 INI = """\
@@ -44,6 +56,7 @@ addopts = --strict-markers
 RECORDER = """
 import os
 import socket
+import subprocess
 
 
 def _write(kind, target):
@@ -61,8 +74,14 @@ def _connect(self, address):
     raise ConnectionRefusedError("refused by the guard test")
 
 
+def _popen(self, args, *more, **kwargs):
+    _write("popen", args)
+    raise OSError("refused by the guard test")
+
+
 socket.getaddrinfo = _getaddrinfo
 socket.socket.connect = _connect
+subprocess.Popen.__init__ = _popen
 """
 
 
@@ -81,17 +100,20 @@ class Run:
     output: str
 
 
-def _expected_count() -> int:
-    source = INTEGRATION_FILE.read_text(encoding="utf-8")
+def _expected_count(file: Path = INTEGRATION_FILE) -> int:
+    source = file.read_text(encoding="utf-8")
     return len(re.findall(r"^(?:async )?def test_", source, flags=re.MULTILINE))
 
 
-def _run_integration_file(tmp_path: Path, base_url: str | None) -> Run:
+def _run_integration_file(
+    tmp_path: Path, base_url: str | None, file: Path = INTEGRATION_FILE
+) -> Run:
     (tmp_path / "pytest.ini").write_text(INI, encoding="utf-8")
     (tmp_path / "conftest.py").write_text(RECORDER, encoding="utf-8")
-    (tmp_path / "test_compose_stack.py").write_text(
-        INTEGRATION_FILE.read_text(encoding="utf-8"), encoding="utf-8"
+    (tmp_path / SUPPORT_FILE.name).write_text(
+        SUPPORT_FILE.read_text(encoding="utf-8"), encoding="utf-8"
     )
+    (tmp_path / file.name).write_text(file.read_text(encoding="utf-8"), encoding="utf-8")
     log = tmp_path / "attempts.log"
     report = tmp_path / "report.xml"
     env = {
@@ -117,7 +139,7 @@ def _run_integration_file(tmp_path: Path, base_url: str | None) -> Run:
             "-m",
             "integration",
             f"--junitxml={report}",
-            str(tmp_path / "test_compose_stack.py"),
+            str(tmp_path / file.name),
         ],
         cwd=tmp_path,
         env=env,
@@ -139,8 +161,8 @@ def _run_integration_file(tmp_path: Path, base_url: str | None) -> Run:
     return Run(result.returncode, cases, attempts, output)
 
 
-def _assert_every_test_failed(run: Run) -> None:
-    expected = _expected_count()
+def _assert_every_test_failed(run: Run, file: Path = INTEGRATION_FILE) -> None:
+    expected = _expected_count(file)
     assert expected >= 4, "the integration file lost tests"
     assert len(run.cases) == expected, run.output
     assert [(c.name, c.state) for c in run.cases] == [(c.name, "failed") for c in run.cases], (
@@ -244,3 +266,99 @@ def test_integration_tests_fail_with_the_guard_message_for_a_scheme_that_is_not_
         assert VARIABLE in case.text, (case.name, case.text)
         assert "UnsupportedProtocol" not in case.text, (case.name, case.text)
     assert run.attempts == []
+
+
+# M14: the key tests, which run docker as well as send requests (D-094)
+
+NOT_LOCAL = [
+    pytest.param(None, id="unset"),
+    pytest.param("", id="empty"),
+    pytest.param("http://gateway.invalid:8000", id="unknown_host"),
+    pytest.param("http://127.0.0.1:80@gateway.invalid:8000", id="userinfo_with_port_like_local"),
+    pytest.param("http://localhost.:8000", id="trailing_dot"),
+    pytest.param("ftp://127.0.0.1:21", id="ftp_scheme"),
+]
+
+
+@pytest.mark.parametrize("file", [INTEGRATION_FILE, AUTH_INTEGRATION_FILE], ids=["stack", "auth"])
+def test_the_recorder_refuses_and_writes_down_a_docker_command(tmp_path: Path, file: Path) -> None:
+    # The control for the docker half of every test below: with a local address the guard
+    # passes, and the first docker command a test starts is attempted, so it is recorded.
+    # Without this an empty list for a bad URL could mean only that the recorder is blind.
+    run = _run_integration_file(tmp_path, "http://127.0.0.1:1", file)
+    _assert_every_test_failed(run, file)
+    docker = [attempt for attempt in run.attempts if attempt.startswith("popen")]
+    assert docker, run.output
+    assert all("docker" in attempt and "compose" in attempt for attempt in docker), docker
+    assert any(re.search(r"llmgateway\.keys|psql", attempt) for attempt in docker), docker
+
+
+@pytest.mark.parametrize("base_url", NOT_LOCAL)
+def test_the_key_tests_fail_before_any_docker_command_or_request_without_a_local_url(
+    tmp_path: Path, base_url: str | None
+) -> None:
+    run = _run_integration_file(tmp_path, base_url, AUTH_INTEGRATION_FILE)
+    _assert_every_test_failed(run, AUTH_INTEGRATION_FILE)
+    for case in run.cases:
+        assert VARIABLE in case.text, (case.name, case.text)
+    assert run.attempts == []
+
+
+@pytest.mark.parametrize("base_url", ["http://127.0.0.1:1", "http://localhost:1"])
+def test_the_key_tests_do_attempt_docker_or_a_connection_for_a_local_url(
+    tmp_path: Path, base_url: str
+) -> None:
+    run = _run_integration_file(tmp_path, base_url, AUTH_INTEGRATION_FILE)
+    _assert_every_test_failed(run, AUTH_INTEGRATION_FILE)
+    assert len(run.attempts) >= len(run.cases), run.output
+
+
+@pytest.mark.parametrize("base_url", [None, "http://gateway.invalid:8000"], ids=["unset", "remote"])
+def test_the_stack_tests_start_no_docker_command_without_a_local_url(
+    tmp_path: Path, base_url: str | None
+) -> None:
+    # test_compose_stack.py now makes keys with docker; the guard still comes first.
+    run = _run_integration_file(tmp_path, base_url)
+    _assert_every_test_failed(run)
+    assert run.attempts == []
+
+
+def test_the_outage_test_is_collected_last_in_the_whole_run(tmp_path: Path) -> None:
+    # Both integration files together, in the order pytest would run them: the test that
+    # stops Postgres is the final one, whatever the file names sort to.
+    for file in (INTEGRATION_FILE, AUTH_INTEGRATION_FILE, SUPPORT_FILE):
+        (tmp_path / file.name).write_text(file.read_text(encoding="utf-8"), encoding="utf-8")
+    (tmp_path / "pytest.ini").write_text(INI, encoding="utf-8")
+    shutil.copy(TESTS_DIR / "conftest.py", tmp_path / "conftest.py")
+    env = {k: v for k, v in os.environ.items() if k not in ("PYTEST_ADDOPTS", VARIABLE)}
+    # The command is fixed text and copies of this repo's own test files.
+    result = subprocess.run(  # noqa: S603
+        [
+            sys.executable,
+            "-m",
+            "pytest",
+            "-c",
+            str(tmp_path / "pytest.ini"),
+            "--rootdir",
+            str(tmp_path),
+            "-p",
+            "no:cacheprovider",
+            "-m",
+            "integration",
+            "--collect-only",
+            "-q",
+            str(tmp_path / AUTH_INTEGRATION_FILE.name),
+            str(tmp_path / INTEGRATION_FILE.name),
+        ],
+        cwd=tmp_path,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    ids = [line for line in result.stdout.splitlines() if "::" in line]
+    assert len(ids) == _expected_count() + _expected_count(AUTH_INTEGRATION_FILE), result.stdout
+    assert ids[-1].endswith(
+        "::test_zz_outage_a_valid_key_is_503_with_postgres_stopped_and_200_when_it_returns"
+    )
+    assert sum("zz_outage" in line for line in ids) == 1

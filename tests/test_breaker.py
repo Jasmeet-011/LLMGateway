@@ -44,6 +44,7 @@ from typing import Any
 
 import httpx
 import pytest
+from auth_support import AUTH_HEADERS, make_authenticator
 from conftest import CompleteOnly
 
 from llmgateway.app import create_app
@@ -472,8 +473,10 @@ def _chat_body() -> dict[str, Any]:
 
 
 def _client(gateway: Gateway) -> httpx.AsyncClient:
-    app = create_app(router=gateway.router)
-    return httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test")
+    app = create_app(router=gateway.router, authenticator=make_authenticator())
+    return httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test", headers=AUTH_HEADERS
+    )
 
 
 def _unavailable(status: int | None = 503, reason: str | None = "http_status") -> ProviderError:

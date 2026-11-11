@@ -6,6 +6,7 @@ from typing import Any
 
 import httpx
 import pytest
+from auth_support import AUTH_HEADERS, make_authenticator
 from conftest import CompleteOnly
 from fastapi import FastAPI
 
@@ -129,11 +130,13 @@ def _router(
 
 
 def _app(adapter: ProviderAdapter, **kwargs: str) -> FastAPI:
-    return create_app(router=_router(adapter, **kwargs))
+    return create_app(router=_router(adapter, **kwargs), authenticator=make_authenticator())
 
 
 def _client(app: FastAPI) -> httpx.AsyncClient:
-    return httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test")
+    return httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test", headers=AUTH_HEADERS
+    )
 
 
 def _body(**overrides: Any) -> dict[str, Any]:
@@ -160,7 +163,7 @@ def _request_lines(caplog: pytest.LogCaptureFixture) -> list[str]:
 
 @pytest.mark.asyncio
 async def test_healthz() -> None:
-    async with _client(create_app()) as client:
+    async with _client(create_app(authenticator=make_authenticator())) as client:
         response = await client.get("/healthz")
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
@@ -169,7 +172,7 @@ async def test_healthz() -> None:
 @pytest.mark.asyncio
 async def test_chat_happy_path() -> None:
     # The default router: alias "mock" is served by instance mock, model mock-1.
-    async with _client(create_app()) as client:
+    async with _client(create_app(authenticator=make_authenticator())) as client:
         response = await client.post("/v1/chat", json=_body(model="mock"))
     assert response.status_code == 200
     chat = ChatResponse.model_validate(response.json())
@@ -186,7 +189,7 @@ async def test_chat_happy_path() -> None:
 
 @pytest.mark.asyncio
 async def test_request_ids_differ_per_request() -> None:
-    async with _client(create_app()) as client:
+    async with _client(create_app(authenticator=make_authenticator())) as client:
         first = await client.post("/v1/chat", json=_body())
         second = await client.post("/v1/chat", json=_body())
     assert first.json()["id"] != second.json()["id"]
@@ -194,7 +197,9 @@ async def test_request_ids_differ_per_request() -> None:
 
 @pytest.mark.asyncio
 async def test_injected_id_factory() -> None:
-    async with _client(create_app(id_factory=lambda: "gw_fixed")) as client:
+    async with _client(
+        create_app(id_factory=lambda: "gw_fixed", authenticator=make_authenticator())
+    ) as client:
         response = await client.post("/v1/chat", json=_body())
     assert response.json()["id"] == "gw_fixed"
     assert response.headers["x-request-id"] == "gw_fixed"
@@ -246,7 +251,7 @@ async def test_stream_true_streams_the_answer() -> None:
 )
 @pytest.mark.asyncio
 async def test_validation_errors(body: dict[str, Any], loc: tuple[str, ...]) -> None:
-    async with _client(create_app()) as client:
+    async with _client(create_app(authenticator=make_authenticator())) as client:
         response = await client.post("/v1/chat", json=body)
     error = _assert_error(response, 422, "validation_error")
     assert error.error.details is not None
@@ -267,7 +272,7 @@ async def test_validation_errors(body: dict[str, Any], loc: tuple[str, ...]) -> 
 )
 @pytest.mark.asyncio
 async def test_validation_error_does_not_echo_prompt(body: dict[str, Any]) -> None:
-    async with _client(create_app()) as client:
+    async with _client(create_app(authenticator=make_authenticator())) as client:
         response = await client.post("/v1/chat", json=body)
     _assert_error(response, 422, "validation_error")
     assert PROMPT_MARKER not in response.text
@@ -275,7 +280,7 @@ async def test_validation_error_does_not_echo_prompt(body: dict[str, Any]) -> No
 
 @pytest.mark.asyncio
 async def test_malformed_json_is_422_without_echo() -> None:
-    async with _client(create_app()) as client:
+    async with _client(create_app(authenticator=make_authenticator())) as client:
         response = await client.post(
             "/v1/chat",
             content=b'{"model": "' + PROMPT_MARKER.encode() + b'", broken',
@@ -315,7 +320,9 @@ async def test_alias_of_128_chars_works_end_to_end() -> None:
         '[providers.mock]\ntype = "mock"\n\n'
         f'[aliases]\n"{alias}" = [{{ provider = "mock", model = "mock-1" }}]\n'
     )
-    app = create_app(router=build_router(parse_config(text), {}))
+    app = create_app(
+        router=build_router(parse_config(text), {}), authenticator=make_authenticator()
+    )
     async with _client(app) as client:
         response = await client.post("/v1/chat", json=_body(model=alias))
     assert response.status_code == 200
@@ -326,7 +333,7 @@ async def test_alias_of_128_chars_works_end_to_end() -> None:
 
 @pytest.mark.asyncio
 async def test_unknown_route_uses_error_body() -> None:
-    async with _client(create_app()) as client:
+    async with _client(create_app(authenticator=make_authenticator())) as client:
         response = await client.get("/nope")
     _assert_error(response, 404, "not_found")
 
@@ -508,7 +515,7 @@ async def test_same_request_is_routed_to_mock_claude_and_gemini_by_alias() -> No
         transport=httpx.MockTransport(server),
         sleep=FakeSleep(),
     )
-    app = create_app(router=router)
+    app = create_app(router=router, authenticator=make_authenticator())
     responses: dict[str, ChatResponse] = {}
     async with app.router.lifespan_context(app), _client(app) as client:
         for alias in ("to-mock", "to-claude", "to-gemini"):
@@ -585,7 +592,7 @@ async def test_select_uses_the_first_entry_of_the_alias() -> None:
             ]
         }
     )
-    async with _client(create_app(router=router)) as client:
+    async with _client(create_app(router=router, authenticator=make_authenticator())) as client:
         response = await client.post("/v1/chat", json=_body(model="fast"))
     assert ChatResponse.model_validate(response.json()).model == "model-one"
     assert (first.call_count, second.call_count) == (1, 0)
@@ -622,7 +629,7 @@ async def test_alias_match_is_exact_and_case_sensitive(model: str) -> None:
 @pytest.mark.asyncio
 async def test_default_app_rejects_a_free_form_model() -> None:
     # D-027's echo is gone: only configured aliases are answered.
-    async with _client(create_app()) as client:
+    async with _client(create_app(authenticator=make_authenticator())) as client:
         response = await client.post("/v1/chat", json=_body(model="any-model-name"))
     _assert_error(response, 400, "unknown_model")
     assert "any-model-name" not in response.text
@@ -630,7 +637,7 @@ async def test_default_app_rejects_a_free_form_model() -> None:
 
 @pytest.mark.asyncio
 async def test_validation_runs_before_the_alias_check() -> None:
-    async with _client(create_app()) as client:
+    async with _client(create_app(authenticator=make_authenticator())) as client:
         response = await client.post("/v1/chat", json=_body(model=ALIAS_MARKER, max_tokens=0))
     _assert_error(response, 422, "validation_error")
 
@@ -669,7 +676,7 @@ async def test_log_line_for_unknown_alias_has_no_provider(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     caplog.set_level(logging.INFO, logger="llmgateway.request")
-    async with _client(create_app()) as client:
+    async with _client(create_app(authenticator=make_authenticator())) as client:
         response = await client.post("/v1/chat", json=_body(model="nope"))
     assert response.status_code == 400
     (line,) = _request_lines(caplog)
@@ -695,7 +702,7 @@ async def test_log_line_before_validation_has_no_model_or_provider(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     caplog.set_level(logging.INFO, logger="llmgateway.request")
-    async with _client(create_app()) as client:
+    async with _client(create_app(authenticator=make_authenticator())) as client:
         await client.post("/v1/chat", json=_body(max_tokens=0))
     (line,) = _request_lines(caplog)
     assert "provider=- model=- status=422 latency_ms=" in line
@@ -719,7 +726,7 @@ async def test_lifespan_closes_each_adapter_once_through_the_router() -> None:
             "c": [Route(provider="s", model="m3", adapter=shared)],
         }
     )
-    app = create_app(router=router)
+    app = create_app(router=router, authenticator=make_authenticator())
     async with app.router.lifespan_context(app):
         assert (shared.closed, other.closed) == (0, 0)
     assert (shared.closed, other.closed) == (1, 1)
@@ -747,7 +754,7 @@ async def test_lifespan_closes_real_adapters_built_from_config() -> None:
         {"ANTHROPIC_API_KEY": ANTHROPIC_KEY, "GEMINI_API_KEY": GEMINI_KEY},
         transport=transport,
     )
-    app = create_app(router=router)
+    app = create_app(router=router, authenticator=make_authenticator())
     async with app.router.lifespan_context(app):
         assert transport.closed == 0
     assert transport.closed == 2

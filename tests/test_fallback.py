@@ -44,6 +44,7 @@ from typing import Any
 
 import httpx
 import pytest
+from auth_support import AUTH_HEADERS, AUTH_SCOPE_HEADER, make_authenticator
 from conftest import CompleteOnly
 from fastapi import FastAPI
 from pydantic import ValidationError
@@ -545,13 +546,17 @@ def _chat_body(**overrides: Any) -> dict[str, Any]:
 
 
 def _client(gateway: Gateway) -> httpx.AsyncClient:
-    app = create_app(router=gateway.router)
-    return httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test")
+    app = create_app(router=gateway.router, authenticator=make_authenticator())
+    return httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test", headers=AUTH_HEADERS
+    )
 
 
 def _app_client(router: Any) -> httpx.AsyncClient:
-    app = create_app(router=router)
-    return httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test")
+    app = create_app(router=router, authenticator=make_authenticator())
+    return httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test", headers=AUTH_HEADERS
+    )
 
 
 def _unavailable(status: int | None = 503, reason: str | None = "http_status") -> ProviderError:
@@ -2918,6 +2923,7 @@ class Connection:
                 (b"host", b"test"),
                 (b"content-type", b"application/json"),
                 (b"content-length", str(len(self.body)).encode()),
+                AUTH_SCOPE_HEADER,
             ],
             "client": ("127.0.0.1", 50000),
             "server": ("test", 80),
@@ -2949,7 +2955,7 @@ async def test_app_a_client_gone_before_a_retry_is_499_client_disconnected(
     first = ScriptedAdapter(_unavailable(), RESULT)
     first.on_call = connection.gone.set
     gateway = Gateway(first, retry=DYADIC)
-    await connection.post(create_app(router=gateway.router))
+    await connection.post(create_app(router=gateway.router, authenticator=make_authenticator()))
     assert connection.status == 499
     assert connection.json() == {
         "error": {
@@ -2975,7 +2981,7 @@ async def test_app_a_client_gone_before_a_move_is_499_with_no_fallback(
     first, second = ScriptedAdapter(error), ScriptedAdapter(RESULT)
     first.on_call = connection.gone.set
     gateway = Gateway(first, second)
-    await connection.post(create_app(router=gateway.router))
+    await connection.post(create_app(router=gateway.router, authenticator=make_authenticator()))
     assert connection.status == 499
     assert connection.json()["error"]["code"] == "client_disconnected"
     assert second.requests == []
@@ -2994,7 +3000,7 @@ async def test_app_a_client_gone_after_a_refusal_is_499_with_no_call(
     first, second = ScriptedAdapter(RESULT), ScriptedAdapter(RESULT)
     gateway = Gateway(first, second, breaker_policy=_tripwire())
     gateway.trip(FIRST)
-    await connection.post(create_app(router=gateway.router))
+    await connection.post(create_app(router=gateway.router, authenticator=make_authenticator()))
     assert connection.status == 499
     assert connection.json()["error"]["code"] == "client_disconnected"
     assert first.requests == []
@@ -3010,7 +3016,7 @@ async def test_app_a_client_gone_before_the_first_entry_is_tried_is_not_checked(
     connection.gone.set()
     first = ScriptedAdapter(RESULT)
     gateway = Gateway(first)
-    await connection.post(create_app(router=gateway.router))
+    await connection.post(create_app(router=gateway.router, authenticator=make_authenticator()))
     assert connection.status == 200
     assert len(first.requests) == 1
 
@@ -3019,7 +3025,7 @@ async def test_app_a_client_gone_before_the_first_entry_is_tried_is_not_checked(
 async def test_app_a_client_that_stays_is_served_by_the_next_entry() -> None:
     connection = Connection(_chat_body())
     gateway = Gateway(ScriptedAdapter(_unavailable()), ScriptedAdapter(RESULT))
-    await connection.post(create_app(router=gateway.router))
+    await connection.post(create_app(router=gateway.router, authenticator=make_authenticator()))
     assert connection.status == 200
     assert connection.json()["provider_instance"] == SECOND.instance
 
@@ -3031,7 +3037,7 @@ async def test_app_a_client_gone_while_an_attempt_answers_gets_that_answer() -> 
     first = ScriptedAdapter(RESULT)
     first.on_call = connection.gone.set
     gateway = Gateway(first)
-    await connection.post(create_app(router=gateway.router))
+    await connection.post(create_app(router=gateway.router, authenticator=make_authenticator()))
     assert connection.status == 200
 
 
@@ -3049,7 +3055,7 @@ async def test_app_an_error_from_the_disconnect_check_is_a_500_and_no_499(
 
     first.on_call = break_receive
     gateway = Gateway(first, second)
-    await connection.post(create_app(router=gateway.router))
+    await connection.post(create_app(router=gateway.router, authenticator=make_authenticator()))
     assert connection.status == 500
     assert connection.json()["error"]["code"] == "internal_error"
     assert second.requests == []
@@ -3869,7 +3875,7 @@ async def test_app_a_499_before_a_move_leaks_nothing_whatever_failure_came_first
     first = ScriptedAdapter(make_error())
     first.on_call = connection.gone.set
     gateway = Gateway(first, ScriptedAdapter(RESULT))
-    await connection.post(create_app(router=gateway.router))
+    await connection.post(create_app(router=gateway.router, authenticator=make_authenticator()))
     assert connection.status == 499
     _assert_nothing_in_the_body(connection)
     _assert_nothing_leaked(watched)
@@ -3881,7 +3887,7 @@ async def test_app_a_499_before_a_retry_leaks_nothing(watched: pytest.LogCapture
     first = ScriptedAdapter(_unavailable())
     first.on_call = connection.gone.set
     gateway = Gateway(first, ScriptedAdapter(RESULT), retry=DYADIC)
-    await connection.post(create_app(router=gateway.router))
+    await connection.post(create_app(router=gateway.router, authenticator=make_authenticator()))
     assert connection.status == 499
     _assert_nothing_in_the_body(connection)
     _assert_nothing_leaked(watched)
@@ -3893,7 +3899,7 @@ async def test_app_a_499_after_a_refusal_leaks_nothing(watched: pytest.LogCaptur
     connection.gone.set()
     gateway = Gateway(ScriptedAdapter(RESULT), ScriptedAdapter(RESULT), breaker_policy=_tripwire())
     gateway.trip(FIRST)
-    await connection.post(create_app(router=gateway.router))
+    await connection.post(create_app(router=gateway.router, authenticator=make_authenticator()))
     assert connection.status == 499
     _assert_nothing_in_the_body(connection)
     _assert_nothing_leaked(watched)
@@ -3911,7 +3917,7 @@ async def test_app_a_499_after_a_real_adapter_failure_tells_the_client_nothing_i
     failing, healthy = Upstream(500, PROVIDER_ERROR_BODY), Upstream(200, _claude_ok())
     failing.on_request = connection.gone.set
     async with order(failing, healthy, retry=retry) as gateway:
-        await connection.post(create_app(router=gateway.router))
+        await connection.post(create_app(router=gateway.router, authenticator=make_authenticator()))
     assert connection.status == 499
     _assert_nothing_in_the_body(connection)
     assert connection.json() == {

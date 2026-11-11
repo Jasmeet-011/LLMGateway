@@ -41,6 +41,8 @@ STARTUP_VARS = (
     "LLMGATEWAY_FAULTS",
     "ANTHROPIC_API_KEY",
     "GEMINI_API_KEY",
+    "LLMGATEWAY_DATABASE_URL",
+    "LLMGATEWAY_KEY_CACHE_SECONDS",
 )
 
 
@@ -324,6 +326,8 @@ print(json.dumps({"local_epoch": local_epoch, "before": before, "after": after})
 def _child_env() -> dict[str, str]:
     env = {k: v for k, v in os.environ.items() if k not in STARTUP_VARS}
     env["TZ"] = ZONE
+    # M14's startup requires the URL; nothing connects at import (D-091).
+    env["LLMGATEWAY_DATABASE_URL"] = "postgresql://gateway:unused@127.0.0.1:1/gateway"
     return env
 
 

@@ -20,6 +20,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
+import llmgateway.config as config_module
 from llmgateway.config import (
     DEFAULT_CONFIG,
     ClaudeProviderConfig,
@@ -933,3 +934,173 @@ def test_committed_mock_fallback_toml_has_two_independent_mocks() -> None:
         ("mock-primary", "mock-a"),
         ("mock-secondary", "mock-b"),
     ]
+
+
+# LLMGATEWAY_DATABASE_URL and LLMGATEWAY_KEY_CACHE_SECONDS (D-090, D-091, FLOW.md section 13)
+# `config_module` is reached by attribute so a missing function fails its own test.
+
+DB_VARIABLE = "LLMGATEWAY_DATABASE_URL"
+CACHE_VARIABLE = "LLMGATEWAY_KEY_CACHE_SECONDS"
+DB_MARKER = "planted-db-password-marker"
+
+
+def _database_error(environ: dict[str, str]) -> ConfigError:
+    with pytest.raises(ConfigError) as info:
+        config_module.database_url(environ)
+    error: ConfigError = info.value
+    return error
+
+
+def _cache_error(environ: dict[str, str]) -> ConfigError:
+    with pytest.raises(ConfigError) as info:
+        config_module.key_cache_seconds(environ)
+    error: ConfigError = info.value
+    return error
+
+
+def _everything(error: BaseException) -> str:
+    return str(error) + repr(error) + "".join(traceback.format_exception(error))
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "postgresql://user:pw@localhost:5432/db",
+        "postgres://user:pw@localhost/db",
+        "postgresql://localhost",
+        "postgresql://user@db.internal:6543/gateway?sslmode=require",
+        "postgresql://[::1]:5432/db",
+        "postgres://u:p@127.0.0.1/db",
+    ],
+)
+def test_database_url_accepts_a_postgres_url_and_returns_it_unchanged(url: str) -> None:
+    assert config_module.database_url({DB_VARIABLE: url}) == url
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        pytest.param("", id="empty"),
+        pytest.param("   ", id="blank"),
+        pytest.param("\t\n", id="whitespace"),
+        pytest.param(f"mysql://u:{DB_MARKER}@h/db", id="mysql"),
+        pytest.param(f"http://u:{DB_MARKER}@h/db", id="http"),
+        pytest.param(f"postgresql+asyncpg://u:{DB_MARKER}@h/db", id="driver_suffix"),
+        pytest.param(f"postgresqls://u:{DB_MARKER}@h/db", id="similar_scheme"),
+        pytest.param(f"u:{DB_MARKER}@h/db", id="no_scheme"),
+        pytest.param(f"//u:{DB_MARKER}@h/db", id="no_scheme_with_slashes"),
+        pytest.param(f"postgresql:///{DB_MARKER}", id="no_host_empty_authority"),
+        pytest.param(f"postgresql://u:{DB_MARKER}@/db", id="no_host_with_user"),
+        pytest.param(f"postgresql://u:{DB_MARKER}@:5432/db", id="no_host_with_port"),
+        pytest.param(f"postgresql://:5432/{DB_MARKER}", id="port_only"),
+        pytest.param(f"postgresql://u:{DB_MARKER}@[::1/db", id="urlsplit_raises"),
+    ],
+)
+def test_database_url_rejects_a_bad_value_naming_the_variable_and_never_the_value(
+    url: str,
+) -> None:
+    error = _database_error({DB_VARIABLE: url})
+    assert DB_VARIABLE in str(error)
+    assert DB_MARKER not in _everything(error)
+    if url.strip():
+        assert url not in _everything(error)
+
+
+def test_database_url_unset_is_an_error_naming_the_variable() -> None:
+    assert DB_VARIABLE in str(_database_error({}))
+
+
+def test_database_url_error_never_echoes_any_part_of_a_planted_url() -> None:
+    url = "mysql://planted-user:planted-pass@planted-host:1234/planted-db"
+    text = _everything(_database_error({DB_VARIABLE: url}))
+    for part in ("planted-user", "planted-pass", "planted-host", "1234", "planted-db", "mysql"):
+        assert part not in text
+
+
+def test_database_url_shows_no_other_environment_value() -> None:
+    environ = {"LLMGATEWAY_CONFIG": "planted-config-path", "ANTHROPIC_API_KEY": "planted-key"}
+    text = _everything(_database_error(environ))
+    assert "planted-config-path" not in text
+    assert "planted-key" not in text
+
+
+def test_database_url_reads_the_given_environ_only(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(DB_VARIABLE, "postgresql://u:p@h/db")
+    assert DB_VARIABLE in str(_database_error({}))
+
+
+def test_the_database_url_error_is_a_config_error_and_has_a_message_of_its_own() -> None:
+    unset = str(_database_error({}))
+    wrong = str(_database_error({DB_VARIABLE: "mysql://h/db"}))
+    nohost = str(_database_error({DB_VARIABLE: "postgresql:///db"}))
+    assert len({unset, wrong, nohost}) == 3
+
+
+def test_key_cache_seconds_unset_is_10_seconds_as_a_float() -> None:
+    value = config_module.key_cache_seconds({})
+    assert value == 10.0
+    assert isinstance(value, float)
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("0", 0.0),
+        ("0.0", 0.0),
+        ("60", 60.0),
+        ("60.0", 60.0),
+        ("1", 1.0),
+        ("10", 10.0),
+        ("2.5", 2.5),
+        ("0.001", 0.001),
+        ("59.999", 59.999),
+    ],
+)
+def test_key_cache_seconds_accepts_a_finite_number_from_0_to_60(text: str, expected: float) -> None:
+    value = config_module.key_cache_seconds({CACHE_VARIABLE: text})
+    assert value == expected
+    assert isinstance(value, float)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "",
+        "   ",
+        "inf",
+        "-inf",
+        "+inf",
+        "infinity",
+        "nan",
+        "NaN",
+        "-1",
+        "-0.001",
+        "60.5",
+        "60.0001",
+        "61",
+        "1e999",
+        "abc",
+        "ten",
+        "1,5",
+        "1 0",
+        "0x10",
+        "True",
+        "None",
+    ],
+)
+def test_key_cache_seconds_rejects_a_bad_value_naming_the_variable(text: str) -> None:
+    error = _cache_error({CACHE_VARIABLE: text})
+    assert CACHE_VARIABLE in str(error)
+
+
+@pytest.mark.parametrize("text", ["61.987654", "-7.654321", "planted-marker-value", "nan-marker"])
+def test_key_cache_seconds_error_never_echoes_the_value(text: str) -> None:
+    error = _cache_error({CACHE_VARIABLE: text})
+    assert text not in _everything(error)
+    assert "987654" not in _everything(error)
+    assert "654321" not in _everything(error)
+
+
+def test_key_cache_seconds_reads_the_given_environ_only(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(CACHE_VARIABLE, "3")
+    assert config_module.key_cache_seconds({}) == 10.0

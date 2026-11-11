@@ -44,6 +44,7 @@ from typing import Any
 
 import httpx
 import pytest
+from auth_support import AUTH_HEADERS, AUTH_SCOPE_HEADER, make_authenticator
 from fastapi import FastAPI
 
 from llmgateway.app import create_app
@@ -504,14 +505,16 @@ class Gateway:
         )
 
     def app(self) -> FastAPI:
-        return create_app(router=self.router)
+        return create_app(router=self.router, authenticator=make_authenticator())
 
     def client(self) -> httpx.AsyncClient:
         return app_client(self.app())
 
 
 def app_client(app: FastAPI) -> httpx.AsyncClient:
-    return httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test")
+    return httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test", headers=AUTH_HEADERS
+    )
 
 
 async def drain(served: Any) -> tuple[list[Any], ProviderError | None]:
@@ -687,6 +690,7 @@ class Wire:
                 (b"host", b"test"),
                 (b"content-type", b"application/json"),
                 (b"content-length", str(len(self.payload)).encode()),
+                AUTH_SCOPE_HEADER,
             ],
             "client": ("127.0.0.1", 50000),
             "server": ("test", 80),

@@ -8,6 +8,7 @@ import os
 
 import httpx
 import pytest
+from auth_support import AUTH_HEADERS, make_authenticator
 
 from llmgateway.app import create_app
 from llmgateway.config import parse_config
@@ -34,11 +35,16 @@ haiku = [{ provider = "claude", model = "claude-haiku-5-5" }]
 @pytest.mark.asyncio
 async def test_real_claude_request_through_app() -> None:
     # The server's startup path (D-044): config, then keys from the environment.
-    app = create_app(router=build_router(parse_config(CONFIG), os.environ))
+    app = create_app(
+        router=build_router(parse_config(CONFIG), os.environ), authenticator=make_authenticator()
+    )
     async with (
         app.router.lifespan_context(app),
         httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=app), base_url="http://test", timeout=90.0
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://test",
+            headers=AUTH_HEADERS,
+            timeout=90.0,
         ) as client,
     ):
         response = await client.post(

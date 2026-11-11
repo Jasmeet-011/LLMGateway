@@ -34,6 +34,7 @@ from typing import Any
 import httpx
 import pytest
 import uvicorn
+from auth_support import AUTH_HEADERS, make_authenticator
 from fastapi import FastAPI
 from stream_support import (
     ALIAS,
@@ -778,6 +779,7 @@ def _post(port: int, body: dict[str, Any]) -> bytes:
     payload = json.dumps(body).encode()
     return (
         b"POST /v1/chat HTTP/1.1\r\nhost: 127.0.0.1\r\ncontent-type: application/json\r\n"
+        + f"authorization: {AUTH_HEADERS['authorization']}\r\n".encode()
         + f"content-length: {len(payload)}\r\n\r\n".encode()
         + payload
     )
@@ -865,7 +867,9 @@ async def test_a_real_client_that_leaves_closes_the_real_upstream(
             LineWaiter("llmgateway.router", "stream_abandoned") as abandoned,
             LineWaiter("llmgateway.request", " status=200 ") as finished,
         ):
-            async with _serving(create_app(router=router)) as port:
+            async with _serving(
+                create_app(router=router, authenticator=make_authenticator())
+            ) as port:
                 reader, client = await asyncio.open_connection("127.0.0.1", port)
                 client.write(_post(port, stream_body()))
                 await client.drain()
@@ -919,7 +923,9 @@ async def test_a_real_client_that_leaves_while_opening_closes_the_real_upstream(
     client: asyncio.StreamWriter | None = None
     try:
         with LineWaiter("llmgateway.request", " status=499 ") as finished:
-            async with _serving(create_app(router=router)) as port:
+            async with _serving(
+                create_app(router=router, authenticator=make_authenticator())
+            ) as port:
                 reader, client = await asyncio.open_connection("127.0.0.1", port)
                 client.write(_post(port, stream_body()))
                 await client.drain()
@@ -983,7 +989,9 @@ async def test_a_real_client_that_stops_reading_is_dropped_by_the_real_server(
     client: asyncio.StreamWriter | None = None
     try:
         with LineWaiter("llmgateway.router", "stream_abandoned") as abandoned:
-            async with _serving(create_app(router=router)) as port:
+            async with _serving(
+                create_app(router=router, authenticator=make_authenticator())
+            ) as port:
                 reader, client = await asyncio.open_connection("127.0.0.1", port)
                 client.write(_post(port, stream_body()))
                 await client.drain()

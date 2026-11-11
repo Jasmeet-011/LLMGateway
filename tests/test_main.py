@@ -3,7 +3,8 @@
 In-process tests call `router_from_env` with an explicit environment. Importing
 `llmgateway.main` builds its module-level app from `os.environ`, so the fixture
 first removes LLMGATEWAY_PROVIDER, LLMGATEWAY_CONFIG and LLMGATEWAY_FAULTS, which the
-developer's shell may have set.
+developer's shell may have set, and sets LLMGATEWAY_DATABASE_URL to an unreachable
+database, which M14's startup requires (D-091).
 
 Subprocess tests run the real startup path, `import llmgateway.main`, as uvicorn
 does, and check that a bad configuration exits with one clean line on stderr:
@@ -21,15 +22,21 @@ import importlib
 import json
 import logging
 import os
+import re
+import socket
 import subprocess
 import sys
 from collections.abc import Callable, Mapping
+from contextlib import closing
 from pathlib import Path
 from types import ModuleType
+from typing import Any
 
 import pytest
+from auth_support import AUTH_HEADERS, TEST_KEY, child_prelude, make_key, with_secret
 from fastapi import FastAPI
 
+import llmgateway.config as config_module
 from llmgateway.config import ConfigError
 from llmgateway.providers.base import ProviderUnavailable
 from llmgateway.providers.claude import ClaudeAdapter
@@ -46,6 +53,9 @@ ANTHROPIC_KEY = "sk-ant-main-test-key-marker"
 GEMINI_KEY = "gemini-main-test-key-marker"
 MARKER = "planted-marker-value"
 PREFIX = "llmgateway: configuration error:"
+DB_MARKER = "planted-main-db-password-marker"
+# Nothing listens on port 1; main never connects at import, so this is only a valid URL.
+UNREACHABLE_URL = f"postgresql://gateway:{DB_MARKER}@127.0.0.1:1/gateway"
 
 CLAUDE_CONFIG = (
     '[providers.claude]\ntype = "claude"\n\n'
@@ -69,6 +79,8 @@ def main_module(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
     monkeypatch.delenv("LLMGATEWAY_PROVIDER", raising=False)
     monkeypatch.delenv("LLMGATEWAY_CONFIG", raising=False)
     monkeypatch.delenv("LLMGATEWAY_FAULTS", raising=False)
+    monkeypatch.delenv("LLMGATEWAY_KEY_CACHE_SECONDS", raising=False)
+    monkeypatch.setenv("LLMGATEWAY_DATABASE_URL", UNREACHABLE_URL)
     return importlib.import_module("llmgateway.main")
 
 
@@ -268,8 +280,14 @@ def test_router_from_env_with_the_committed_mock_fallback_toml(
 
 def _first_import_of_main(monkeypatch: pytest.MonkeyPatch) -> None:
     """Imports main as a test that is the first to do so would, after its fixtures."""
-    for name in ("LLMGATEWAY_PROVIDER", "LLMGATEWAY_CONFIG", "LLMGATEWAY_FAULTS"):
+    for name in (
+        "LLMGATEWAY_PROVIDER",
+        "LLMGATEWAY_CONFIG",
+        "LLMGATEWAY_FAULTS",
+        "LLMGATEWAY_KEY_CACHE_SECONDS",
+    ):
         monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("LLMGATEWAY_DATABASE_URL", UNREACHABLE_URL)
     monkeypatch.delitem(sys.modules, "llmgateway.main", raising=False)
     importlib.import_module("llmgateway.main")
 
@@ -307,6 +325,8 @@ STARTUP_VARS = (
     "LLMGATEWAY_FAULTS",
     "ANTHROPIC_API_KEY",
     "GEMINI_API_KEY",
+    "LLMGATEWAY_DATABASE_URL",
+    "LLMGATEWAY_KEY_CACHE_SECONDS",
 )
 
 # Posts the same body for each alias to main.app, in order, one request at a time,
@@ -329,7 +349,10 @@ import llmgateway.main as main
 async def probe():
     out = []
     transport = httpx.ASGITransport(app=main.app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+    headers = {"authorization": os.environ["PROBE_AUTHORIZATION"]}
+    async with httpx.AsyncClient(
+        transport=transport, base_url="http://test", headers=headers
+    ) as client:
         for alias in os.environ["PROBE_ALIASES"].split(","):
             body = {"model": alias, "messages": [{"role": "user", "content": "hi"}],
                     "max_tokens": 8}
@@ -345,6 +368,7 @@ asyncio.run(probe())
 
 def _env(**overrides: str) -> dict[str, str]:
     env = {k: v for k, v in os.environ.items() if k not in STARTUP_VARS}
+    env["LLMGATEWAY_DATABASE_URL"] = UNREACHABLE_URL
     env.update(overrides)
     return env
 
@@ -401,6 +425,7 @@ def test_a_real_startup_still_sets_the_gateway_logger_to_info_with_its_handler()
 # `serve` returns, so the line is written before the child exits, however slow the host.
 SERVER_PROBE = """
 import asyncio
+import os
 
 import httpx
 import uvicorn
@@ -417,7 +442,10 @@ async def probe():
     port = server.servers[0].sockets[0].getsockname()[1]
     body = {"model": "mock", "messages": [{"role": "user", "content": "hi"}], "max_tokens": 8}
     # httpx's default limit is 5 s, short enough for a stalled host to fail this.
-    async with httpx.AsyncClient(base_url=f"http://127.0.0.1:{port}", timeout=300.0) as client:
+    headers = {"authorization": os.environ["PROBE_AUTHORIZATION"]}
+    async with httpx.AsyncClient(
+        base_url=f"http://127.0.0.1:{port}", timeout=300.0, headers=headers
+    ) as client:
         response = await client.post("/v1/chat", json=body)
     server.should_exit = True
     await serving
@@ -433,8 +461,8 @@ def test_a_real_server_writes_the_info_request_line_to_stderr() -> None:
     # A WARNING line proves nothing here, because logging.lastResort would print it.
     # SERVER_PROBE is the fixed script above, not outside input.
     result = subprocess.run(  # noqa: S603
-        [sys.executable, "-c", SERVER_PROBE],
-        env=_env(),
+        [sys.executable, "-c", child_prelude() + SERVER_PROBE],
+        env=_env(PROBE_AUTHORIZATION=AUTH_HEADERS["authorization"]),
         capture_output=True,
         text=True,
         check=False,
@@ -544,8 +572,12 @@ def test_a_bug_during_startup_is_not_reported_as_a_configuration_error() -> None
 def _probe(env: dict[str, str], *aliases: str) -> list[list[object]]:
     # PROBE is the fixed script above, not outside input.
     result = subprocess.run(  # noqa: S603
-        [sys.executable, "-c", PROBE],
-        env={**env, "PROBE_ALIASES": ",".join(aliases)},
+        [sys.executable, "-c", child_prelude() + PROBE],
+        env={
+            **env,
+            "PROBE_ALIASES": ",".join(aliases),
+            "PROBE_AUTHORIZATION": AUTH_HEADERS["authorization"],
+        },
         capture_output=True,
         text=True,
         check=False,
@@ -620,3 +652,237 @@ def test_import_with_valid_config_exits_zero() -> None:
     assert result.returncode == 0, result.stderr
     assert "Traceback" not in result.stderr
     assert PREFIX not in result.stderr
+
+
+# M14: the database URL and the key cache time are read at startup (D-090, D-091)
+
+
+def _env_without(*names: str) -> dict[str, str]:
+    env = _env()
+    for name in names:
+        env.pop(name, None)
+    return env
+
+
+def _config_message(function: str, environ: dict[str, str]) -> str:
+    with pytest.raises(ConfigError) as info:
+        getattr(config_module, function)(environ)
+    return str(info.value)
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        pytest.param(None, id="unset"),
+        pytest.param("", id="empty"),
+        pytest.param("   ", id="blank"),
+        pytest.param(f"mysql://u:{DB_MARKER}@127.0.0.1/db", id="not_postgres"),
+        pytest.param(f"postgresql://u:{DB_MARKER}@/db", id="no_host"),
+    ],
+)
+def test_startup_with_a_bad_database_url_fails_cleanly_naming_the_variable(
+    url: str | None,
+) -> None:
+    env = _env_without("LLMGATEWAY_DATABASE_URL")
+    if url is not None:
+        env["LLMGATEWAY_DATABASE_URL"] = url
+    result = _import_main(env)
+    hidden = (DB_MARKER,) if url else ()
+    _assert_clean_failure(result, ("LLMGATEWAY_DATABASE_URL",), hidden)
+    assert result.stderr == f"{PREFIX} {_config_message('database_url', env)}\n"
+    assert result.stdout == ""
+
+
+@pytest.mark.parametrize("value", ["abc", "61"])
+def test_startup_with_a_bad_key_cache_time_fails_cleanly_naming_the_variable(value: str) -> None:
+    env = _env(LLMGATEWAY_KEY_CACHE_SECONDS=value)
+    result = _import_main(env)
+    _assert_clean_failure(result, ("LLMGATEWAY_KEY_CACHE_SECONDS",), (DB_MARKER,))
+    assert result.stderr == f"{PREFIX} {_config_message('key_cache_seconds', env)}\n"
+
+
+@pytest.mark.parametrize("value", ["0", "60", "2.5"])
+def test_startup_with_a_valid_key_cache_time_exits_zero(value: str) -> None:
+    result = _import_main(_env(LLMGATEWAY_KEY_CACHE_SECONDS=value))
+    assert result.returncode == 0, result.stderr
+    assert PREFIX not in result.stderr
+
+
+def test_a_bad_provider_config_is_still_the_reported_error_when_the_database_url_is_missing() -> (
+    None
+):
+    env = _env_without("LLMGATEWAY_DATABASE_URL")
+    env["LLMGATEWAY_PROVIDER"] = "mock"
+    result = _import_main(env)
+    _assert_clean_failure(result, ("LLMGATEWAY_PROVIDER",), (DB_MARKER,))
+    assert "LLMGATEWAY_DATABASE_URL" not in result.stderr
+
+
+def test_a_bad_config_file_is_still_the_reported_error_when_the_cache_time_is_bad(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "missing.toml"
+    result = _import_main(_env(LLMGATEWAY_CONFIG=str(path), LLMGATEWAY_KEY_CACHE_SECONDS="abc"))
+    _assert_clean_failure(result, ("LLMGATEWAY_CONFIG",), (str(path),))
+    assert "LLMGATEWAY_KEY_CACHE_SECONDS" not in result.stderr
+
+
+def test_a_valid_url_to_an_unreachable_database_still_starts_with_exit_zero() -> None:
+    result = _import_main(_env())
+    assert result.returncode == 0, result.stderr
+    assert "Traceback" not in result.stderr
+    assert PREFIX not in result.stderr
+    assert DB_MARKER not in result.stderr + result.stdout
+
+
+def test_startup_does_not_connect_to_the_database_at_import() -> None:
+    # The pool connects on the first lookup (D-091). A listening socket would see a
+    # connection if import made one; it sees none.
+    with closing(socket.socket()) as listener:
+        listener.bind(("127.0.0.1", 0))
+        listener.listen(5)
+        listener.setblocking(False)
+        port = listener.getsockname()[1]
+        url = f"postgresql://gateway:{DB_MARKER}@127.0.0.1:{port}/gateway"
+        result = _import_main(_env(LLMGATEWAY_DATABASE_URL=url))
+        assert result.returncode == 0, result.stderr
+        with pytest.raises(BlockingIOError):
+            listener.accept()
+
+
+# A real uvicorn in the child, on a real socket, asking what a client would ask (Lesson 13).
+# `AUTH_PROBE_CASES` is a JSON list of [name, method, path, Authorization value or null].
+# It prints, per name, [status, www-authenticate, retry-after, request id, error code].
+AUTH_PROBE = """
+import asyncio
+import json
+import os
+
+import httpx
+import uvicorn
+
+
+async def probe():
+    config = uvicorn.Config("llmgateway.main:app", host="127.0.0.1", port=0)
+    server = uvicorn.Server(config)
+    serving = asyncio.ensure_future(server.serve())
+    while not server.started and not serving.done():
+        await asyncio.sleep(0)
+    if serving.done():
+        raise SystemExit("the server did not start")
+    port = server.servers[0].sockets[0].getsockname()[1]
+    body = {"model": "mock", "messages": [{"role": "user", "content": "hi"}], "max_tokens": 8}
+    out = {}
+    async with httpx.AsyncClient(base_url=f"http://127.0.0.1:{port}", timeout=300.0) as client:
+        for name, method, path, authorization in json.loads(os.environ["AUTH_PROBE_CASES"]):
+            headers = {} if authorization is None else {"authorization": authorization}
+            if method == "POST":
+                response = await client.post(path, json=body, headers=headers)
+            else:
+                response = await client.get(path, headers=headers)
+            error = response.json().get("error", {})
+            out[name] = [
+                response.status_code,
+                response.headers.get("www-authenticate"),
+                response.headers.get("retry-after"),
+                response.headers["x-request-id"],
+                error.get("code"),
+            ]
+    server.should_exit = True
+    await serving
+    print(json.dumps(out))
+
+
+asyncio.run(probe())
+"""
+
+REVOKED = make_key(8)
+
+
+def _auth_probe(
+    prelude: str, cases: list[list[str | None]], **env: str
+) -> tuple[dict[str, list[Any]], str]:
+    # AUTH_PROBE is the fixed script above, not outside input.
+    result = subprocess.run(  # noqa: S603
+        [sys.executable, "-c", prelude + AUTH_PROBE],
+        env=_env(AUTH_PROBE_CASES=json.dumps(cases), **env),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "Traceback" not in result.stderr
+    assert DB_MARKER not in result.stderr + result.stdout
+    out: dict[str, list[Any]] = json.loads(result.stdout.strip().splitlines()[-1])
+    return out, result.stderr
+
+
+def _line_of(stderr: str, request_id: str) -> str:
+    (line,) = [
+        line
+        for line in stderr.splitlines()
+        if "llmgateway.request" in line and f"request_id={request_id} " in line
+    ]
+    return line
+
+
+def test_a_real_server_authenticates_over_a_real_socket() -> None:
+    cases: list[list[str | None]] = [
+        ["no_key", "POST", "/v1/chat", None],
+        ["valid", "POST", "/v1/chat", f"Bearer {TEST_KEY}"],
+        ["wrong_secret", "POST", "/v1/chat", f"Bearer {with_secret(TEST_KEY, 'f' * 64)}"],
+        ["revoked", "POST", "/v1/chat", f"Bearer {REVOKED}"],
+        ["malformed", "POST", "/v1/chat", "Bearer nonsense"],
+        ["healthz", "GET", "/healthz", None],
+        ["healthz_with_a_bad_key", "GET", "/healthz", "Bearer nonsense"],
+    ]
+    out, stderr = _auth_probe(child_prelude([REVOKED]), cases)
+    for name in ("no_key", "wrong_secret", "revoked", "malformed"):
+        status, www, retry, _, code = out[name]
+        assert (status, www, retry, code) == (401, "Bearer", None, "invalid_api_key"), name
+    assert out["valid"][0] == 200
+    assert out["valid"][1] is None
+    assert out["healthz"][0] == 200
+    assert out["healthz_with_a_bad_key"][0] == 200
+    key_id = TEST_KEY.split("_")[1]
+    valid_line = _line_of(stderr, out["valid"][3])
+    assert (
+        f"request_id={out['valid'][3]} tenant=tenant-a key_id={key_id} provider=mock "
+        "model='mock' status=200 latency_ms=" in valid_line
+    ), valid_line
+    for name in ("no_key", "wrong_secret", "revoked", "malformed"):
+        line = _line_of(stderr, out[name][3])
+        assert (
+            f"request_id={out[name][3]} tenant=- key_id=- provider=- model=- status=401 "
+            "latency_ms=" in line
+        ), line
+        assert line.endswith(" provider_model=-")
+    healthz_line = _line_of(stderr, out["healthz"][3])
+    assert f"request_id={out['healthz'][3]} tenant=- key_id=- provider=- " in healthz_line
+    for secret in (TEST_KEY, TEST_KEY.split("_")[2], REVOKED, "Bearer nonsense"):
+        assert secret not in stderr
+
+
+def test_a_real_server_with_an_unreachable_database_is_503_for_a_key_and_healthz_is_200() -> None:
+    cases: list[list[str | None]] = [
+        ["no_key", "POST", "/v1/chat", None],
+        ["key", "POST", "/v1/chat", f"Bearer {TEST_KEY}"],
+        ["healthz", "GET", "/healthz", None],
+    ]
+    # No fake store: the real pool, against a port nothing listens on. A refusal on
+    # Windows can take about 2 s, the lookup's whole limit, so either reason is possible.
+    out, stderr = _auth_probe("", cases)
+    status, www, retry, _, code = out["no_key"]
+    assert (status, www, retry, code) == (401, "Bearer", None, "invalid_api_key")
+    status, www, retry, request_id, code = out["key"]
+    assert (status, www, retry, code) == (503, None, None, "auth_unavailable")
+    assert out["healthz"][0] == 200
+    lines = [line for line in stderr.splitlines() if "auth_unavailable request_id=" in line]
+    assert len(lines) == 1, stderr
+    assert re.search(
+        rf" WARNING llmgateway\.auth auth_unavailable request_id={request_id} "
+        r"reason=(store_error|timeout) error=\w+$",
+        lines[0],
+    ), lines[0]
+    assert TEST_KEY not in stderr
+    assert "Traceback" not in stderr

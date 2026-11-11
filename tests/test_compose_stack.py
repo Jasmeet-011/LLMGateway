@@ -16,60 +16,26 @@ that nothing is sent.
 The guard runs inside each test, not in a fixture, because pytest reports a fixture's
 failure as an error, and D-081 says the test fails.
 
-The tests use real httpx over the socket, and use no fake of the gateway. Nothing here
-imports another test module, so the guard test can run this file alone.
+The tests use real httpx over the socket, and use no fake of the gateway.
+
+M14 (D-094): the guard and the helpers moved to `tests/compose_support.py`, which the guard
+test copies next to this file, so it can still run this file alone. Every chat test now
+sends a key made by the real CLI in the api container (`docker compose exec`), because
+every route but `/healthz` needs one (D-089). `/healthz` is public and is still asked with
+no key. Each test calls `base_url()` first, before any docker command or request.
 """
 
 import json
-import os
-from collections.abc import Iterator, Sequence
-from contextlib import contextmanager
+from collections.abc import Sequence
 from typing import Any
-from urllib.parse import urlsplit
 
-import httpx
 import pytest
+from compose_support import BODY, base_url, gateway, shared_key
 
 from llmgateway.errors import ErrorBody
 from llmgateway.schema import ChatResponse, StreamDelta, StreamEnd
 
 pytestmark = pytest.mark.integration
-
-VARIABLE = "LLMGATEWAY_BASE_URL"
-LOCAL_HOSTS = ("127.0.0.1", "localhost")
-# A stack that is up answers at once; a stalled build host is the only reason to wait.
-TIMEOUT = 30.0
-
-BODY: dict[str, Any] = {
-    "model": "mock",
-    "messages": [{"role": "user", "content": "say hello to the compose stack"}],
-    "max_tokens": 32,
-}
-
-
-def base_url() -> str:
-    """The stack's address, or a failure that says why not. Never a skip (D-081)."""
-    value = os.environ.get(VARIABLE, "")
-    if not value.strip():
-        pytest.fail(
-            f"{VARIABLE} is unset or empty: these tests need the Compose stack and its "
-            f"address, for example {VARIABLE}=http://127.0.0.1:8000. They fail and never "
-            "skip, so a run that lost the variable cannot pass with nothing tested."
-        )
-    parts = urlsplit(value.strip())
-    host = parts.hostname
-    if parts.scheme not in ("http", "https") or host not in LOCAL_HOSTS:
-        pytest.fail(
-            f"{VARIABLE} must be an http(s) URL whose host is one of {', '.join(LOCAL_HOSTS)}: "
-            "these tests only ever talk to a local stack, and no request was sent."
-        )
-    return value.strip().rstrip("/")
-
-
-@contextmanager
-def gateway() -> Iterator[httpx.Client]:
-    with httpx.Client(base_url=base_url(), timeout=TIMEOUT) as client:
-        yield client
 
 
 def parse_frames(raw: bytes) -> list[dict[str, Any]]:
@@ -91,6 +57,7 @@ def joined_text(events: Sequence[dict[str, Any]]) -> str:
 
 
 def test_healthz_is_200_with_status_ok() -> None:
+    base_url()
     with gateway() as client:
         response = client.get("/healthz")
     assert response.status_code == 200
@@ -98,7 +65,8 @@ def test_healthz_is_200_with_status_ok() -> None:
 
 
 def test_chat_to_the_mock_alias_is_a_chat_response_from_the_mock() -> None:
-    with gateway() as client:
+    base_url()
+    with gateway(shared_key()) as client:
         response = client.post("/v1/chat", json=BODY)
     assert response.status_code == 200, response.text
     chat = ChatResponse.model_validate(response.json())
@@ -109,7 +77,8 @@ def test_chat_to_the_mock_alias_is_a_chat_response_from_the_mock() -> None:
 
 
 def test_streamed_chat_is_an_event_stream_of_deltas_and_one_end() -> None:
-    with gateway() as client:
+    base_url()
+    with gateway(shared_key()) as client:
         plain = client.post("/v1/chat", json=BODY)
         with client.stream("POST", "/v1/chat", json={**BODY, "stream": True}) as response:
             response.read()
@@ -132,7 +101,8 @@ def test_streamed_chat_is_an_event_stream_of_deltas_and_one_end() -> None:
 
 
 def test_unknown_alias_is_400_with_the_unknown_model_error() -> None:
-    with gateway() as client:
+    base_url()
+    with gateway(shared_key()) as client:
         response = client.post("/v1/chat", json={**BODY, "model": "not-a-configured-alias"})
     assert response.status_code == 400, response.text
     error = ErrorBody.model_validate(response.json())

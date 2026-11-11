@@ -45,6 +45,7 @@ from typing import Any
 
 import httpx
 import pytest
+from auth_support import AUTH_HEADERS, child_prelude, make_authenticator
 
 from llmgateway.app import create_app
 from llmgateway.breaker import BreakerPolicy
@@ -298,8 +299,10 @@ def _two_mocks(primary: str = "", secondary: str = "") -> str:
 
 
 def _client(router: Any) -> httpx.AsyncClient:
-    app = create_app(router=router)
-    return httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test")
+    app = create_app(router=router, authenticator=make_authenticator())
+    return httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test", headers=AUTH_HEADERS
+    )
 
 
 def _fault_lines(caplog: pytest.LogCaptureFixture) -> list[str]:
@@ -1604,7 +1607,11 @@ STARTUP_VARS = (
     "LLMGATEWAY_FAULTS",
     "ANTHROPIC_API_KEY",
     "GEMINI_API_KEY",
+    "LLMGATEWAY_DATABASE_URL",
+    "LLMGATEWAY_KEY_CACHE_SECONDS",
 )
+# M14's startup requires a database URL; nothing connects at import (D-091).
+UNREACHABLE_URL = "postgresql://gateway:unused@127.0.0.1:1/gateway"
 
 # Posts one body per alias to main.app and prints [status, provider_instance] for each.
 # asyncio.sleep is replaced before main is imported, because build_router reads it
@@ -1625,7 +1632,10 @@ import llmgateway.main as main
 async def probe():
     out = []
     transport = httpx.ASGITransport(app=main.app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+    headers = {"authorization": os.environ["PROBE_AUTHORIZATION"]}
+    async with httpx.AsyncClient(
+        transport=transport, base_url="http://test", headers=headers
+    ) as client:
         for alias in os.environ["PROBE_ALIASES"].split(","):
             body = {"model": alias, "messages": [{"role": "user", "content": "hi"}],
                     "max_tokens": 8}
@@ -1640,6 +1650,7 @@ asyncio.run(probe())
 
 def _env(**overrides: str) -> dict[str, str]:
     env = {k: v for k, v in os.environ.items() if k not in STARTUP_VARS}
+    env["LLMGATEWAY_DATABASE_URL"] = UNREACHABLE_URL
     env.update(overrides)
     return env
 
@@ -1662,6 +1673,7 @@ def router_from_env(monkeypatch: pytest.MonkeyPatch) -> RouterFromEnv:
     # Importing llmgateway.main builds its app from os.environ.
     for name in STARTUP_VARS:
         monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("LLMGATEWAY_DATABASE_URL", UNREACHABLE_URL)
     module: ModuleType = importlib.import_module("llmgateway.main")
     fn: RouterFromEnv = module.router_from_env
     return fn
@@ -1751,10 +1763,11 @@ def test_a_real_startup_with_mock_primary_down_is_served_by_mock_secondary() -> 
         LLMGATEWAY_CONFIG=str(MOCK_FALLBACK_TOML),
         LLMGATEWAY_FAULTS="mock-primary=1.0",
         PROBE_ALIASES="mock-fallback,mock-fallback,mock-fallback",
+        PROBE_AUTHORIZATION=AUTH_HEADERS["authorization"],
     )
     # PROBE is the fixed script above, not outside input.
     result = subprocess.run(  # noqa: S603
-        [sys.executable, "-c", PROBE],
+        [sys.executable, "-c", child_prelude() + PROBE],
         env=env,
         capture_output=True,
         text=True,

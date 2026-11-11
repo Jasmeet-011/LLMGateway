@@ -17,6 +17,7 @@ from typing import Any
 
 import httpx
 import pytest
+from auth_support import make_authenticator
 from stream_support import (
     ANTHROPIC_KEY,
     CLAUDE_PING,
@@ -247,7 +248,7 @@ async def test_a_request_without_stream_still_goes_through_complete() -> None:
 
 @pytest.mark.asyncio
 async def test_the_default_app_streams_with_no_config_and_no_keys() -> None:
-    async with app_client(create_app()) as client:
+    async with app_client(create_app(authenticator=make_authenticator())) as client:
         response = await client.post("/v1/chat", json=stream_body(model="mock"))
     assert response.status_code == 200
     events = parse_events(response.content)
@@ -359,7 +360,7 @@ def _three_providers() -> httpx.AsyncClient:
         transport=httpx.MockTransport(_provider),
         sleep=RecordingSleep(FakeClock()),
     )
-    return app_client(create_app(router=router))
+    return app_client(create_app(router=router, authenticator=make_authenticator()))
 
 
 async def _streamed(alias: str) -> list[dict[str, Any]]:
@@ -468,7 +469,7 @@ only = [{ provider = "broken", model = "mock-broken" }]
 
 def _mock_fallback_client() -> httpx.AsyncClient:
     router = build_router(parse_config(MOCK_FALLBACK), {}, sleep=RecordingSleep(FakeClock()))
-    return app_client(create_app(router=router))
+    return app_client(create_app(router=router, authenticator=make_authenticator()))
 
 
 @pytest.mark.asyncio
