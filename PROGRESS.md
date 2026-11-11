@@ -22,9 +22,9 @@ M13 is done: `docker compose up --build --wait` starts the api, Postgres and Red
 
 M14 is done: every request but `/healthz` needs `Authorization: Bearer lgw_<id>_<secret>`, checked before the body is read. Postgres keeps only the key's SHA-256; it is found by id and compared in constant time. Every bad key gets the same 401 `invalid_api_key`, and a key that cannot be checked gets 503 `auth_unavailable`. Found rows are cached for 10 s, so revocation takes effect within that. Keys are made with `python -m llmgateway.keys`, and Compose runs the migrations before the api starts. Each request carries its key id and tenant forward as `request.state.principal`.
 
-The next milestone is **M15 Token and cost accounting**. It waits until the owner has run `tests/test_live_gemini_usage.py` (D-075).
+The next milestone is **M15 Token and cost accounting**. The owner ran `tests/test_live_gemini_usage.py` on 2026-11-11: it passed, so Gemini's streamed counts are cumulative (D-075).
 
-Open items: whether Gemini's streamed `usageMetadata` counts are cumulative is still unverified (D-075); the live run proved `alt=sse`, not that. The live test that settles it is written, not run. Whether superseding D-018's order in D-089 should have been a stop under CLAUDE.md is for the owner (session log, 2026-11-11). No request body size limit yet (D-025, D-089). D-071 is approved by the owner (2026-11-11), with its condition pinned by tests. The owner reran the five non-streaming live tests on 2026-11-04 after the Gemini fixes (D-048, D-049): 5 passed. Every checkout is now LF (`.gitattributes`).
+Open items: whether Gemini's streamed `thoughtsTokenCount` is cumulative is still unverified (D-075). The owner confirmed D-089 (2026-11-11). No request body size limit yet; it is now in M16's scope (D-025, PLAN.md). D-071 is approved by the owner (2026-11-11), with its condition pinned by tests. The owner reran the five non-streaming live tests on 2026-11-04 after the Gemini fixes (D-048, D-049): 5 passed. Every checkout is now LF (`.gitattributes`).
 
 ## Milestones
 
@@ -84,6 +84,16 @@ Distilled from the mistakes logs. The full history is in [docs/archive/2026-11-s
 ## Session Log
 
 Newest sessions go here. When this file passes 50 KB, move the session log and the mistakes rows, unchanged, to a new file in [docs/archive/](docs/archive/), and keep the Lessons section current.
+
+### 2026-11-11: owner's results, M15 Token and cost accounting
+
+**State check.** HEAD f1a43de, clean, on `main`, level with origin after `git pull`, as the brief expected. `.\scripts\check.ps1` PASS: 4549 passed, 26 deselected in 180.80 s, matching the brief. `.claude/agents/tester.md` and `reviewer.md` both present.
+
+**Owner's results and decisions, recorded first.**
+- `tests/test_live_gemini_usage.py`: passed, as reported by the owner. `candidatesTokenCount` per chunk 2, 20, 48, 74, 76, 76; `promptTokenCount` 15 on every chunk; the adapter reported 15 in and 76 out; `countTokens` gave 77 on the full text, a tokenization difference, since `usageMetadata` is what is billed. `thoughtsTokenCount` was null on every chunk. Noted on D-075: cumulative counts verified, thinking counts not.
+- D-089 confirmed by the owner. Noted on D-089; the M14 question is closed.
+- D-086: the key id is `secrets.token_hex(8)`, 16 hex characters, 64 bits from the OS CSPRNG, read in `auth.generate_key`. Not enumerable, so no fix. Noted on D-086.
+- PLAN.md M16 scope now includes a request body size limit, enforced before the body is parsed, with its own status and code.
 
 ### 2026-11-11: Gemini usage live test, M14 Hashed API keys in Postgres
 

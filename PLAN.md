@@ -101,7 +101,7 @@ Worked in order. Status and evidence are in [PROGRESS.md](PROGRESS.md); this fil
 
 ### M16 Redis Lua token-bucket rate limiter
 
-- **Scope:** per-key token bucket as a Redis Lua script using Redis server time (D-002), checked after the key and before the cache (D-018).
+- **Scope:** per-key token bucket as a Redis Lua script using Redis server time (D-002), checked after the key and before the cache (D-018). Added by the owner (2026-11-11): a request body size limit (D-025's open item), enforced before the body is parsed, chunked bodies included, with its own status and error code.
 - **Proof:** a concurrency test against real Redis: fire N+50 requests with the clock frozen or the refill at zero, and exactly N pass; rejected requests get 429 with `Retry-After`.
 - **Dependencies allowed:** redis (asyncio client).
 - **Open issues to settle:** whether cache hits count against the limit (FLOW.md section 11); bucket size and refill configuration; behavior when Redis is down (fail open or closed).
