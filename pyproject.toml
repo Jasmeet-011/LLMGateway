@@ -4,9 +4,12 @@ version = "0.1.0"
 description = "FastAPI reliability and cost-control gateway in front of Claude and Gemini"
 requires-python = ">=3.12"
 dependencies = [
+    "alembic==1.20.0",
+    "asyncpg==0.32.0",
     "fastapi==0.143.1",
     "httpx==0.28.1",
     "pydantic==2.14.1",
+    "sqlalchemy[asyncio]==2.1.4",
     "starlette==1.8.0",
     "uvicorn==0.54.0",
 ]
@@ -44,6 +47,11 @@ python_version = "3.12"
 strict = true
 plugins = ["pydantic.mypy"]
 files = ["src", "tests"]
+
+# asyncpg ships no type information; keystore.py converts its values at the boundary (D-085).
+[[tool.mypy.overrides]]
+module = ["asyncpg", "asyncpg.*"]
+ignore_missing_imports = true
 
 [tool.pydantic-mypy]
 init_forbid_extra = true
