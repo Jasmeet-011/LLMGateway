@@ -10,12 +10,15 @@ name: llmgateway
 
 x-database-url: &database-url
   # A local development value, not a secret: Postgres's port is not published.
-  # Anything beyond a local run sets POSTGRES_PASSWORD.
+  # Anything beyond a local run sets POSTGRES_PASSWORD, which goes into this URL as
+  # written, so it must not contain characters a URL treats specially (@ / : % # ?).
   LLMGATEWAY_DATABASE_URL: postgresql://llmgateway:${POSTGRES_PASSWORD:-llmgateway-dev-only}@postgres:5432/llmgateway
 
 services:
   api:
     build: .
+    # One image for both services, built from this context (D-092).
+    image: llmgateway:local
     # The built-in mock-only config, with no provider keys (D-044).
     environment:
       <<: *database-url
@@ -28,6 +31,8 @@ services:
   # Runs the Alembic migrations once and exits; the api starts only if it succeeded.
   migrate:
     build: .
+    # One image for both services, built from this context (D-092).
+    image: llmgateway:local
     command: ["python", "-m", "llmgateway.keys", "migrate"]
     environment:
       <<: *database-url

@@ -76,12 +76,15 @@ def gateway(key: str | None = None) -> Iterator[httpx.Client]:
         yield client
 
 
-def compose(*args: str, timeout: float = DOCKER_TIMEOUT) -> "subprocess.CompletedProcess[str]":
+def compose(
+    *args: str, timeout: float = DOCKER_TIMEOUT, stdin: str | None = None
+) -> "subprocess.CompletedProcess[str]":
     """`docker compose -f <repo>/compose.yaml <args>`. The caller has passed `base_url()`."""
     # The command is `docker compose` on this repo's own file, with arguments written in
     # the tests (or hex ids and fixed SQL), not outside input.
     return subprocess.run(  # noqa: S603
         ["docker", "compose", "-f", str(COMPOSE_FILE), *args],  # noqa: S607
+        input=stdin,
         capture_output=True,
         text=True,
         check=False,
@@ -134,24 +137,32 @@ def sha256_hex(key: str) -> str:
     return hashlib.sha256(key.encode("ascii")).hexdigest()
 
 
-def row_sql(columns: str, key: str) -> str:
-    """`SELECT <columns>` for the row of `key`. The id is 16 hex characters, matched above."""
-    return f"SELECT {columns} FROM api_keys WHERE key_id = '{key_id_of(key)}'"  # noqa: S608
+# Values never go into SQL text (CLAUDE.md: parameterized SQL only). The statements below
+# name psql variables, `:'name'`, which psql quotes as literals; `psql(..., name=value)`
+# sets them. Column lists are fixed text written in the tests.
+ROW_BY_KEY_ID = "SELECT {columns} FROM api_keys WHERE key_id = :'key_id'"
+
+# A row with an all-zero hash, for tests that need a chosen creation time.
+INSERT_ROW = (
+    "INSERT INTO api_keys (key_id, tenant_id, key_hash, created_at) "
+    "VALUES (:'key_id', :'tenant', decode(repeat('00', 32), 'hex'), :'created_at')"
+)
+
+DELETE_TENANT = "DELETE FROM api_keys WHERE tenant_id = :'tenant'"
 
 
-def insert_sql(key_id: str, tenant: str, created_at: str) -> str:
-    """An INSERT of a row with an all-zero hash, for tests that need a chosen creation time.
+def row_sql(columns: str) -> str:
+    """`SELECT <columns>` for the row whose id is the `key_id` variable."""
+    return ROW_BY_KEY_ID.format(columns=columns)
 
-    The arguments are hex ids, a test-made tenant and a fixed timestamp, never outside input.
+
+def psql(sql: str, **variables: str) -> "subprocess.CompletedProcess[str]":
+    """One statement in the stack's Postgres: unaligned, tuples only (`-At`).
+
+    The statement goes in on standard input, because psql substitutes variables only in
+    what it reads, not in `-c`. `ON_ERROR_STOP` makes a failed statement a non-zero exit.
     """
-    zero_hash = "decode('" + "00" * 32 + "', 'hex')"
-    columns = "(key_id, tenant_id, key_hash, created_at)"
-    values = f"('{key_id}', '{tenant}', {zero_hash}, '{created_at}')"
-    return f"INSERT INTO api_keys {columns} VALUES {values}"  # noqa: S608
-
-
-def psql(sql: str) -> "subprocess.CompletedProcess[str]":
-    """One statement in the stack's Postgres: unaligned, tuples only (`-At`)."""
+    settings = [arg for name, value in variables.items() for arg in ("-v", f"{name}={value}")]
     return compose(
         "exec",
         "-T",
@@ -162,6 +173,8 @@ def psql(sql: str) -> "subprocess.CompletedProcess[str]":
         "-d",
         "llmgateway",
         "-At",
-        "-c",
-        sql,
+        "-v",
+        "ON_ERROR_STOP=1",
+        *settings,
+        stdin=sql + ";\n",
     )

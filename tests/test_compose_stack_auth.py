@@ -36,13 +36,14 @@ import httpx
 import pytest
 from compose_support import (
     BODY,
+    DELETE_TENANT,
+    INSERT_ROW,
     base_url,
     bearer,
     cli,
     compose,
     create_key,
     gateway,
-    insert_sql,
     key_id_of,
     psql,
     revoke_key,
@@ -208,7 +209,10 @@ def test_the_table_holds_only_the_hash_and_never_the_key_or_its_secret() -> None
     assert key_id in dump.stdout
     assert key not in dump.stdout
     assert secret not in dump.stdout
-    columns = psql(row_sql("key_id, tenant_id, encode(key_hash, 'hex'), revoked_at IS NULL", key))
+    columns = psql(
+        row_sql("key_id, tenant_id, encode(key_hash, 'hex'), revoked_at IS NULL"),
+        key_id=key_id,
+    )
     assert columns.returncode == 0, columns.stderr
     stored_id, tenant, stored_hash, never_revoked = columns.stdout.strip().split("|")
     assert stored_id == key_id
@@ -223,10 +227,11 @@ def test_the_table_holds_only_the_hash_and_never_the_key_or_its_secret() -> None
 def test_a_revocation_is_recorded_as_a_time_and_nothing_else_changes() -> None:
     base_url()
     key = create_key("integration-revoked-at")
-    before = psql(row_sql("tenant_id, encode(key_hash, 'hex'), created_at", key))
+    before = psql(row_sql("tenant_id, encode(key_hash, 'hex'), created_at"), key_id=key_id_of(key))
     revoke_key(key)
     after = psql(
-        row_sql("tenant_id, encode(key_hash, 'hex'), created_at, revoked_at IS NOT NULL", key)
+        row_sql("tenant_id, encode(key_hash, 'hex'), created_at, revoked_at IS NOT NULL"),
+        key_id=key_id_of(key),
     )
     assert after.stdout.strip() == before.stdout.strip() + "|t"
 
@@ -280,7 +285,9 @@ def test_list_breaks_a_creation_time_tie_by_key_id() -> None:
     try:
         # Rows with one creation time, inserted in the opposite order to the key ids.
         for key_id in reversed(ids):
-            inserted = psql(insert_sql(key_id, tenant, "2020-01-01 00:00:00+00"))
+            inserted = psql(
+                INSERT_ROW, key_id=key_id, tenant=tenant, created_at="2020-01-01 00:00:00+00"
+            )
             assert inserted.returncode == 0, inserted.stderr
         listed = cli("list", "--tenant", tenant)
         assert listed.returncode == 0, listed.stderr
@@ -289,7 +296,7 @@ def test_list_breaks_a_creation_time_tie_by_key_id() -> None:
             "created=2020-01-01T00:00:00+00:00" in line for line in listed.stdout.splitlines()
         )
     finally:
-        psql(f"DELETE FROM api_keys WHERE tenant_id = '{tenant}'")  # noqa: S608
+        psql(DELETE_TENANT, tenant=tenant)
 
 
 def test_zz_outage_a_valid_key_is_503_with_postgres_stopped_and_200_when_it_returns() -> None:
