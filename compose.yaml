@@ -1,17 +1,45 @@
 # The api, Postgres and Redis for local development and CI (D-078).
-# `docker compose up --build --wait` brings all three to healthy.
+# `docker compose up --build --wait` brings all three to healthy, after the one-shot
+# `migrate` service has created the schema (D-092, D-093).
 # Image pins are tag plus digest, under the age floor (D-079).
+#
+# Make a key: docker compose exec api python -m llmgateway.keys create --tenant demo
+# The key is printed once and stored only as a hash (D-086, D-087).
 
 name: llmgateway
+
+x-database-url: &database-url
+  # A local development value, not a secret: Postgres's port is not published.
+  # Anything beyond a local run sets POSTGRES_PASSWORD.
+  LLMGATEWAY_DATABASE_URL: postgresql://llmgateway:${POSTGRES_PASSWORD:-llmgateway-dev-only}@postgres:5432/llmgateway
 
 services:
   api:
     build: .
-    # No environment: the built-in mock-only config, with no keys (D-044).
+    # The built-in mock-only config, with no provider keys (D-044).
+    environment:
+      <<: *database-url
     ports:
       - "127.0.0.1:8000:8000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
 
-  # Nothing connects to Postgres or Redis yet. M14 and M16 add `depends_on` with
+  # Runs the Alembic migrations once and exits; the api starts only if it succeeded.
+  migrate:
+    build: .
+    command: ["python", "-m", "llmgateway.keys", "migrate"]
+    environment:
+      <<: *database-url
+    # The image's healthcheck is for the api's server, which this does not run.
+    healthcheck:
+      disable: true
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # Nothing connects to Redis yet. M16 adds `depends_on` with
   # `condition: service_healthy` when the api first does. No port is published.
   postgres:
     image: postgres:18.4-alpine3.24@sha256:9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15
@@ -24,7 +52,10 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U llmgateway -d llmgateway"]
+      # Over TCP, not the default Unix socket: during first-run initialization the
+      # image runs a temporary server on the socket only, which would pass a socket
+      # check before `migrate` can connect over the network.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U llmgateway -d llmgateway"]
       interval: 2s
       timeout: 3s
       retries: 30

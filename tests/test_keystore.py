@@ -24,6 +24,7 @@ from typing import Any
 
 import asyncpg
 import pytest
+
 from llmgateway.auth import Authenticator, AuthUnavailable, KeyStoreUnavailable
 from llmgateway.keystore import PostgresKeyStore
 

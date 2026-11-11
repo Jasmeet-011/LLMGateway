@@ -5,10 +5,14 @@ mapping into an HTTP API (D-022), and gives every request one gateway ID (D-020)
 
 Key design choices:
 
-- `create_app(router=None, id_factory=None)` (D-024): tests inject a router and
-  deterministic IDs; the default router is built from the built-in mock-only
-  config, so nothing calls a real provider unless configured to. The server's
-  router is built from its config in `main` (D-044).
+- `create_app(router=None, id_factory=None, *, authenticator)` (D-024): tests inject
+  a router and deterministic IDs; the default router is built from the built-in
+  mock-only config, so nothing calls a real provider unless configured to. The
+  server's router is built from its config in `main` (D-044). `authenticator` is
+  required, so no app can be built without auth (D-089).
+- `AuthMiddleware` (`auth.py`) runs just inside the request-ID middleware, before
+  FastAPI reads the body: every request but `/healthz` needs a valid key. The
+  request line names the verified key's tenant and key id, never the key (D-092).
 - `model` must be a configured alias (D-045): otherwise 400 `unknown_model`, with
   the value not echoed and no provider called, for a stream too. The response's
   `model` is the provider model that served, `provider` is that
@@ -23,20 +27,22 @@ Key design choices:
   the status the client got, so a stream that failed partway says 200; a bug during
   a stream adds its class name through `state`, and the rest is in the router's
   `stream_failed` line (D-069).
-- The app owns its router: on shutdown its lifespan calls `router.aclose()`,
-  which closes each adapter's HTTP client.
+- The app owns its router and authenticator: on shutdown its lifespan calls
+  `router.aclose()`, which closes each adapter's HTTP client, and then
+  `authenticator.aclose()`, which closes the key store's pool.
 - A small pure ASGI middleware, not `BaseHTTPMiddleware`, assigns the request ID,
   adds `x-request-id` to every response, writes one log line per request, and turns
   unexpected exceptions into the standard 500 body. It handles those itself
   because FastAPI runs `Exception` handlers outside user middleware, where the
   request ID header would not be added.
-- Log lines contain only the request ID, provider instance, model, status,
-  latency and provider model (D-026, D-045). The model is client text, so it is
-  logged with `repr`. Unexpected exceptions are logged by type name only, since
-  their messages can contain request or provider content.
+- Log lines contain only the request ID, tenant and key id of a verified key,
+  provider instance, model, status, latency and provider model (D-026, D-045,
+  D-092). The model is client text, so it is logged with `repr`. Unexpected
+  exceptions are logged by type name only, since their messages can contain
+  request or provider content.
 - FastAPI's built-in OpenTelemetry instrumentation is turned off (D-026).
-- Known gaps (D-025): no auth and no request body size limit, so run it on
-  127.0.0.1 only.
+- Known gap (D-025, D-089): no request body size limit, though only a key holder
+  can now send a body.
 """
 
 import logging
@@ -51,6 +57,7 @@ from starlette.datastructures import MutableHeaders
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from llmgateway.auth import Authenticator, AuthMiddleware, Principal
 from llmgateway.config import DEFAULT_CONFIG, parse_config
 from llmgateway.errors import (
     GatewayError,
@@ -116,9 +123,15 @@ class RequestContextMiddleware:
             latency_ms = (time.perf_counter() - started) * 1000
             model = state.get("model")
             provider_model = state.get("provider_model")
-            line = "request_id=%s provider=%s model=%s status=%d latency_ms=%.1f provider_model=%s"
+            principal = state.get("principal")
+            line = (
+                "request_id=%s tenant=%s key_id=%s provider=%s model=%s status=%d "
+                "latency_ms=%.1f provider_model=%s"
+            )
             args: list[object] = [
                 request_id,
+                principal.tenant_id if isinstance(principal, Principal) else "-",
+                principal.key_id if isinstance(principal, Principal) else "-",
                 state.get("provider", "-"),
                 repr(model) if model is not None else "-",
                 status,
@@ -134,13 +147,18 @@ class RequestContextMiddleware:
 def create_app(
     router: Router | None = None,
     id_factory: Callable[[], str] | None = None,
+    *,
+    authenticator: Authenticator,
 ) -> FastAPI:
     gateway = router if router is not None else build_router(parse_config(DEFAULT_CONFIG), {})
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         yield
-        await gateway.aclose()
+        try:
+            await gateway.aclose()
+        finally:
+            await authenticator.aclose()
 
     app = FastAPI(
         title="LLMGateway",
@@ -148,6 +166,8 @@ def create_app(
         telemetry={"tracing": False, "metrics": False, "logs": False},
         lifespan=lifespan,
     )
+    # The last added is the outermost: the request ID is set before auth runs (D-089).
+    app.add_middleware(AuthMiddleware, authenticator=authenticator)
     app.add_middleware(RequestContextMiddleware, id_factory=id_factory or new_request_id)
     app.add_exception_handler(RequestValidationError, validation_error_handler)
     app.add_exception_handler(StarletteHTTPException, http_error_handler)

@@ -11,7 +11,7 @@ client
   │  HTTPS, API key
   ▼
 FastAPI gateway
-  ├─ auth            hashed API keys in Postgres (SQLAlchemy + Alembic), constant-time compare
+  ├─ auth            SHA-256-hashed API keys in Postgres (asyncpg, Alembic), constant-time compare
   ├─ rate limiter    Redis token bucket, atomic Lua script using Redis server time
   ├─ cache           Redis; deterministic, non-streaming requests only; key includes tenant ID
   ├─ coalescing      identical in-flight requests share one upstream call (stretch)
@@ -29,7 +29,18 @@ Supporting pieces: Docker Compose (gateway, Postgres, Redis), pytest test suite,
 
 ## Run it
 
-PowerShell 7. The server has no auth yet (D-025), so bind it to `127.0.0.1` only. The gateway reads the process environment; it does not load `.env` files (see `.env.example` for the variables).
+PowerShell 7. The gateway reads the process environment; it does not load `.env` files (see `.env.example` for the variables). There is still no request body size limit (D-025), so keep it on `127.0.0.1`.
+
+**API keys (D-086 to D-092).** Every request except `GET /healthz` needs `Authorization: Bearer <key>`, checked before the body is read. A key looks like `lgw_<16 hex>_<64 hex>`; Postgres stores only its SHA-256, and the full key is printed once, when it is made. A missing, malformed, unknown, wrong or revoked key gets the same 401 `invalid_api_key`. If Postgres cannot be reached within 2 s, the request gets 503 `auth_unavailable` and is never served. Each worker caches a found key's row for 10 s (`LLMGATEWAY_KEY_CACHE_SECONDS`, 0 to 60), so a revoked key stops working within that time. The request log line names the key's tenant and key id, never the key. `LLMGATEWAY_DATABASE_URL` is required: without it, startup stops. Keys are managed with `python -m llmgateway.keys`:
+
+```powershell
+python -m llmgateway.keys migrate                  # create or update the schema
+python -m llmgateway.keys create --tenant demo     # prints the key once, on stdout
+python -m llmgateway.keys list                     # ids, tenants, times; never hashes
+python -m llmgateway.keys revoke <key id>
+```
+
+The simplest way to have Postgres is the Compose stack below. To run uvicorn on the host instead, point `LLMGATEWAY_DATABASE_URL` at a Postgres you run yourself, then `uv run python -m llmgateway.keys migrate` and `create`, and set `$key` to the printed key.
 
 Clients send a model alias in `model`, never a provider model. A TOML config file maps each alias to an ordered list of (provider instance, provider model) pairs (D-010, D-044). `LLMGATEWAY_CONFIG` names the file. When it is unset, a built-in default with the mock provider only is used. An alias that is not configured gets 400 `unknown_model`. The response's `model` is the provider model that answered, `provider` is its provider type (D-045), and `provider_instance` is the config instance that served (D-063). A bad config stops startup with one `llmgateway: configuration error: ...` line. `LLMGATEWAY_PROVIDER` is no longer read; if it is still set, startup stops.
 
@@ -37,6 +48,7 @@ Mock provider (the default, no key needed). Terminal 1:
 
 ```powershell
 uv sync
+$env:LLMGATEWAY_DATABASE_URL = Read-Host "Postgres URL" -MaskInput
 uv run uvicorn llmgateway.main:app --host 127.0.0.1 --port 8000
 ```
 
@@ -44,8 +56,9 @@ Terminal 2: alias `mock`, served by the mock as model `mock-1`:
 
 ```powershell
 Invoke-RestMethod http://127.0.0.1:8000/healthz
+$auth = @{ Authorization = "Bearer $key" }
 $body = @{ model = "mock"; max_tokens = 32; messages = @(@{ role = "user"; content = "hello there" }) } | ConvertTo-Json -Depth 5
-Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/v1/chat -ContentType "application/json" -Body $body
+Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/v1/chat -Headers $auth -ContentType "application/json" -Body $body
 ```
 
 The router retries retryable failures: up to 3 attempts per alias entry with jittered backoff, a `retry-after` of up to 5 s honored, 60 s per attempt and one 90 s deadline for the whole request (D-050, D-051, D-061). Real calls can therefore be made up to 3 times per entry, so 6 times for an alias with two entries, as in `config/providers.toml`, and each may cost money. Each failed attempt writes one `attempt_failed` log line with the provider status and a fixed reason code, such as `API_KEY_INVALID` or `billing`, so a bad key and a billing failure can be told apart; none of that reaches the client (D-054).
@@ -58,7 +71,7 @@ Set `stream` to true and the same endpoint answers with server-sent events: `del
 
 ```powershell
 $body = @{ model = "mock"; max_tokens = 32; stream = $true; messages = @(@{ role = "user"; content = "hello there" }) } | ConvertTo-Json -Depth 5
-$body | curl.exe -sN -X POST http://127.0.0.1:8000/v1/chat -H "content-type: application/json" --data-binary "@-"
+$body | curl.exe -sN -X POST http://127.0.0.1:8000/v1/chat -H "authorization: Bearer $key" -H "content-type: application/json" --data-binary "@-"
 ```
 
 A stream goes down its alias's list exactly as above until its first event, a delta with text or the end, so a failure before then retries or falls back, and if nothing serves, the client gets the usual JSON error, not a 200 (D-068). After the first event there is no retry and no fallback: a failure sends one `error` event with a fixed code and ends the body, with no `end` event, so a client can tell a partial answer from a whole one, and it writes a `stream_failed` line (D-069). The limit after the first event is 60 s between events, with no limit on the total (D-070). A stream counts as one breaker outcome, decided when it ends, so a provider that drops streams partway still trips the breaker (D-071). A client that disconnects, or stops reading for 60 s, closes the upstream connection at once (D-072). Whether closing it stops the provider's billing at that moment is not documented, so that part is unverified.
@@ -81,7 +94,7 @@ Terminal 2: alias `fast` (served by Gemini, `gemini-3.5-flash-lite`), then an al
 ```powershell
 foreach ($alias in "fast", "no-such-alias") {
   $body = @{ model = $alias; max_tokens = 256; messages = @(@{ role = "user"; content = "Say hello in five words." }) } | ConvertTo-Json -Depth 5
-  $r = Invoke-WebRequest -Method Post -Uri http://127.0.0.1:8000/v1/chat -ContentType "application/json" -Body $body -SkipHttpErrorCheck
+  $r = Invoke-WebRequest -Method Post -Uri http://127.0.0.1:8000/v1/chat -Headers @{ Authorization = "Bearer $key" } -ContentType "application/json" -Body $body -SkipHttpErrorCheck
   $j = $r.Content | ConvertFrom-Json
   "alias=$alias status=$($r.StatusCode) x-request-id=$($r.Headers['x-request-id']) provider=$($j.provider) model=$($j.model) error=$($j.error.code)"
 }
@@ -93,14 +106,17 @@ Every gateway log line starts with its time in UTC with an explicit offset, such
 
 ### With Docker Compose
 
-Docker with Compose v2. From a clean clone, this builds the gateway's image and starts it with Postgres and Redis, and returns once all three are healthy (D-078):
+Docker with Compose v2. From a clean clone, this builds the gateway's image, starts Postgres, runs the migrations once in a `migrate` container, then starts the gateway and Redis, and returns once they are healthy (D-078, D-092). Then it makes a key in the gateway's container and calls the gateway with it:
 
 ```powershell
 docker compose up --build --wait
 Invoke-RestMethod http://127.0.0.1:8000/healthz
+$key = docker compose exec -T api python -m llmgateway.keys create --tenant demo
+$body = @{ model = "mock"; max_tokens = 32; messages = @(@{ role = "user"; content = "hello there" }) } | ConvertTo-Json -Depth 5
+Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/v1/chat -Headers @{ Authorization = "Bearer $key" } -ContentType "application/json" -Body $body
 ```
 
-The gateway is on `127.0.0.1:8000` only, with the built-in mock-only config and no keys. Postgres and Redis are not used yet (M14, M16), and their ports are not published. Postgres's password is a local development default unless `POSTGRES_PASSWORD` is set. `docker compose down -v` stops everything and removes the database volume. Every image is pinned by tag and digest (D-079).
+The gateway is on `127.0.0.1:8000` only, with the built-in mock-only config and no provider keys. Redis is not used yet (M16). Neither Postgres's nor Redis's port is published. Postgres's password is a local development default unless `POSTGRES_PASSWORD` is set. `docker compose down -v` stops everything and removes the database volume. Every image is pinned by tag and digest (D-079).
 
 ## Tests and CI
 
@@ -111,6 +127,8 @@ docker compose up --build --wait
 $env:LLMGATEWAY_BASE_URL = "http://127.0.0.1:8000"
 uv run pytest -m integration
 ```
+
+The integration tests make, revoke and read keys through `docker compose exec`, so they need the `docker` CLI, and the last one stops and restarts Postgres to prove the 503 (D-094).
 
 GitHub Actions runs `check.ps1` on Linux, and builds and starts the Compose stack and runs the integration tests against it, on every push to `main` and every pull request (D-080, D-081). It uses no secrets, never runs the live tests, and every job has a 15-minute limit.
 

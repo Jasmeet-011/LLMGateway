@@ -40,10 +40,10 @@ from auth_support import (
     with_secret,
 )
 from fastapi import FastAPI, Request
-from llmgateway.auth import Principal
 from stream_support import FakeClock
 
 from llmgateway.app import create_app
+from llmgateway.auth import Principal
 from llmgateway.errors import ErrorBody
 from llmgateway.providers.mock import MockProvider
 from llmgateway.router import Route, Router

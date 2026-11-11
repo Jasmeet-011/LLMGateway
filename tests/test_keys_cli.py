@@ -26,10 +26,10 @@ from io import StringIO
 
 import pytest
 from auth_support import FakeAdminStore, RevokeResult, key_info
-from llmgateway.auth import KEY_PATTERN, KeyStoreUnavailable, hash_key, key_id_of
-from llmgateway.keys import main
 
+from llmgateway.auth import KEY_PATTERN, KeyStoreUnavailable, hash_key, key_id_of
 from llmgateway.config import ConfigError, database_url
+from llmgateway.keys import main
 
 DSN_MARKER = "planted-cli-password-marker"
 DSN = f"postgresql://cli-user:{DSN_MARKER}@127.0.0.1:5432/cli-db"

@@ -25,7 +25,6 @@ import secrets
 from collections.abc import Sequence
 from typing import Any
 
-import llmgateway.auth as auth
 import pytest
 from auth_support import (
     TEST_KEY,
@@ -38,6 +37,9 @@ from auth_support import (
     make_key,
     with_secret,
 )
+from stream_support import FakeClock, at_about, pass_time, until
+
+import llmgateway.auth as auth
 from llmgateway.auth import (
     AuthUnavailable,
     KeyRecord,
@@ -49,7 +51,6 @@ from llmgateway.auth import (
     hash_key,
     key_id_of,
 )
-from stream_support import FakeClock, at_about, pass_time, until
 
 Headers = Sequence[tuple[bytes, bytes]]
 

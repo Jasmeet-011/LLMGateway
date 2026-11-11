@@ -26,13 +26,18 @@ Key design choices:
   config must serve a baseline run and a failure run. It can only name mock
   instances, which is what keeps it out of production: a config with no mock
   cannot start with it set, so it can never fail a real provider's traffic.
+- `database_url` and `key_cache_seconds` read the auth settings from the
+  environment (D-090, D-091). The URL holds a password, so it is checked for
+  shape only (a postgres scheme and a host) and never appears in a message.
 """
 
+import math
 import re
 import tomllib
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Annotated, Any, Final, Literal
+from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
@@ -276,3 +281,43 @@ def load_config(environ: Mapping[str, str]) -> GatewayConfig:
     except UnicodeDecodeError:
         raise ConfigError(f"{CONFIG_ENV}: the file is not valid UTF-8") from None
     return parse_config(text)
+
+
+# Auth settings (D-090, D-091). Read from the environment only: the URL holds a
+# password, so no message here ever contains a value.
+DATABASE_URL_ENV: Final = "LLMGATEWAY_DATABASE_URL"
+KEY_CACHE_ENV: Final = "LLMGATEWAY_KEY_CACHE_SECONDS"
+DEFAULT_KEY_CACHE_SECONDS: Final = 10.0
+MAX_KEY_CACHE_SECONDS: Final = 60.0
+_DATABASE_SCHEMES: Final = ("postgresql", "postgres")
+
+
+def database_url(environ: Mapping[str, str]) -> str:
+    value = environ.get(DATABASE_URL_ENV, "")
+    if not value.strip():
+        raise ConfigError(f"{DATABASE_URL_ENV} is not set")
+    try:
+        parts = urlsplit(value)
+        host = parts.hostname
+        # Raises for a port that is not a number in range.
+        parts.port  # noqa: B018
+    except ValueError:
+        raise ConfigError(f"{DATABASE_URL_ENV} is not a valid URL") from None
+    if parts.scheme not in _DATABASE_SCHEMES:
+        raise ConfigError(f"{DATABASE_URL_ENV} must be a postgresql:// or postgres:// URL")
+    if not host:
+        raise ConfigError(f"{DATABASE_URL_ENV} must name a host")
+    return value
+
+
+def key_cache_seconds(environ: Mapping[str, str]) -> float:
+    value = environ.get(KEY_CACHE_ENV)
+    if value is None:
+        return DEFAULT_KEY_CACHE_SECONDS
+    try:
+        seconds = float(value)
+    except ValueError:
+        seconds = math.nan
+    if not 0 <= seconds <= MAX_KEY_CACHE_SECONDS:
+        raise ConfigError(f"{KEY_CACHE_ENV} must be a number of seconds from 0 to 60")
+    return seconds
