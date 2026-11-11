@@ -138,7 +138,7 @@ flowchart TD
     S --> N{Next event}
     N -->|delta| D[Send it]
     D --> N
-    N -->|end| F[Record success, send end, close upstream]
+    N -->|end| F[Record success, close upstream, send end]
     N -->|provider failed, or 60 s of silence| X[Record the outcome, log stream_failed, close upstream, send error]
     N -->|client left or stalled| Y[Log stream_abandoned, neutral, close upstream]
 ```
@@ -149,7 +149,7 @@ flowchart TD
 - **After the first event** there is no retry, no fallback and no other entry. A later failure ends the stream (D-069): one `error` event with the fixed code and message from section 13's mapping and the gateway `request_id`, then the body ends normally, with no `end` event. The outcome reaches the breaker first, so any `breaker_state_change` line comes before `stream_failed request_id=%s alias=%r provider=%s model=%r status=%s reason=%s error=%s`, which goes to `llmgateway.router` at WARNING; then the upstream is closed and the `error` event is sent; and the request line stays at INFO with `status=200` and no `error=` field. A bug gets `internal_error` the same way, no `stream_failed` line, and a request line at ERROR with `status=200` and `error=<class>`.
 - **Time** (D-070): after the first event the attempt limit and the deadline stop applying. `stream_idle_timeout`, 60 s, limits each wait for the next event, and if it fires the failure is `ProviderTimeout`, reason `stream_idle`. The wait counts only time spent on the adapter, and an empty delta does not reset it. A stream has no total limit.
 - **The breaker** (D-071) gates opening only, and a running stream is never cut when it opens. A stream is one outcome, decided when it ends: section 6.
-- **A client that leaves** (D-072) is noticed at once by a watcher task on `receive`. While opening, the attempt in flight is cancelled, the upstream is closed, and the request line says `status=499`; only a disconnect the watcher saw counts, so an adapter's own cancellation is not a 499. A cancel from outside while opening closes whatever opened, even a stream that finished opening in the same turn. After the first event, the send is cancelled, the upstream is closed, and `stream_abandoned request_id=%s alias=%r provider=%s model=%r reason=client_gone` goes to `llmgateway.router` at INFO. A client that stays connected but does not read for `stream_idle_timeout` is dropped the same way, with `reason=client_stalled`. An `OSError` from `send` counts as the client leaving. A stream cancelled from outside, such as at shutdown, closes as `client_gone`.
+- **A client that leaves** (D-072) is noticed at once by a watcher task on `receive`. While opening, the attempt in flight is cancelled, the upstream is closed, and the request line says `status=499`; only a disconnect the watcher saw counts, so an adapter's own cancellation is not a 499. A cancel from outside while opening closes whatever opened, even a stream that finished opening in the same turn. After the first event, the send is cancelled, the upstream is closed, and `stream_abandoned request_id=%s alias=%r provider=%s model=%r reason=client_gone` goes to `llmgateway.router` at INFO. A client that stays connected but does not read for `stream_idle_timeout` is dropped the same way, with `reason=client_stalled`. An `OSError` from `send` counts as the client leaving; any other exception from `send` is a bug, which closes the stream the same way with `reason=send_failed` and propagates. A stream cancelled from outside, such as at shutdown, closes as `client_gone`.
 
 On the wire (D-073), each event is `event: <type>\ndata: <json>\n\n`, and a stream is zero or more `delta`s and then exactly one `end` or one `error`:
 
@@ -249,7 +249,7 @@ src/llmgateway/
 ├── schema.py            ChatRequest, ChatResponse, Usage, stream event models
 ├── providers/
 │   ├── __init__.py      package docstring only
-│   ├── base.py          ProviderResult, ProviderAdapter, ProviderError classes
+│   ├── base.py          ProviderResult, ProviderStreamEnd, ProviderAdapter, ProviderError classes
 │   ├── mock.py          MockProvider
 │   ├── claude.py        ClaudeAdapter, Messages API over httpx
 │   ├── gemini.py        GeminiAdapter, generateContent over httpx
@@ -259,7 +259,7 @@ src/llmgateway/
 ├── errors.py            error body, status mapping, exception handlers
 ├── config.py            TOML config: provider instances and aliases, validated at startup
 ├── breaker.py           CircuitBreaker, BreakerPolicy: one per config instance
-├── router.py            alias selection, timeouts, retries, breaker checks and fallback
+├── router.py            alias selection, timeouts, retries, breaker checks and fallback; open_stream, ServedStream
 ├── main.py              module-level app for uvicorn, config from the environment
 ├── auth                 API key hashing and lookup
 ├── ratelimit            Redis Lua token bucket
