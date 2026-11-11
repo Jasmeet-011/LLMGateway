@@ -98,6 +98,29 @@ Newest sessions go here. When this file passes 50 KB, move the session log and t
 
 **D-066 on Linux.** In the pinned Python image, a throwaway hanging test under `-o timeout=3` failed alone and the next test passed: `1 failed, 1 passed in 3.04s`. Recorded in D-066.
 
+**Tests, Mode 1** (4d0c61b). The tester wrote `tests/test_logtime.py` (33 tests, D-082, including two children under `TZ=XXX-05:30`), `tests/test_compose_stack.py` (4 integration tests, D-081) and `tests/test_integration_guard.py` (9 default-run tests that run the integration file in a child pytest with no URL, an empty one, five non-loopback hosts and two loopback controls, and assert every test fails, none skips, and no connection is attempted). It moved the `Z` expectations to `+00:00`: 22 lines in `tests/test_breaker.py`, 2 in `tests/test_fallback.py`, same strictness. It moved `tests/test_retries.py` onto fake time (D-084): nine `GUARD_SECONDS` sites, plus a tenth, `test_an_attempt_that_answers_in_time_is_not_timed_out`, which slept 5 ms of real time under a real 1 s limit. The builder kept the tenth, because D-084 says no real-time limit stays in the file. 179 passed before and after. **Red run, checked by the builder from `--junitxml`, `git diff -- src/` empty:** 126 failed, 3714 passed, 11 deselected. By file: `test_logtime` 33 failed; `test_breaker` 91 failed, 292 passed; `test_fallback` 2 failed, 444 passed; `test_integration_guard` 9 passed (the guard is test code); `test_retries` 179 passed. The 4 integration tests passed against the stack built from the code before any `src/` change, which they should, since they test the api's behavior and not log times.
+
+**Build** (35e1ee5). `logtime.py`, the breaker and `main.py` on it; `Dockerfile`, `.dockerignore`, `compose.yaml`, `.github/workflows/ci.yml`; README. `.\scripts\check.ps1` PASS: 3840 passed, 11 deselected in 60.35 s; 61 files formatted; mypy clean on 50 source files. The suite went from 45 s to 60 s, mostly from `tests/test_integration_guard.py`'s nine child pytest runs (about 14 s, the tester's measure). The container's lines now start `2026-11-11T14:04:31.203+00:00 INFO llmgateway.request ...`; before, `2026-11-11 13:51:27,050`.
+
+**`docker compose up` from a clean clone** (Lesson 13). A fresh `git clone`, checked out at 35e1ee5: `docker compose build --no-cache --pull`, then `docker compose up --wait`: all three healthy; `uv run pytest -m integration`: 4 passed; `docker compose down -v`. The image is 204 MB, runs Python 3.12.15 as uid 10001.
+
+**Mutation checks, Mode 2.** 60 mutants, run one at a time, each reverted with `git checkout`, and `git diff -- src/` empty after each and at the end: 54 caught at first, 3 caught after a new test, 3 equivalent, 0 uncaught, 0 hung. Results, harness and logs: the tester's scratch folder `m13-mutants/results.jsonl` (not in the repo).
+
+| Group | Mutants | Caught at first | After a new test | Equivalent | Uncaught | Hung |
+| --- | --- | --- | --- | --- | --- | --- |
+| D-082: `logtime.py`, `main.py`, breaker and router wall clock (L, M, B) | 35 | 33 | 0 | 2 | 0 | 0 |
+| D-081: the URL guard in `tests/test_compose_stack.py` (G) | 13 | 9 | 3 | 1 | 0 | 0 |
+| D-084: the attempt timeout in `router.py`, both paths (T) | 12 | 12 | 0 | 0 | 0 | 0 |
+
+- **Local time on a UTC host.** L01 (`fromtimestamp` without UTC) and L02 (`time.localtime`) failed 123 tests on this Eastern host. Rerun with the pytest process under `TZ=UTC0`, as a CI runner is, exactly the two `TZ=XXX-05:30` child tests failed. So B075's blind spot from M10 is closed.
+- **main.py's handler** (M01 to M06: plain `logging.Formatter`, swapped or missing fields) is caught only by the two child tests, as D-065 says it must be.
+- **Survivors, fixed by new tests in `tests/test_integration_guard.py`:** G04c (`endswith` on the host), G04e (`netloc.split(":")[0]`, which would accept `http://localhost:80@evil-host`) and G05 (no scheme check). The scheme rule was not in D-081's text; the builder added it to D-081.
+- **Equivalent:** L06b (`int` for `floor`, differs only for negative seconds), L07d (whole seconds from `int(seconds)`: no counterexample in about 900,000 floats near whole seconds; empirical, not proven), G02a (an empty URL still fails, at the host check, naming the variable).
+- **The streaming attempt timeout** (T01b to T06b) is not exercised by `tests/test_retries.py`, which tests `complete()` only; all six are caught by the stream test files.
+- The tester's first G02b was a bad mutant (an `and`/`or` slip left the check in place); it rewrote it, and the corrected form is caught.
+
+After Mode 2, `.\scripts\check.ps1` PASS: 3850 passed, 11 deselected in 123.07 s. That run is twice the 60 s of an hour earlier with only ten more child runs added. Measured, not explained: `tests/test_integration_guard.py` alone took 39.26 s (19 child pytest runs); `tests/test_faults.py` alone took 14.82 s, as at session start, but its startup tests took 4 to 5 s each inside the full run; `import llmgateway.main` took 820 to 922 ms; TIME_WAIT stood at 1,866 of 16,384 ephemeral ports. Docker Desktop was running for this run and not for the 45 s baseline.
+
 ## Agent Mistakes Log
 
 Older rows are in [docs/archive/2026-11-sessions.md](docs/archive/2026-11-sessions.md) and [docs/archive/2026-11-m12-sessions.md](docs/archive/2026-11-m12-sessions.md).

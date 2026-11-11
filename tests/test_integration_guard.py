@@ -192,3 +192,55 @@ def test_integration_tests_do_attempt_a_connection_to_a_local_host(
     run = _run_integration_file(tmp_path, base_url)
     _assert_every_test_failed(run)
     assert len(run.attempts) >= len(run.cases), run.output
+
+
+@pytest.mark.parametrize(
+    "base_url",
+    [
+        "http://notlocalhost:8000",
+        "http://xlocalhost:8000",
+        "http://1.127.0.0.1:8000",
+        "http://localhost.:8000",
+        "http://[::1]:8000",
+        "http://localhost:80@gateway.invalid:8000",
+        "http://127.0.0.1:80@gateway.invalid:8000",
+    ],
+    ids=[
+        "suffix_localhost",
+        "prefix_letter_localhost",
+        "suffix_loopback",
+        "trailing_dot",
+        "ipv6",
+        "userinfo_with_port_like_local",
+        "userinfo_with_port_like_loopback",
+    ],
+)
+def test_integration_tests_fail_before_any_request_for_a_host_that_only_ends_like_a_local_one(
+    tmp_path: Path, base_url: str
+) -> None:
+    # D-081: the host must be 127.0.0.1 or localhost. A host that merely ends with one of
+    # them, or is another loopback form, is not either, and must not get a lookup.
+    run = _run_integration_file(tmp_path, base_url)
+    _assert_every_test_failed(run)
+    for case in run.cases:
+        assert VARIABLE in case.text, (case.name, case.text)
+    assert run.attempts == []
+
+
+@pytest.mark.parametrize(
+    "base_url",
+    ["ftp://127.0.0.1:21", "ws://localhost:8000", "file://localhost/tmp"],
+    ids=["ftp", "ws", "file"],
+)
+def test_integration_tests_fail_with_the_guard_message_for_a_scheme_that_is_not_http(
+    tmp_path: Path, base_url: str
+) -> None:
+    # The host is local, so only the scheme is wrong. Every test fails before any request
+    # and the failure is the guard's, naming the variable, not an httpx error from later.
+    # D-081 names the host and the failure; the scheme and the message are the guard's own.
+    run = _run_integration_file(tmp_path, base_url)
+    _assert_every_test_failed(run)
+    for case in run.cases:
+        assert VARIABLE in case.text, (case.name, case.text)
+        assert "UnsupportedProtocol" not in case.text, (case.name, case.text)
+    assert run.attempts == []
