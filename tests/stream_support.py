@@ -28,9 +28,18 @@ import asyncio
 import importlib
 import json
 import logging
-from collections.abc import AsyncIterator, Awaitable, Callable, MutableMapping, Sequence
-from contextlib import asynccontextmanager
+import sys
+from collections.abc import (
+    AsyncIterator,
+    Awaitable,
+    Callable,
+    Iterator,
+    MutableMapping,
+    Sequence,
+)
+from contextlib import asynccontextmanager, contextmanager
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -1062,3 +1071,35 @@ def assert_not_chained(error: BaseException) -> None:
     # The httpx error's request carries the key header (D-032).
     assert error.__cause__ is None
     assert error.__context__ is None
+
+
+# Generators left suspended
+
+
+@contextmanager
+def gateway_generators() -> Iterator[list[Any]]:
+    """Every async generator the gateway's own modules start inside the block.
+
+    Read through Python's asyncgen hooks, chained to the event loop's. A generator left
+    suspended is closed only when it is collected (D-067's risk), so a test can ask that
+    none is: `suspended(started) == []`. Added by M12's mutation checks.
+    """
+    created: list[Any] = []
+    firstiter, finalizer = sys.get_asyncgen_hooks()
+
+    def track(generator: Any) -> None:
+        if "llmgateway" in Path(generator.ag_code.co_filename).parts[-3:-1]:
+            created.append(generator)
+        if firstiter is not None:
+            firstiter(generator)
+
+    sys.set_asyncgen_hooks(firstiter=track, finalizer=finalizer)
+    try:
+        yield created
+    finally:
+        sys.set_asyncgen_hooks(firstiter=firstiter, finalizer=finalizer)
+
+
+def suspended(generators: Sequence[Any]) -> list[str]:
+    """The names of the generators that are neither finished nor closed."""
+    return [g.ag_code.co_qualname for g in generators if g.ag_frame is not None]

@@ -32,6 +32,7 @@ from stream_support import (
     Upstream,
     assert_not_chained,
     body_response,
+    gateway_generators,
     gemini_answer,
     gemini_chunk,
     gemini_frame,
@@ -39,6 +40,7 @@ from stream_support import (
     gemini_thought,
     is_end,
     sse_response,
+    suspended,
     until,
 )
 
@@ -1240,3 +1242,56 @@ async def test_delta_text_never_reaches_the_exception() -> None:
     error = await _failure(gemini_text(RESPONSE_MARKER))
     assert RESPONSE_MARKER not in str(error)
     assert RESPONSE_MARKER not in repr(error)
+
+
+# Added by M12's mutation checks
+
+
+@pytest.mark.asyncio
+async def test_an_error_that_is_not_an_object_is_ignored() -> None:
+    # D-075: "an `error` that is not an object is ignored".
+    chunk = {"error": "x", **gemini_chunk({"text": "Hi"}, finish="STOP", usage=GEMINI_USAGE)}
+    events, error, _ = await _stream(gemini_frame(chunk))
+    assert error is None
+    assert _deltas(events) == ["Hi"]
+
+
+@pytest.mark.asyncio
+async def test_a_block_reason_wins_over_an_error_in_the_same_chunk() -> None:
+    # D-075: "A block reason is checked first".
+    error = await _failure(
+        gemini_frame({"promptFeedback": {"blockReason": "SAFETY"}, "error": {"code": 500}})
+    )
+    _assert_row(error, ProviderBadRequest, False, 200, "prompt_blocked")
+
+
+@pytest.mark.asyncio
+async def test_a_later_chunk_without_a_finish_reason_keeps_the_earlier_one() -> None:
+    # finishReason "when present, is kept" (D-075); a usage-only chunk after it has none.
+    end = await _end(
+        gemini_text("Hi", finish="STOP"),
+        gemini_frame(gemini_chunk({"text": ""}, usage=GEMINI_USAGE)),
+    )
+    assert end.finish_reason == "stop"
+
+
+@pytest.mark.asyncio
+async def test_a_malformed_chunk_failure_has_nothing_chained() -> None:
+    # As for Claude: the ValueError behind it quotes the chunk, which is provider text.
+    error = await _failure(b"data: {not json\r\n\r\n")
+    _assert_malformed(error)
+    assert_not_chained(error)
+
+
+@pytest.mark.asyncio
+async def test_closing_partway_leaves_no_generator_of_the_adapter_suspended() -> None:
+    upstream = Upstream(lambda _: sse_response(*gemini_answer("one", "two")))
+    async with _gemini(upstream) as adapter:
+        with gateway_generators() as started:
+            stream: Any = adapter.stream(_request())
+            first = await stream.__anext__()
+            assert isinstance(first, StreamDelta)
+            await stream.aclose()
+    assert len(started) >= 3
+    assert suspended(started) == []
+    assert upstream.open_bodies == 0

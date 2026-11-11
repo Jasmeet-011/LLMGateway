@@ -40,8 +40,10 @@ from stream_support import (
     claude_message_delta,
     claude_start,
     claude_text,
+    gateway_generators,
     is_end,
     sse_response,
+    suspended,
     until,
 )
 
@@ -1120,3 +1122,71 @@ async def test_delta_text_never_reaches_the_exception() -> None:
     error = await _failure(claude_start(), claude_text(RESPONSE_MARKER))
     assert RESPONSE_MARKER not in str(error)
     assert RESPONSE_MARKER not in repr(error)
+
+
+# Added by M12's mutation checks
+
+
+@pytest.mark.asyncio
+async def test_an_empty_message_id_is_malformed_before_any_text() -> None:
+    # message_start's ID must be a non-empty string (D-074), checked when it arrives, so
+    # a bad start fails before the line and can still fall back.
+    events, error, _ = await _stream(
+        claude_start(message_id=""),
+        claude_block_start(),
+        claude_text("Hi"),
+        claude_message_delta(),
+        CLAUDE_STOP,
+    )
+    assert _deltas(events) == []
+    assert error is not None
+    _assert_row(error, ProviderUnavailable, True, 200, "malformed_body")
+
+
+@pytest.mark.asyncio
+async def test_message_stop_with_no_message_id_is_malformed() -> None:
+    # Counts and a stop reason can all come from message_delta; the ID cannot (D-074).
+    error = await _failure(
+        claude_block_start(),
+        claude_text("Hi"),
+        claude_message_delta(usage={"input_tokens": 3, "output_tokens": 4}),
+        CLAUDE_STOP,
+    )
+    _assert_row(error, ProviderUnavailable, True, 200, "malformed_body")
+
+
+@pytest.mark.asyncio
+async def test_a_later_smaller_output_count_replaces_the_earlier_one() -> None:
+    # "A later value replaces an earlier one" (D-074): replaced, not the larger kept.
+    end = await _end(
+        claude_start(output_tokens=10),
+        claude_block_start(),
+        claude_text("Hi"),
+        claude_message_delta(usage={"output_tokens": 3}),
+        CLAUDE_STOP,
+    )
+    assert end.usage.output_tokens == 3
+
+
+@pytest.mark.asyncio
+async def test_a_malformed_frame_failure_has_nothing_chained() -> None:
+    # The ValueError behind it is pydantic's, and its text quotes the frame, which is
+    # provider text, so it must not ride along as __context__.
+    error = await _failure(claude_start(), _frame_of_json('{"type": "message_delta", "x": ['))
+    _assert_row(error, ProviderUnavailable, True, 200, "malformed_body")
+    assert_not_chained(error)
+
+
+@pytest.mark.asyncio
+async def test_closing_partway_leaves_no_generator_of_the_adapter_suspended() -> None:
+    # D-067: closing the stream closes everything under it, not only the connection.
+    upstream = Upstream(lambda _: sse_response(*claude_answer("one", "two")))
+    async with _claude(upstream) as adapter:
+        with gateway_generators() as started:
+            stream: Any = adapter.stream(_request())
+            first = await stream.__anext__()
+            assert isinstance(first, StreamDelta)
+            await stream.aclose()
+    assert len(started) >= 3
+    assert suspended(started) == []
+    assert upstream.open_bodies == 0

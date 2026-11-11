@@ -440,3 +440,95 @@ async def test_a_gemini_body_with_crlf_frames_decodes_by_frame() -> None:
         (None, '{"a":1}'),
         (None, '{"b":2}'),
     ]
+
+
+# Added by M12's mutation checks: WHATWG rules D-076 adopts that no test above pinned
+
+
+@pytest.mark.asyncio
+async def test_a_line_feed_after_a_chunk_ending_cr_is_dropped_only_once() -> None:
+    # "\r" then "\n" is one line end. The "\n" in the third chunk is a line of its own:
+    # the blank line that dispatches.
+    assert await _decode(b"data: x\r", b"\n", b"\n") == [(None, "x")]
+
+
+@pytest.mark.asyncio
+async def test_a_cr_inside_a_chunk_does_not_swallow_the_next_chunks_line_feed() -> None:
+    assert await _decode(b"data: a\rdata: b", b"\n\n") == [(None, "a\nb")]
+
+
+@pytest.mark.asyncio
+async def test_a_lone_empty_data_line_dispatches_an_empty_event() -> None:
+    # D-076: a blank line dispatches if a data line was seen, "even an empty one".
+    assert await _decode(b"data:\n\n") == [(None, "")]
+    assert await _decode(b"data: \n\n") == [(None, "")]
+
+
+@pytest.mark.asyncio
+async def test_a_data_line_with_no_colon_is_a_data_field_with_an_empty_value() -> None:
+    # WHATWG: a line with no colon is a field named by the whole line, with value "".
+    assert await _decode(b"data\n\n") == [(None, "")]
+    assert await _decode(b"data: a\ndata\n\n") == [(None, "a\n")]
+
+
+@pytest.mark.asyncio
+async def test_an_empty_event_field_means_no_event_name() -> None:
+    # WHATWG: an empty event type is the default type, which `SseEvent` says as None.
+    assert await _decode(b"event:\ndata: x\n\n") == [(None, "x")]
+    assert await _decode(b"event\ndata: x\n\n") == [(None, "x")]
+
+
+class _Source:
+    """A body that is not a generator, so only `aclose` closes it; counts the calls."""
+
+    def __init__(self, *chunks: bytes) -> None:
+        self.chunks = list(chunks)
+        self.closed = 0
+
+    def __aiter__(self) -> "_Source":
+        return self
+
+    async def __anext__(self) -> bytes:
+        if not self.chunks:
+            raise StopAsyncIteration
+        return self.chunks.pop(0)
+
+    async def aclose(self) -> None:
+        self.closed += 1
+
+
+class _PlainSource:
+    """An AsyncIterable with no `aclose` at all, which D-076's signature allows."""
+
+    def __init__(self, *chunks: bytes) -> None:
+        self.chunks = chunks
+
+    async def _pieces(self) -> AsyncIterator[bytes]:
+        for chunk in self.chunks:
+            yield chunk
+
+    def __aiter__(self) -> AsyncIterator[bytes]:
+        return self._pieces()
+
+
+@pytest.mark.asyncio
+async def test_closing_the_decoder_early_closes_its_source() -> None:
+    source = _Source(b"data: one\n\n", b"data: two\n\n")
+    frames: Any = _module().iter_sse(source)
+    first = await frames.__anext__()
+    assert first.data == "one"
+    await frames.aclose()
+    assert source.closed == 1
+
+
+@pytest.mark.asyncio
+async def test_a_line_that_is_not_utf8_closes_the_source_as_it_raises() -> None:
+    source = _Source(b"data: \xff\n\n", b"data: two\n\n")
+    with pytest.raises(ValueError):
+        await _events(source)
+    assert source.closed == 1
+
+
+@pytest.mark.asyncio
+async def test_a_source_without_aclose_is_read_to_the_end() -> None:
+    assert await _events(_PlainSource(b"data: one\n", b"\n")) == [(None, "one")]
