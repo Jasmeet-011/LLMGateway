@@ -81,7 +81,7 @@ Worked in order. Status and evidence are in [PROGRESS.md](PROGRESS.md); this fil
 - **Scope:** Docker Compose with the api, Postgres and Redis. GitHub Actions CI running the five checks plus integration tests against service containers. The per-test limit ends a hung test (D-066), and the job keeps its own time limit as the outer guard. Replace `GUARD_SECONDS` in `tests/test_retries.py` with an injected clock. Make every log `ts` UTC with an explicit offset, tested with an injected clock.
 - **Proof:** `docker compose up` works from a clean clone; a green CI run.
 - **Dependencies allowed:** none.
-- **Open issues to settle:** image versions and how they are pinned; how CI pins third-party actions; how integration tests are marked and selected; how CI runs `uv sync --locked` under the age floor (D-029).
+- **Open issues to settle:** on Windows each asyncio loop's self-pipe is a loopback TCP socketpair, and one full `uv run pytest` leaves about 2,600 sockets in TIME_WAIT, so about six concurrent runs within 120 s exhaust the ephemeral ports (measured in M12 Mode 2); a Windows CI job must not run the suite in parallel, or the cause must be handled. Image versions and how they are pinned; how CI pins third-party actions; how integration tests are marked and selected; how CI runs `uv sync --locked` under the age floor (D-029).
 
 ### M14 Hashed API keys in Postgres
 
