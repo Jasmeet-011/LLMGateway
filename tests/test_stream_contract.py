@@ -14,6 +14,7 @@ No test here waits on real time or calls a network.
 """
 
 import asyncio
+import logging
 from collections.abc import MutableMapping, Sequence
 from typing import Any
 
@@ -56,6 +57,7 @@ from stream_support import (
     until,
 )
 
+from llmgateway.breaker import BreakerPolicy
 from llmgateway.errors import ErrorBody
 from llmgateway.providers.base import ProviderError, ProviderTimeout, ProviderUnavailable
 from llmgateway.providers.claude import ClaudeAdapter
@@ -425,10 +427,13 @@ async def test_a_cancel_from_outside_while_opening_closes_the_attempt_and_the_wa
 @pytest.mark.asyncio
 async def test_the_watcher_ends_when_an_adapter_raises_cancelled_error_while_opening() -> None:
     # The watcher runs "until the response ends" (D-072), however the opening ended.
+    # Waits for the task to end, not for it to return: D-072 (8a1d275) has this
+    # cancellation propagate, so the task ends cancelled.
     gateway = Gateway(ScriptedStream([Fail(asyncio.CancelledError())]))
     wire = Wire(stream_body())
     async with wire.running(gateway.app()):
-        await wire.finished()
+        assert wire.task is not None
+        await until(wire.task.done, "the app to stop")
     assert wire.receives_waiting == 0
 
 
@@ -549,3 +554,163 @@ async def test_a_client_gone_from_a_real_claude_stream_puts_the_key_in_no_record
     written = all_logs.text + "".join(str(vars(record)) for record in all_logs.records)
     assert ANTHROPIC_KEY not in written
     assert upstream.open_bodies == 0
+
+
+# Settled by 8a1d275 after M12's mutation checks (D-069, D-072)
+
+
+@pytest.mark.asyncio
+async def test_a_cancel_from_outside_just_after_opening_finished_closes_what_opened(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # D-072: a cancel from outside "at any moment while opening, closes whatever opened,
+    # including a stream whose opening finished in the same turn". The stream here is the
+    # half-open probe, so a stream left open would also hold the probe slot for good.
+    hold = Hold()
+    adapter = ScriptedStream([hold, Text("one"), Hold(), Done()])
+    gateway = Gateway(adapter, idle=NEVER)
+    gateway.half_open()
+    # After the setup, so only this request's outcomes are counted.
+    outcomes = Outcomes(monkeypatch)
+    wire = Wire(stream_body())
+    opened = gateway.router.open_stream
+
+    async def open_then_cancel(*args: Any, **kwargs: Any) -> Any:
+        served = await opened(*args, **kwargs)
+        # Scheduled inside the opening's last step, so it runs before that task's own
+        # completion callbacks: the cancel lands after opening finished and before
+        # anything waiting on it has woken.
+        assert wire.task is not None
+        asyncio.get_running_loop().call_soon(wire.task.cancel)
+        return served
+
+    monkeypatch.setattr(gateway.router, "open_stream", open_then_cancel)
+    async with wire.running(gateway.app()):
+        await wire.wait_for(hold.reached.is_set, "the attempt to be in flight")
+        hold.release.set()
+        assert wire.task is not None
+        await until(wire.task.done, "the app to stop")
+    assert adapter.open_generators == 0
+    assert outcomes.of(gateway.breaker()) == ["neutral"]
+    assert gateway.breaker().acquire() is not None
+
+
+@pytest.mark.asyncio
+async def test_an_adapters_own_cancelled_error_while_opening_is_not_a_client_disconnect(
+    monkeypatch: pytest.MonkeyPatch, all_logs: pytest.LogCaptureFixture
+) -> None:
+    # D-072: "only a disconnect the watcher saw is a 499". The client never left, so
+    # nothing may say it did: no 499, no client_disconnected, no status=499 line. The
+    # cancellation propagates, as on the non-streaming path (D-050), and what opened is
+    # still closed with one neutral outcome.
+    outcomes = Outcomes(monkeypatch)
+    adapter = StepsAdapter([Fail(asyncio.CancelledError())])
+    gateway = _gateway(adapter, monkeypatch)
+    wire = Wire(stream_body())
+    async with wire.running(gateway.app()):
+        assert wire.task is not None
+        await until(wire.task.done, "the app to stop")
+    messages = [*wire.sent, *wire.sent_after_gone]
+    starts = [m["status"] for m in messages if m["type"] == "http.response.start"]
+    assert 499 not in starts
+    assert b"client_disconnected" not in b"".join(m.get("body", b"") for m in messages)
+    request_lines = [r.getMessage() for r in all_logs.records if r.name == "llmgateway.request"]
+    assert not any(" status=499 " in line for line in request_lines)
+    assert wire.task.cancelled()
+    assert adapter.closes == [1]
+    assert outcomes.of(gateway.breaker()) == ["neutral"]
+    assert wire.receives_waiting == 0
+
+
+class _OrderedSteps(ClosableSteps):
+    def __init__(self, steps: Sequence[Step], clock: FakeClock, timeline: list[str]) -> None:
+        super().__init__(steps, clock)
+        self.timeline = timeline
+
+    async def aclose(self) -> None:
+        self.timeline.append("upstream closed")
+        await super().aclose()
+
+
+class _OrderedAdapter(StepsAdapter):
+    def __init__(self, timeline: list[str], script: Sequence[Step]) -> None:
+        super().__init__(script)
+        self.timeline = timeline
+
+    def stream(self, request: ChatRequest) -> Any:
+        upstream = _OrderedSteps(self.scripts[0], self.clock, self.timeline)
+        self.upstreams.append(upstream)
+        return upstream
+
+
+class _OrderedWire(Wire):
+    def __init__(self, timeline: list[str]) -> None:
+        super().__init__(stream_body())
+        self.timeline = timeline
+
+    async def send(self, message: MutableMapping[str, Any]) -> None:
+        if message["type"] == "http.response.body" and b"event: error" in message.get("body", b""):
+            self.timeline.append("error event sent")
+        await super().send(message)
+
+
+class _Lines(logging.Handler):
+    def __init__(self, timeline: list[str]) -> None:
+        super().__init__(logging.DEBUG)
+        self.timeline = timeline
+
+    def emit(self, record: logging.LogRecord) -> None:
+        message = record.getMessage()
+        for prefix in ("breaker_state_change", "stream_failed"):
+            if message.startswith(prefix):
+                self.timeline.append(prefix)
+
+
+@pytest.mark.asyncio
+async def test_a_mid_stream_failure_records_then_logs_then_closes_then_sends_the_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # D-069's order: the outcome reaches the breaker first, so the state change it causes
+    # comes first; then stream_failed; then the upstream is closed; then the error event.
+    # One failure in a window of one trips the breaker, so this failure causes the change.
+    timeline: list[str] = []
+    adapter = _OrderedAdapter(timeline, [Text("one"), Fail(unavailable(503))])
+    gateway = _gateway(
+        adapter,
+        monkeypatch,
+        idle=NEVER,
+        breaker_policy=BreakerPolicy(window_size=1, failure_threshold=1),
+    )
+    handler = _Lines(timeline)
+    gateway_logger = logging.getLogger("llmgateway")
+    gateway_logger.addHandler(handler)
+    try:
+        wire = _OrderedWire(timeline)
+        async with wire.running(gateway.app()):
+            await wire.finished()
+    finally:
+        gateway_logger.removeHandler(handler)
+    assert timeline == [
+        "breaker_state_change",
+        "stream_failed",
+        "upstream closed",
+        "error event sent",
+    ]
+    assert gateway.breaker().state == "open"
+
+
+@pytest.mark.asyncio
+async def test_an_exception_escaping_after_a_stream_bug_is_the_one_the_request_line_names(
+    monkeypatch: pytest.MonkeyPatch, all_logs: pytest.LogCaptureFixture
+) -> None:
+    # D-069: after a bug's error event, "if a different exception then escapes the
+    # response, the line names that one". Messages: 0 start, 1 the delta, 2 the error.
+    gateway = Gateway(ScriptedStream([Text("one"), Fail(ZeroDivisionError())]), idle=NEVER)
+    gateway.virtual_time(monkeypatch)
+    wire = SendRaises(LookupError("send broke"), at=2)
+    async with wire.running(gateway.app()):
+        with pytest.raises(LookupError, match="send broke"):
+            await wire.finished()
+    record = request_record(all_logs)
+    assert record.levelname == "ERROR"
+    assert record.getMessage().endswith(" error=LookupError")

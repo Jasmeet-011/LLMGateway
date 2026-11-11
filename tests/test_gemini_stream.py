@@ -1295,3 +1295,22 @@ async def test_closing_partway_leaves_no_generator_of_the_adapter_suspended() ->
     assert len(started) >= 3
     assert suspended(started) == []
     assert upstream.open_bodies == 0
+
+
+@pytest.mark.parametrize(
+    ("earlier", "later", "expected"),
+    [
+        pytest.param("MAX_TOKENS", "STOP", "stop", id="stop_after_max_tokens"),
+        pytest.param("STOP", "MAX_TOKENS", "max_tokens", id="max_tokens_after_stop"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_a_later_finish_reason_replaces_an_earlier_one(
+    earlier: str, later: str, expected: str
+) -> None:
+    # D-075 (8a1d275): "A later finish reason replaces an earlier one".
+    end = await _end(
+        gemini_text("Hi", finish=earlier),
+        gemini_text(" there", finish=later, usage=GEMINI_USAGE),
+    )
+    assert end.finish_reason == expected
