@@ -95,6 +95,13 @@ Newest sessions go here. When this file passes 50 KB, move the session log and t
 - D-086: the key id is `secrets.token_hex(8)`, 16 hex characters, 64 bits from the OS CSPRNG, read in `auth.generate_key`. Not enumerable, so no fix. Noted on D-086.
 - PLAN.md M16 scope now includes a request body size limit, enforced before the body is parsed, with its own status and code.
 
+**Plan for M15.**
+1. Spec first: D-095 to D-100, notes on D-067 and D-085, FLOW.md sections 3, 4, 5, 7, 8, 9 and 13, PLAN.md's settled line. No new dependency. Prices read on 2026-11-11 from Anthropic's and Google's pricing pages (D-098).
+2. Tester, Mode 1: unit tests over a fake store for the price file and costs, the router's meter on every attempt path (non-streaming, stream before and after the first event, cancel, bug, client gone or stalled), `ProviderUsage` from both adapters, the recorder's queue, batches, failures, drops and shutdown, the app's wiring and lifespan, `main.py` and the startup price check, `PostgresUsageStore` over a fake pool and real asyncpg on a refused port, migration 0002 offline; integration tests (D-100); the thinking live test. Red run before any `src/` change.
+3. Build: `prices.py`, `prices.toml`, `usage.py`, `usagestore.py`, migration 0002; `providers/base.py`, `claude.py`, `gemini.py`; `router.py`, `app.py`, `main.py`; README.
+4. Measure what recording costs on the response path (D-099). Prove the stack from a clean clone and the integration tests locally.
+5. Tester, Mode 2; reviewer; push; CI green on `main`.
+
 ### 2026-11-11: Gemini usage live test, M14 Hashed API keys in Postgres
 
 **State check.** HEAD 7264831, clean, on `main`, level with origin after `git pull`, as the brief expected. `.\scripts\check.ps1` PASS: 3850 passed, 11 deselected in 88.26 s, matching the brief. `.claude/agents/tester.md` and `reviewer.md` both present.

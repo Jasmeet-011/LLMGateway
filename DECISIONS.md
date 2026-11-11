@@ -72,7 +72,7 @@ One line per entry, with what superseded it. A session reads this index plus eve
 - D-064 `LLMGATEWAY_FAULTS`: fault windows for mock instances only
 - D-065 Tests keep `main.py` from setting the gateway logger's level in-process (the prefix made a contract by D-082)
 - D-066 One 300 s limit per test with pytest-timeout
-- D-067 Adapters stream through one async generator, with one event shape
+- D-067 Adapters stream through one async generator, with one event shape (`ProviderUsage` events added by D-097)
 - D-068 The first event commits a stream; before it, a stream is an ordinary request
 - D-069 A failure after the first event ends the stream with an `error` event
 - D-070 Stream timeouts: the attempt limit to the first event, then 60 s between events, and no total limit
@@ -90,7 +90,7 @@ One line per entry, with what superseded it. A session reads this index plus eve
 - D-082 Every log timestamp is UTC with an explicit `+00:00` offset
 - D-083 Windows TIME_WAIT: the cause is one event loop per async test, and the loops stay
 - D-084 `tests/test_retries.py` waits on fake time, not on `GUARD_SECONDS`
-- D-085 Postgres dependencies: asyncpg for queries, Alembic on SQLAlchemy's asyncio engine for migrations
+- D-085 Postgres dependencies: asyncpg for queries, Alembic on SQLAlchemy's asyncio engine for migrations (a second asyncpg module added by D-099)
 - D-086 Key format: `lgw_<key id>_<secret>`, shown once, never stored; what the logs may hold
 - D-087 Key hash: SHA-256 of the whole key, no pepper, not bcrypt or argon2
 - D-088 Lookup by key id, then a constant-time compare, with a dummy compare when the id is unknown
@@ -100,6 +100,12 @@ One line per entry, with what superseded it. A session reads this index plus eve
 - D-092 Keys are made with a CLI; each request carries a `Principal` (key id, tenant) forward
 - D-093 Database schema: the `api_keys` table, created by Alembic migration 0001
 - D-094 M14 integration tests: keys and table reads through `docker compose exec`; Postgres stays unpublished
+- D-095 One usage record per adapter attempt, made by the router, with the principal added by the app
+- D-096 Money is an integer number of nano-dollars
+- D-097 Token counts: as the provider reported them, the last reported value, never summed and never capped
+- D-098 Prices: a dated table in the package, each price with its source, checked at startup
+- D-099 Writing records: a bounded queue and one writer task per worker, batched into `usage_records`; a failed write is logged and lost
+- D-100 M15 integration tests: usage rows read from the Compose stack's Postgres
 
 ## Entry format
 
@@ -818,6 +824,7 @@ One line per entry, with what superseded it. A session reads this index plus eve
 - **Alternatives:** A separate `StreamingAdapter` protocol (keeps test fakes unchanged, but D-015 says streaming joins this interface, and every adapter must stream); a coroutine returning an object with `__aiter__` and `aclose` (more code in each adapter for what a generator gives for free); yielding the schema's `StreamEnd` (adapters would need fields they cannot know); `complete` built on `stream` (one code path, but it would change a proven non-streaming path and its error rows for no gain).
 - **Risk:** An async generator left suspended is only closed by the garbage collector, so a caller that forgets `aclose()` keeps the upstream open. The router and `EventStream` close it on every path, and tests pin that. `stream` and `complete` hold separate parsers, which can drift; a test compares their results.
 - **Revisit when:** Tool use or multimodal output needs events other than text.
+- **Amended by D-097:** adapters may also yield `ProviderUsage` events, the usage reported so far, anywhere before the `ProviderStreamEnd`. The router consumes them; they never reach a client, never cross D-068's line and never reset D-070's idle limit.
 
 ## D-068 The first event commits a stream; before it, a stream is an ordinary request
 
@@ -1059,6 +1066,7 @@ Sources: https://platform.claude.com/docs/en/build-with-claude/streaming, read 2
 - **Alternatives:** psycopg 3 (async and sync in one package, typed; but pooling needs `psycopg_pool`, one more package PLAN.md does not list); SQLAlchemy's async ORM for the lookup (a session and a mapped class for one query, and more work per request); `asyncpg-stubs` for types (one more package, not listed); raw SQL migration files with no Alembic (PLAN.md names Alembic, and version tracking is what it is for).
 - **Risk:** asyncpg is untyped, so a wrong assumption about what it returns is caught only by tests; the boundary conversion in `keystore.py` and the integration tests against real Postgres are the guard. greenlet is a compiled extension; it has wheels for the owner's Windows machine and for Linux, checked in the lock.
 - **Revisit when:** A second query joins the hot path, or asyncpg gains type information.
+- **Amended by D-099:** `llmgateway/usagestore.py` also imports asyncpg, for the usage writer's own pool, and converts at its boundary the same way. No new dependency.
 
 ## D-086 Key format: `lgw_<key id>_<secret>`, shown once, never stored; what the logs may hold
 
@@ -1169,3 +1177,132 @@ Sources: https://platform.claude.com/docs/en/build-with-claude/streaming, read 2
 - **Alternatives:** Publish Postgres on `127.0.0.1` and connect from pytest (a second path to the database that operators do not use); GitHub `services:` (D-080).
 - **Risk:** The tests need the `docker` CLI and the Compose project in the working directory. The outage test stops a service; if its restore fails, later tests in the same run fail, so it runs last and restores in a `finally`.
 - **Revisit when:** The stack runs somewhere `docker compose exec` cannot reach.
+
+## D-095 One usage record per adapter attempt, made by the router, with the principal added by the app
+
+- **Decision:** Settles PLAN.md M15's "whether failed attempts are costed" (D-035, D-052) and the owner's "every billed attempt is recorded".
+  - **The unit is an attempt:** one adapter call the router made after the breaker gave it a permit. Every retry, every fallback attempt and every stream attempt, before or after its first event, gets its own record. **No record** for a breaker refusal, a skipped entry, a client that left before a retry or a move (no call was made), or a request refused before the router (401, 503 `auth_unavailable`, 422, 400 `unknown_model`). Cache hits are M17's (D-012).
+  - **Fields** of `UsageRecord`, a frozen dataclass in `llmgateway/usage.py`, and the columns of `usage_records` (D-099):
+    - `recorded_at`: the gateway's UTC wall-clock time when the attempt's outcome was known.
+    - `request_id` (D-020); `tenant_id` and `key_id` from the request's `Principal` (D-092); `alias`, the client's `model`.
+    - `provider_instance`, `provider_type` and `model`: the entry's config instance, its adapter's `name`, and the provider model.
+    - `stream`: whether the attempt was a stream.
+    - `attempt`: numbered from 1 per entry, the same number as in `attempt_failed` (D-061).
+    - `outcome`, one of three:
+      - `success`: a `ProviderResult`, or a stream's `ProviderStreamEnd`. `reason` and `provider_status` are null.
+      - `failed`: a `ProviderError` ended the attempt, raised by the adapter or made by the router (`attempt_timeout`, `stream_idle`, `stream_truncated`). `reason` is the error's `reason` (null if it has none) and `provider_status` its `status`.
+      - `abandoned`: the gateway stopped the attempt, not the provider. `reason` is `cancelled` (a cancellation during an attempt: shutdown, or a client that left while a stream was opening, D-072), `client_gone`, `client_stalled` or `send_failed` (D-072's reasons, after a stream's first event), or `internal_error` (a bug: any exception that is not a `ProviderError`). `provider_status` is null.
+    - `partial`: true exactly when the attempt is a stream that did not reach its end (`failed` or `abandoned`) and the provider had reported usage before it stopped: the counts are the last reported (D-097), a lower bound on what was billed.
+    - `input_tokens`, `output_tokens`: D-097's counts, or both null when there are none.
+    - `cost_nanousd`: D-096 and D-098; null exactly when the counts are null.
+  - **Who makes it.** `Router.serve`, `open_stream` and `complete` take `meter: Meter | None = None`, where `Meter` is a plain callable taking an `AttemptUsage` (in `usage.py`): the per-attempt half of the record (instance, type, model, stream, attempt, outcome, reason, status, partial, usage). The router calls it **exactly once per attempt**, at the point where the breaker outcome is recorded (D-056, D-071) and just after it: when a non-streaming call ends; when a stream attempt fails or is abandoned before its first event; and for a committed stream, when it ends, fails, is closed unsettled by `aclose`, or stops on a bug. The app's meter adds `request_id`, the principal, the alias, `recorded_at` and the cost, and queues the record (D-099).
+  - **A meter that raises** is caught by the router (`Exception` only): one line `usage_report_failed request_id=%s error=<class name>` at ERROR on `llmgateway.router`, and the request goes on as if it had returned. The client's answer never depends on accounting.
+- **Why:** A provider bills attempts, not requests. One row per request would hide what retries and fallback cost, which is exactly what D-035, D-052, D-060 and D-062 left open. Every attempt is recorded, not just the billed ones, because the gateway cannot always know which were billed: a timeout or a connection lost after the request was sent may have been. A row with null counts says "a call was made, its cost is unknown", and its status and reason say why. The router is the only place that sees every attempt; the callback keeps it free of prices, principals and storage, and the app knows those.
+- **Alternatives:** One row per request with summed counts (hides a failed attempt behind a later success); only attempts known to be billed (needs a billing rule the gateway cannot apply to timeouts); recording in the adapters (they would need the principal and the request ID, D-015); recording in the app from what the router returns (the app never sees failed retries).
+- **Risk:** Rows multiply under failures: up to 3 per entry, so 6 per request on two entries. A non-2xx failure is most likely not billed but is still a row, with null counts. Per-request spend needs `GROUP BY request_id`. A bug in the meter loses that attempt's row, with one ERROR line.
+- **Revisit when:** M17 adds cache hits (D-012), or a stretch spend cap needs a per-request total at write time.
+
+## D-096 Money is an integer number of nano-dollars
+
+- **Decision:** All money in the gateway is an `int` of **nano-dollars** (10⁻⁹ USD), and `bigint` in Postgres. Never a float, and no `Decimal` at run time. Prices are written in the price file (D-098) as decimal strings in USD per million tokens with **at most three decimal places**, and turned into integer nano-dollars per token with integer arithmetic on the string's digits: `$1.00 / MTok` is 10⁻⁶ USD per token, which is 1,000 nano-dollars. A record's cost is `input_tokens × input price + output_tokens × output price`, exact, with no rounding anywhere.
+- **Why:** Every price either provider quotes for the configured models has at most two decimal places per million tokens, so the per-token price is a whole number of nano-dollars and every cost is an exact integer, and sums in SQL are exact. `bigint` holds 9.2 × 10¹⁸ nano-dollars, $9.2 billion, per row. Google's own `Money` type counts in `nanos`. Integer micro-dollars per record would round: 15 input tokens on `gemini-3.5-flash-lite` at $0.30 / MTok cost 4.5 micro-dollars, so a small row would be 10% off, and the errors add up over millions of rows.
+- **Alternatives:** float (0.1 has no exact binary form, and sums drift); `Decimal` and Postgres `numeric` (exact too, but needs a context, slower to sum, and a JSON or driver boundary can turn it into a float); integer micro-dollars per record (rounds, above); pico-dollars (exact for six-decimal prices, which no price needs).
+- **Risk:** A price with four or more decimal places per million tokens cannot be written; the price file is then rejected at startup, and the unit has to change in a new entry. Every reader must divide by 10⁹.
+- **Revisit when:** A provider quotes a price below a tenth of a cent per million tokens.
+
+## D-097 Token counts: as the provider reported them, the last reported value, never summed and never capped
+
+- **Decision:** Settles PLAN.md M15's `max_tokens` issue (D-049) and the owner's rules on thinking, Gemini and Claude streaming.
+  - **Non-streaming success:** the adapter's `ProviderResult.usage`. Claude: `usage.input_tokens` and `usage.output_tokens` (D-035). Gemini: `promptTokenCount`, and `candidatesTokenCount + thoughtsTokenCount` (D-041, D-049). Mock: whitespace word counts (D-016, D-098).
+  - **Thinking is output.** On both providers `output_tokens` includes thinking, which both bill as output: Google's price table labels the output price "including thinking tokens" (D-098's source), and Claude reports thinking in `output_tokens` (D-074). Counts are recorded as reported and **never capped at `max_tokens`**; `output_tokens` can exceed it (D-049's 383 against 256).
+  - **Streams: the last usage the provider reported, never a sum.** Adapters report usage as they learn it with a new stream event, `ProviderUsage(usage: Usage)`, a frozen model in `providers/base.py`. D-067's contract becomes: zero or more `StreamDelta`s and `ProviderUsage`s in any order, then exactly one `ProviderStreamEnd`. `ProviderUsage` is not a client event: the router keeps the latest one of the attempt and never passes it on. Like an empty delta, it does not cross D-068's line and does not reset D-070's idle limit.
+    - **Claude:** a `ProviderUsage` after `message_start`, with `input_tokens` from `message.usage.input_tokens` and `output_tokens` from `message.usage.output_tokens` (0 when left out); and one after each `message_delta` that carries `usage`, with the merged values under D-074's rule (a later count replaces an earlier one, a count left out or null keeps it), output 0 while still unknown. So **input tokens come from `message_start`, replaced by a `message_delta`'s `input_tokens` when it carries one, and output tokens from `message_start`'s small initial count, replaced by `message_delta`'s cumulative count**, which comes near the end. A Claude stream cut off before its `message_delta` is recorded with `message_start`'s output count, marked partial.
+    - **Gemini:** a `ProviderUsage` after each chunk that carries `usageMetadata`, with D-075's merged per-field latest values: `promptTokenCount` in, `candidatesTokenCount + thoughtsTokenCount` out, an absent count 0. **`thoughtsTokenCount` follows the same latest-value rule**, never a sum. Cumulative counts are verified for the prompt and candidates counts (D-075, the owner's run); for thinking they are not, and `tests/test_live_gemini_thinking_usage.py` settles it (below).
+    - **Mock:** no `ProviderUsage`; D-077 is unchanged, so a mock stream cut short has no counts.
+    - **Which counts a stream attempt records:** on success, the `ProviderStreamEnd`'s usage. Otherwise the latest `ProviderUsage` of that attempt, before or after its first event, with `partial` true; or none (null counts, `partial` false).
+  - **Non-streaming failures have no counts**, a billed malformed 2xx included (D-052): a body that could not be parsed is not trusted for its counts either. Its row keeps the 2xx `provider_status`, so billed-but-uncosted rows can be found.
+  - **Live test, written, never run by the builder:** `tests/test_live_gemini_thinking_usage.py`, marked `live`, needs `GEMINI_API_KEY`. One raw `streamGenerateContent?alt=sse` call on `gemini-3.6-flash` with `thinkingConfig.thinkingLevel` `LOW` (the adapter's `MINIMAL` thought nothing in the owner's run, which settles nothing) and `maxOutputTokens` 512, on a short arithmetic question, over a recording transport. It prints every chunk's `usageMetadata`, then: fails as inconclusive unless at least two chunks carry a `thoughtsTokenCount` above 0; asserts the count never falls from chunk to chunk; asserts that every chunk carrying usage after the first text chunk repeats the final thinking count (thinking comes before the text, so per-chunk counts would drop to 0 or vanish there); and replays the recorded bytes through `GeminiAdapter.stream` over an `httpx.MockTransport` and asserts the adapter's final usage is the last chunk's prompt count and its candidates plus thinking counts. Cost: one generation on `gemini-3.6-flash`, named by the owner.
+- **Why:** The owner's run showed cumulative counts; adding them up would have reported 2 + 20 + 48 + 74 + 76 + 76 = 296 output tokens against 76 billed. Taking the last value is right for cumulative counts and wrong only if a provider ever reports deltas, which the live tests would catch. An event in the stream is the natural way for an async generator to report progress (D-067), and a generator that is closed early cannot return a value, so usage reported only at the end would be lost for exactly the streams that are cut short. A count copied from a body that failed validation could be as damaged as the rest of it.
+- **Alternatives:** Summing per chunk (wrong by a factor of four in the owner's run); a mutable usage object passed into `stream()` (changes the adapter protocol's signature and every test fake); usage only on the error a failing stream raises (a closed generator raises nothing, so a client that left would record no counts); reading counts from a malformed 2xx body that happens to have them (trusts a body the adapter rejected).
+- **Risk:** Claude reports its output count only near the end, so a Claude stream cut short records a much lower output count than may be billed; `partial` says so, and the gap is not measured. If Gemini's thinking counts turn out to be per chunk, thinking is under-recorded until the rule changes; the live test is there to show it. A billed malformed 2xx has no cost.
+- **Revisit when:** The owner runs the thinking live test, or a provider documents usage deltas.
+
+## D-098 Prices: a dated table in the package, each price with its source, checked at startup
+
+- **Decision:** Settles PLAN.md M15's "where prices come from and their units" and "how mock word counts are labeled".
+  - **Where:** `src/llmgateway/prices.toml`, shipped inside the package like the migrations and read with `importlib.resources` at startup. One table for every deployment, changed only by a reviewed commit. `llmgateway/prices.py` parses it and computes costs.
+  - **Format:** for each model, an array of **periods**, `[[<type>."<model>"]]`, where `<type>` is `claude` or `gemini`. Each period has: `from`, a TOML date, the first UTC day it applies; `input` and `output`, strings in USD per million tokens (D-096); optionally `long_prompt_over`, an integer of at least 1, together with `long_input` and `long_output` (all three or none); `source`, the `https://` URL of the provider's pricing page; and `checked`, a TOML date, the day it was read. Periods of one model must have strictly increasing `from` dates. Anything else (an unknown key or type, a `mock` table, a number where a string belongs, a price with more than three decimals, a missing field) is rejected: `prices.toml: <type>.<model>[<index>].<field>: <rule>`. The file is the gateway's own, so printing its names is safe.
+  - **Which price:** the period with the latest `from` on or before `recorded_at`'s UTC date. If `long_prompt_over` is set and `input_tokens` is greater than it, the long prices apply to both input and output, as Anthropic prices Haiku 5.5 "for prompts over 100,000 tokens".
+  - **Mock:** cost 0 by rule in code, with no table entry. Its rows keep `provider_type` `mock`, so its word counts (D-016) are labeled and can be left out of any sum of real tokens.
+  - **Startup:** after the provider config and before the database settings, every Claude or Gemini (type, model) in the config must have a period in effect on today's UTC date, or startup stops with `llmgateway: configuration error: aliases.<alias>[<index>].model: no price in effect for this model in prices.toml`, naming the location, not the model (D-044). Dates only move forward, so a model priced at startup stays priced: a cost is never missing at billing time.
+  - **Initial table**, every row read on 2026-11-11 and `from` 2026-11-11, the earliest day the table vouches for:
+
+    | Model | Input | Output | Source |
+    | --- | --- | --- | --- |
+    | `claude-haiku-5-5` | $0.10 | $0.50; prompts over 100,000 tokens $0.50 and $2.50 | https://platform.claude.com/docs/en/about-claude/pricing |
+    | `claude-opus-5-5` | $4 | $20 | the same |
+    | `gemini-3.5-flash-lite` | $0.30 | $2.50 | https://aistudio.google.com/docs/pricing (where https://ai.google.dev/gemini-api/docs/pricing redirects) |
+    | `gemini-3.6-flash` | $0.75; from 2027-01-01 $1.50 | $3.75; from 2027-01-01 $7.50 | the same |
+
+    Prices per million tokens, standard paid tier. The Claude rows were matched against the pricing page's own table lines; the Gemini rows were read twice through a fetch that summarizes the page, asking for the lines verbatim, and agreed both times.
+  - **Not priced:** prompt caching (the gateway sends no `cache_control`; Gemini's implicit caching discounts cached input, which this table charges at the full input price), Anthropic's `inference_geo` multiplier, batch, flex, priority and fast mode (none is sent), Gemini's free tier, taxes and credits.
+- **Why:** Prices are facts about providers, not settings of a deployment, so they live with the code and change through review, each with the page and day it came from. Periods make a known price change, such as `gemini-3.6-flash` on 2027-01-01, a row and not a deploy on the night. Checking at startup turns a missing price into a configuration error the operator sees at once, instead of rows with no cost. Location-only messages keep D-044's rule.
+- **Alternatives:** Prices in the gateway config (each deployment could bill differently by accident, and the file is meant to list what to call); fetched from the providers at run time (Google has no pricing API, and startup would need the network); one price per model and no dates (2027-01-01 would need a deploy that day); a missing price recorded as a null cost (a price gap found weeks later in the table).
+- **Risk:** Prices change without notice; the table is only as fresh as its `checked` dates. Gemini's implicit cache hits are over-costed. A model added to the config without a price stops startup, by design.
+- **Revisit when:** A provider changes a price, a model is added to the config, or the gateway starts sending prompt caching.
+
+## D-099 Writing records: a bounded queue and one writer task per worker, batched into `usage_records`; a failed write is logged and lost
+
+- **Decision:** Settles PLAN.md M15's "where usage rows live" (FLOW.md section 9) and the owner's rule that a failed write never costs the client its answer or adds to its latency. **A database schema change.**
+  - **The recorder.** `UsageRecorder(store, prices, *, max_queue=10_000, batch_size=100, write_timeout=5.0, drain_timeout=5.0, wall_clock=time.time)` in `usage.py`. `meter(request_id=..., principal=..., alias=...)` returns the request's `Meter`, which builds the `UsageRecord` and calls `record`. `record(record)` is synchronous and never raises: it puts the record on an `asyncio.Queue` with `put_nowait`, and when the queue is full it drops the record and counts it. One writer task per recorder, started by the first `record` on the running loop, waits for a record, takes up to `batch_size - 1` more already queued without waiting, and writes the batch with one `store.write(batch)` under `asyncio.timeout(write_timeout)`. A batch is never retried, since a timeout after the commit would insert it twice.
+  - **Failures, all on `llmgateway.usage`:** a timeout or `UsageStoreUnavailable` writes `usage_write_failed count=<n> reason=<timeout|store_error> error=<class name>` at WARNING; any other exception from the store writes the same line at ERROR with `reason=bug`. The writer keeps running either way. Dropped records are reported by the writer once per batch, not per record: `usage_dropped count=<n> reason=queue_full` at WARNING. Records offered after `aclose` began are dropped with `reason=closed`, and records still queued when the drain time runs out with `reason=shutdown`. No line ever holds a prompt, a key, the database URL or an exception message.
+  - **Shutdown:** `aclose()` stops accepting records, waits up to `drain_timeout` for the queue to empty and the batch in flight to finish, cancels the writer, logs what was dropped, and closes the store. The app's lifespan closes the router, then the recorder, then the authenticator, each in a `finally`, so a stream closed by the router's shutdown is still recorded.
+  - **The app:** `create_app(..., recorder: UsageRecorder | None = None)`. None records nothing. `main.py` always builds one, with `PostgresUsageStore` on `LLMGATEWAY_DATABASE_URL` and the checked price table, and a test pins that.
+  - **The store:** a `UsageStore` protocol, `async write(records)` and `async aclose()`. `PostgresUsageStore` in the new `llmgateway/usagestore.py` has its own asyncpg pool (`min_size=0`, `max_size=2`, created on first use), so writes never take the connections auth needs (D-091). Each batch is **one parameterized statement**, `INSERT INTO usage_records (<17 columns>) SELECT * FROM unnest($1::timestamptz[], ..., $17::bigint[])`, one array per column, so a batch is atomic. Driver errors (`OSError`, `asyncpg.PostgresError`, `asyncpg.InterfaceError`) become `UsageStoreUnavailable(<type name>)`, never the driver's message, which can hold the DSN. `usagestore.py` joins `keystore.py` as a module that imports asyncpg (amends D-085).
+  - **The table**, Alembic migration 0002 (parent 0001):
+
+    ```sql
+    CREATE TABLE usage_records (
+        id                bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        recorded_at       timestamptz NOT NULL,
+        request_id        text NOT NULL CHECK (length(request_id) BETWEEN 1 AND 128),
+        tenant_id         text NOT NULL CHECK (tenant_id ~ '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$'),
+        key_id            text NOT NULL CHECK (key_id ~ '^[0-9a-f]{16}$'),
+        alias             text NOT NULL CHECK (length(alias) BETWEEN 1 AND 128),
+        provider_instance text NOT NULL CHECK (length(provider_instance) BETWEEN 1 AND 128),
+        provider_type     text NOT NULL CHECK (provider_type IN ('claude', 'gemini', 'mock')),
+        model             text NOT NULL CHECK (length(model) BETWEEN 1 AND 128),
+        stream            boolean NOT NULL,
+        attempt           integer NOT NULL CHECK (attempt >= 1),
+        outcome           text NOT NULL CHECK (outcome IN ('success', 'failed', 'abandoned')),
+        reason            text CHECK (reason ~ '^[A-Za-z0-9_]{1,64}$'),
+        provider_status   integer CHECK (provider_status BETWEEN 100 AND 599),
+        partial           boolean NOT NULL,
+        input_tokens      bigint CHECK (input_tokens >= 0),
+        output_tokens     bigint CHECK (output_tokens >= 0),
+        cost_nanousd      bigint CHECK (cost_nanousd >= 0),
+        CHECK ((input_tokens IS NULL) = (output_tokens IS NULL)),
+        CHECK ((input_tokens IS NULL) = (cost_nanousd IS NULL)),
+        CHECK (outcome <> 'success' OR (reason IS NULL AND provider_status IS NULL AND input_tokens IS NOT NULL)),
+        CHECK (outcome <> 'abandoned' OR (reason IS NOT NULL AND provider_status IS NULL)),
+        CHECK (NOT partial OR (stream AND outcome <> 'success' AND input_tokens IS NOT NULL))
+    );
+    CREATE INDEX usage_records_tenant_time_idx ON usage_records (tenant_id, recorded_at);
+    CREATE INDEX usage_records_request_id_idx ON usage_records (request_id);
+    ```
+
+    No foreign key to `api_keys`: a record must outlive anything done to its key, and an insert should not wait on another table. No column holds a prompt, a response or a key.
+  - **What is lost when writing fails:** the batch's rows, for good, so their cost is missing from the table. The request line, `attempt_failed` and `stream_failed` still show that the attempts happened, but not their counts. Also lost: records still queued when the process dies (a crash, a kill or an out-of-memory stop; up to `max_queue` per worker), records over the queue's cap, and records left when the drain time runs out at shutdown. So spend summed from the table is a **lower bound** whenever a `usage_write_failed` or `usage_dropped` line exists for the period.
+  - **Latency:** the response path pays only the meter call: building one record, one integer cost and one `put_nowait`. The insert runs on the writer task and is never awaited by a request. What that costs is measured after the build and recorded under "Measured" below.
+- **Why:** Writing inline would put a Postgres round trip on every attempt's latency (measurement 1) and make every answer wait on, or fail with, the database, which the owner's rule forbids. A bounded queue keeps memory finite during an outage. Batching turns many attempts into one round trip, and `unnest` makes the batch one statement, which is atomic and keeps the SQL parameterized. A separate small pool keeps a slow insert from starving key lookups. Not retrying keeps the table free of duplicates without an idempotency key.
+- **Alternatives:** Insert before responding (adds latency, and fails or loses the row anyway when Postgres is down); FastAPI background tasks (one task and one round trip per request, no batching, and nothing for a stream's later attempts); a local append-only file replayed into Postgres (survives a crash, but a file format and a replayer to own); a Redis stream (Redis is M16's, and M15 allows no dependency); retrying with a unique key per attempt and `ON CONFLICT DO NOTHING` (exactly once, but more code than a lower bound needs now); asyncpg `executemany` (whether it is atomic is not settled here; one `unnest` statement is atomic by definition).
+- **Risk:** A crash loses up to 10,000 records per worker. A long outage drops every record past the cap. One writer per worker bounds throughput at about 100 records per round trip, unmeasured under load until M18. `recorded_at` is the gateway's clock.
+- **Revisit when:** A spend cap (stretch) needs records that cannot be lost, M18 shows the writer falling behind, or the gateway runs several workers whose loss must be bounded together.
+
+## D-100 M15 integration tests: usage rows read from the Compose stack's Postgres
+
+- **Decision:** Extends D-094. Against the Compose stack (default mock config), with a key made by the CLI: a non-streaming request and a streaming request each leave exactly one row in `usage_records` within 5 s (polled), with the key's tenant and key id, alias `mock`, instance `mock`, type `mock`, model `mock-1`, the right `stream`, attempt 1, outcome `success`, no reason or status, `partial` false, counts equal to the `usage` the client got, and cost 0. The rows are found by the response's `x-request-id`, read with `psql` variables as in D-094. Failure rows on real Postgres: a script run in the api container (`docker compose exec -T api python -c ...`) writes `failed`, `abandoned` and `partial` records, with null and non-null counts, through `PostgresUsageStore`, and `psql` reads them back field by field; and `psql` inserts that break each of D-099's row checks are rejected. Unit tests use a fake store; the default suite also tests `PostgresUsageStore` over a fake pool (the SQL text, the parameters and the error mapping, Lesson 17) and real asyncpg against a refused port.
+- **Why:** The proof PLAN.md asks for is rows for success and failure paths. The success rows come through the real gateway; the failure rows cannot be caused on the mock-only stack without changing its config, so they go through the real store into the real table, which tests the SQL, the nulls and the checks where they live.
+- **Alternatives:** Start the stack with `LLMGATEWAY_FAULTS` for failure rows (a second stack configuration in CI for one test); publish Postgres to read rows from pytest (D-094 rejected it).
+- **Risk:** The 5 s poll can be slow on a loaded CI runner. The failure rows prove the store and the table, not the router's path to them, which the unit tests prove.
+- **Revisit when:** The integration stack gets a fault configuration.

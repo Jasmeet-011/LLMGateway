@@ -98,6 +98,7 @@ Worked in order. Status and evidence are in [PROGRESS.md](PROGRESS.md); this fil
 - **Proof:** usage rows for success and failure paths.
 - **Dependencies allowed:** none new.
 - **Open issues to settle:** where usage rows live (FLOW.md section 9); where prices come from and their units; whether failed attempts are costed (D-035); how mock word counts are labeled (D-016); `output_tokens` can exceed `max_tokens` on thinking models and includes thinking tokens, so usage is recorded as reported and never capped at `max_tokens` (D-049).
+- **Settled:** D-095 (one record per adapter attempt, through the router's meter), D-096 (integer nano-dollars), D-097 (counts as reported, last value wins, `ProviderUsage` stream events, partial streams), D-098 (dated prices in the package with sources, checked at startup; mock costs 0), D-099 (queue and writer task, `usage_records` by migration 0002, what a failed write loses), D-100 (integration tests). Added by the owner for M15: every billed attempt recorded, partial streams, Claude's and Gemini's streaming usage rules, a live test of Gemini's streamed thinking counts on `gemini-3.6-flash`, and the cost of writing records measured.
 
 ### M16 Redis Lua token-bucket rate limiter
 

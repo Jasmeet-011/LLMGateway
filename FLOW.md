@@ -28,7 +28,7 @@ flowchart LR
 
 Coalescing, spend caps and Prometheus metrics are stretch goals (D-031).
 
-Where spend caps, coalescing state, and usage records live is not decided yet (see section 9).
+Usage records live in Postgres (D-099). Where spend caps and coalescing state live is not decided yet (see section 9).
 
 ## 4. Order of checks per request
 
@@ -75,7 +75,7 @@ Why each check sits where it does:
 5. **Coalescing after a cache miss (stretch, D-031).** If an identical request is already on its way to a provider, this one waits for that result instead of making a second upstream call. PLAN.md measurement 6 targets exactly one upstream call for N identical requests. The coalescing key is the cache key, including the caller, so tenants never share an in-flight result. Only cacheable requests coalesce.
 6. **Spend cap just before spending (stretch, D-031).** This is the last point where the gateway can refuse before money is spent. Placing it after the cache and coalescing means free answers are never blocked by the cap. The rejection status is to be decided. Checking the cap before the call and recording usage after it is not atomic: concurrent requests can all pass the check before any of them records its cost. How the cap stays atomic across a provider call (for example, reserving the worst-case cost before the call and settling the real cost after) is not decided.
 7. **Router.** Applies timeouts, retries, the circuit breaker, and fallback (section 5).
-8. **Record usage after the call.** Real token counts are only known once the provider answers.
+8. **Record usage, per attempt (D-095 to D-099).** Real token counts are only known once the provider answers, so the router reports every adapter attempt as it ends: retries, fallback attempts, failures and streams cut short included (section 5). The app adds the key's tenant and key id, the alias, the time and the cost in integer nano-dollars from the dated price table, and puts the record on a bounded in-process queue. A writer task inserts records into `usage_records` in batches, off the response's path, so a slow or failed write never delays or fails an answer; a failed write is logged and its rows are lost.
 9. **Store in cache only if deterministic and non-streaming** (D-003). Sampled output should not be replayed as if it were the only answer.
 10. **Respond with the gateway request ID** (D-011), so logs, metrics, and accounting share one key.
 
@@ -126,6 +126,18 @@ Fallback rules (D-060 to D-062):
 - One deadline covers the whole request. A non-last entry must finish 30 s before it (`fallback_reserve`), so a hung first entry stops at 60 s and the next one has 30 s. An entry whose limit has been reached is skipped, with no check, no call and no line.
 - Attempts number from 1 for each entry, with up to 3 per entry. Each move writes one `fallback_taken` line to `llmgateway.router` at WARNING with the request ID, alias, the instance and model left and reached, the reason code and the error class.
 - Before each retry, after its wait, and before each move from an entry that failed or refused, the router awaits `is_disconnected`. If the client has gone it raises `ClientDisconnected`: no call, no breaker check and no `fallback_taken` line, and the request line says `status=499`. There is no check before the first entry tried.
+
+Usage (D-095, D-097): every adapter call the router makes is one usage record, reported through the request's `meter` exactly once, just after its breaker outcome is recorded. A breaker refusal, a skipped entry and a stop for a client that left make no call and no record.
+
+| How the attempt ended | `outcome` | `reason`, `provider_status` | Counts |
+| --- | --- | --- | --- |
+| A `ProviderResult`, or a stream's end | `success` | null, null | As reported, never capped at `max_tokens`; thinking is output |
+| A `ProviderError`, the adapter's or the router's own (`attempt_timeout`, `stream_idle`, `stream_truncated`) | `failed` | the error's reason and status | Non-streaming: null, a malformed 2xx included. Stream: the last `ProviderUsage` of the attempt, `partial` true, or null |
+| A cancellation | `abandoned` | `cancelled`, null | As for a failed stream; null when not streaming |
+| A committed stream closed because the client left, stalled, or `send` failed (D-072) | `abandoned` | `client_gone`, `client_stalled` or `send_failed`, null | The last `ProviderUsage`, `partial` true, or null |
+| A bug: any exception that is not a `ProviderError` | `abandoned` | `internal_error`, null | As for a cancellation |
+
+A meter that raises is caught: one `usage_report_failed request_id=%s error=<class>` line at ERROR on `llmgateway.router`, and the request goes on.
 
 **Streaming rule:** a streaming request can only fall back **before the first byte is sent** to the client. After that, the client has already received part of one provider's answer, and switching providers would splice two different answers together. A failure mid-stream ends the stream with an error instead.
 
@@ -237,9 +249,10 @@ sequenceDiagram
     LLM-->>A: Provider response
     A-->>RT: ProviderResult
     RT-->>G: ProviderResult
-    G->>G: Record usage
+    G->>G: Queue the attempt's usage record
     G->>R: Store in cache if deterministic
     G-->>C: ChatResponse with gateway request ID
+    G->>P: Later, the writer task inserts queued records in one batch
 ```
 
 ## 8. Module map
@@ -268,12 +281,15 @@ src/llmgateway/
 ├── auth.py              key format, hash_key, Principal, Authenticator and its cache, AuthMiddleware
 ├── keystore.py          PostgresKeyStore over asyncpg: find, create, revoke, list; run_migrations
 ├── keys.py              the key CLI: python -m llmgateway.keys migrate | create | revoke | list
-├── migrations/          Alembic env.py and versions/0001_api_keys.py (D-093)
+├── migrations/          Alembic env.py, versions/0001_api_keys.py (D-093) and 0002_usage_records.py (D-099)
+├── usage.py             AttemptUsage, UsageRecord, Meter, UsageRecorder: the queue and writer task (D-095, D-099)
+├── usagestore.py        PostgresUsageStore over asyncpg: one batched INSERT per write (D-099)
+├── prices.py            the price table: parse, startup check, cost in nano-dollars (D-096, D-098)
+├── prices.toml          dated prices per model, each with its source (D-098)
 ├── ratelimit            Redis Lua token bucket
 ├── cache                cache key and storage
 ├── coalescing           stretch (D-031)
 ├── spend                stretch (D-031): spend caps
-├── accounting           usage and cost records
 └── metrics              stretch (D-031): Prometheus metrics
 ```
 
@@ -286,7 +302,10 @@ src/llmgateway/
 | Redis | Rate limit token buckets, updated by a Lua script using Redis server time (D-002) |
 | Redis | Cached responses, keyed by a hash of the normalized request, model, params, and caller (D-003) |
 | Process memory | Circuit breaker state, one per config instance in each worker, lost on restart (D-055) |
-| To be decided | Usage and cost records; spend cap counters and coalescing state (stretch, D-031) |
+| Postgres | The `usage_records` table: one row per adapter attempt, with tenant, key id, alias, instance, model, attempt, outcome, token counts and cost in nano-dollars (D-095, D-099). Created by migration 0002; written in batches by one writer task per worker |
+| Process memory | Usage records waiting to be written, at most 10,000 per worker; lost if the process dies (D-099) |
+| The package | `prices.toml`: dated prices per model, each with its source and the day it was read (D-098) |
+| To be decided | Spend cap counters and coalescing state (stretch, D-031) |
 | Never stored | Plaintext API keys: only hashes are kept, compared in constant time (CLAUDE.md) |
 | Never logged | Prompts, response content, API keys, secrets (CLAUDE.md) |
 | Never in the repo | Secrets of any kind; the repo is public (CLAUDE.md) |
@@ -448,6 +467,8 @@ These never reach a client: the process exits at import with `llmgateway: config
 | A `model` that is empty or longer than 128 characters | Stops |
 | A Gemini entry whose `model` does not fully match the D-042 pattern (D-046) | Stops |
 | An instance of type `claude` and `ANTHROPIC_API_KEY` unset or blank; type `gemini` and `GEMINI_API_KEY` unset or blank | Stops |
+| `prices.toml` (in the package) breaks D-098's format: an unknown type or key, a `mock` table, a price that is not a string of at most three decimals, `long_prompt_over` without both long prices or the reverse, a `source` that is not `https://`, or periods whose `from` dates do not strictly increase. The message names the location in the price file and the rule | Stops |
+| After a valid provider config: a Claude or Gemini entry whose model has no price in effect on today's UTC date (D-098). The message names the entry's location, `aliases.<alias>[<index>].model`, not the model | Stops |
 | After a valid provider config: `LLMGATEWAY_DATABASE_URL` unset or blank, not parseable by `urlsplit`, with a scheme other than `postgresql` or `postgres`, or with no host (D-091). The message names the variable, never the value | Stops |
 | `LLMGATEWAY_KEY_CACHE_SECONDS` set but not a finite number from 0 to 60 (D-090); unset means 10 | Stops |
 | Postgres down or unreachable at startup | Starts; the pool connects on the first lookup, and lookups get 503 `auth_unavailable` until Postgres answers (D-091) |
