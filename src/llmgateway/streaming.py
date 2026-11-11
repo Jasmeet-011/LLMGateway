@@ -26,7 +26,9 @@ Key design choices:
 - A failure after the first event is an `error` event and a clean end (D-069). The
   code and message come from `errors.py`, so provider text cannot reach the client. A
   bug is not re-raised, because uvicorn would log its text with a traceback; its class
-  name goes to the request line through `request.state`.
+  name goes to the request line through `request.state`. A bug in `send` itself is
+  the server's, not provider or prompt data, so it is re-raised once the stream is
+  closed, as `reason=send_failed` and never as a client that left (D-072).
 - asyncio and not anyio: anyio is only a transitive dependency here (D-072).
 """
 

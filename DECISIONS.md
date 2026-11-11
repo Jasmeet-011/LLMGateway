@@ -24,7 +24,7 @@ One line per entry, with what superseded it. A session reads this index plus eve
 - D-016 Mock provider design
 - D-017 pytest-asyncio for async tests
 - D-018 Order of checks per request
-- D-019 HTTP status mapping
+- D-019 HTTP status mapping (the `stream=true` 501 superseded by D-073)
 - D-020 Response ID format and `x-request-id`
 - D-021 Cache-hit header name
 - D-022 First endpoints (the `stream=true` 501 superseded by D-073)
@@ -863,7 +863,7 @@ One line per entry, with what superseded it. A session reads this index plus eve
 
 ## D-073 `StreamEnd` carries what `ChatResponse` carries; `StreamError` joins the events
 
-- **Decision:** Settles PLAN.md M12's issue on `StreamEnd`. A schema change. Superseding D-022's 501, `stream=true` on `POST /v1/chat` now streams. The response is `text/event-stream; charset=utf-8` (Starlette adds the charset), with `cache-control: no-cache`, `x-accel-buffering: no` and `x-request-id`.
+- **Decision:** Settles PLAN.md M12's issue on `StreamEnd`. A schema change. Superseding the 501 in D-019 and D-022, `stream=true` on `POST /v1/chat` now streams. The response is `text/event-stream; charset=utf-8` (Starlette adds the charset), with `cache-control: no-cache`, `x-accel-buffering: no` and `x-request-id`.
   - `StreamDelta` is unchanged: `{"type": "delta", "text": ...}`.
   - `StreamEnd` becomes `{"type": "end", "id", "provider", "provider_instance", "model", "finish_reason", "usage", "provider_response_id"}`, typed exactly as in `ChatResponse` (D-011, D-045, D-063). Only `content` is absent, because the deltas are the content.
   - `StreamError` is new: `{"type": "error", "code", "message", "request_id"}`, each a non-empty string. `StreamEvent` is the union of the three, discriminated on `type`.
