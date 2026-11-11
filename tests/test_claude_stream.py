@@ -232,9 +232,17 @@ async def test_text_deltas_come_out_in_order_then_one_end() -> None:
     events, error, _ = await _stream(*claude_answer("Hello", " wor", "ld"))
     assert error is None
     assert _deltas(events) == ["Hello", " wor", "ld"]
-    assert len(events) == 4
+    # M15 (D-097): usage after message_start and after the message_delta, around the deltas.
+    assert [type(event).__name__ for event in events] == [
+        "ProviderUsage",
+        "StreamDelta",
+        "StreamDelta",
+        "StreamDelta",
+        "ProviderUsage",
+        "ProviderStreamEnd",
+    ]
     assert is_end(events[-1])
-    assert all(isinstance(event, StreamDelta) for event in events[:-1])
+    assert all(isinstance(event, StreamDelta) for event in events[1:4])
 
 
 @pytest.mark.asyncio
@@ -263,13 +271,18 @@ async def test_stop_reason_maps_as_in_d035(stop_reason: str, finish_reason: str)
 
 
 @pytest.mark.asyncio
-async def test_an_answer_with_no_text_is_just_the_end() -> None:
+async def test_an_answer_with_no_text_has_no_delta_only_usage_and_the_end() -> None:
     events, error, _ = await _stream(
         claude_start(), claude_message_delta("max_tokens"), CLAUDE_STOP
     )
     assert error is None
-    assert len(events) == 1
-    assert events[0].finish_reason == "max_tokens"
+    # M15 (D-097): usage after message_start and after the message_delta, then the end.
+    assert [type(event).__name__ for event in events] == [
+        "ProviderUsage",
+        "ProviderUsage",
+        "ProviderStreamEnd",
+    ]
+    assert events[-1].finish_reason == "max_tokens"
 
 
 @pytest.mark.asyncio
@@ -309,7 +322,14 @@ async def test_frames_that_are_not_text_produce_no_event(frame: bytes) -> None:
     )
     assert error is None
     assert _deltas(events) == ["one", "two"]
-    assert len(events) == 3
+    # M15 (D-097): usage after message_start and after the message_delta, around two deltas.
+    assert [type(event).__name__ for event in events] == [
+        "ProviderUsage",
+        "StreamDelta",
+        "StreamDelta",
+        "ProviderUsage",
+        "ProviderStreamEnd",
+    ]
 
 
 @pytest.mark.asyncio
@@ -385,10 +405,17 @@ async def test_a_delta_comes_out_before_the_next_frame_is_read() -> None:
     upstream = Upstream(lambda _: httpx.Response(200, stream=body))
     async with _claude(upstream) as adapter:
         generator: Any = adapter.stream(_request())
-        pull = asyncio.ensure_future(anext(generator))
+
+        async def first_two() -> list[Any]:
+            # M15 (D-097): message_start's usage event comes first, then the delta.
+            return [await anext(generator), await anext(generator)]
+
+        pull = asyncio.ensure_future(first_two())
         try:
             await until(pull.done, "the first delta to come out")
-            assert pull.result().text == "first"
+            usage_event, delta_event = pull.result()
+            assert type(usage_event).__name__ == "ProviderUsage"
+            assert delta_event.text == "first"
         finally:
             pull.cancel()
             await asyncio.wait({pull})
@@ -1184,6 +1211,9 @@ async def test_closing_partway_leaves_no_generator_of_the_adapter_suspended() ->
     async with _claude(upstream) as adapter:
         with gateway_generators() as started:
             stream: Any = adapter.stream(_request())
+            # M15 (D-097): message_start's usage event comes before the first delta.
+            usage_event = await stream.__anext__()
+            assert type(usage_event).__name__ == "ProviderUsage"
             first = await stream.__anext__()
             assert isinstance(first, StreamDelta)
             await stream.aclose()

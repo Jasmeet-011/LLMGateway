@@ -382,3 +382,79 @@ def test_the_stack_tests_connect_to_the_address_they_were_given(
     lookups = [attempt for attempt in run.attempts if attempt.startswith("getaddrinfo")]
     assert lookups, run.attempts
     assert set(lookups) == {f"getaddrinfo ('{host}', {port})"}, lookups
+
+
+# M15: the usage tests, which also run docker, and whose failure-row test runs a script in the
+# api container (D-100)
+
+USAGE_INTEGRATION_FILE = TESTS_DIR / "test_compose_stack_usage.py"
+
+
+@pytest.mark.parametrize("base_url", NOT_LOCAL)
+def test_the_usage_tests_fail_before_any_docker_command_or_request_without_a_local_url(
+    tmp_path: Path, base_url: str | None
+) -> None:
+    run = _run_integration_file(tmp_path, base_url, USAGE_INTEGRATION_FILE)
+    _assert_every_test_failed(run, USAGE_INTEGRATION_FILE)
+    for case in run.cases:
+        assert VARIABLE in case.text, (case.name, case.text)
+    assert run.attempts == []
+
+
+@pytest.mark.parametrize("base_url", ["http://127.0.0.1:1", "http://localhost:1"])
+def test_the_usage_tests_do_attempt_docker_or_a_connection_for_a_local_url(
+    tmp_path: Path, base_url: str
+) -> None:
+    run = _run_integration_file(tmp_path, base_url, USAGE_INTEGRATION_FILE)
+    _assert_every_test_failed(run, USAGE_INTEGRATION_FILE)
+    assert len(run.attempts) >= len(run.cases), run.output
+    docker = [attempt for attempt in run.attempts if attempt.startswith("popen")]
+    assert docker, run.output
+    assert all("docker" in attempt and "compose" in attempt for attempt in docker), docker
+
+
+def test_the_outage_test_is_still_collected_last_with_the_usage_tests_in_the_run(
+    tmp_path: Path,
+) -> None:
+    files = (INTEGRATION_FILE, AUTH_INTEGRATION_FILE, USAGE_INTEGRATION_FILE, SUPPORT_FILE)
+    for file in files:
+        (tmp_path / file.name).write_text(file.read_text(encoding="utf-8"), encoding="utf-8")
+    (tmp_path / "pytest.ini").write_text(INI, encoding="utf-8")
+    shutil.copy(TESTS_DIR / "conftest.py", tmp_path / "conftest.py")
+    env = {k: v for k, v in os.environ.items() if k not in ("PYTEST_ADDOPTS", VARIABLE)}
+    # The command is fixed text and copies of this repo's own test files.
+    result = subprocess.run(  # noqa: S603
+        [
+            sys.executable,
+            "-m",
+            "pytest",
+            "-c",
+            str(tmp_path / "pytest.ini"),
+            "--rootdir",
+            str(tmp_path),
+            "-p",
+            "no:cacheprovider",
+            "-m",
+            "integration",
+            "--collect-only",
+            "-q",
+            str(tmp_path / USAGE_INTEGRATION_FILE.name),
+            str(tmp_path / AUTH_INTEGRATION_FILE.name),
+            str(tmp_path / INTEGRATION_FILE.name),
+        ],
+        cwd=tmp_path,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    ids = [line for line in result.stdout.splitlines() if "::" in line]
+    assert len(ids) == sum(
+        _expected_count(file)
+        for file in (INTEGRATION_FILE, AUTH_INTEGRATION_FILE, USAGE_INTEGRATION_FILE)
+    ), result.stdout
+    assert ids[-1].endswith(
+        "::test_zz_outage_a_valid_key_is_503_with_postgres_stopped_and_200_when_it_returns"
+    )
+    assert sum("zz_outage" in line for line in ids) == 1
+    assert any("test_compose_stack_usage.py" in line for line in ids)

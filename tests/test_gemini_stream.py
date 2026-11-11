@@ -296,7 +296,14 @@ async def test_text_comes_out_chunk_by_chunk_then_one_end() -> None:
     events, error, _ = await _stream(*gemini_answer("Hello", " wor", "ld"))
     assert error is None
     assert _deltas(events) == ["Hello", " wor", "ld"]
-    assert len(events) == 4
+    # M15 (D-097): the last chunk carries the usage, reported before its own delta.
+    assert [type(event).__name__ for event in events] == [
+        "StreamDelta",
+        "StreamDelta",
+        "ProviderUsage",
+        "StreamDelta",
+        "ProviderStreamEnd",
+    ]
     assert is_end(events[-1])
 
 
@@ -362,7 +369,13 @@ async def test_thought_parts_never_become_events(thought: bytes) -> None:
     )
     assert error is None
     assert _deltas(events) == ["one", "two"]
-    assert len(events) == 3
+    # M15 (D-097): the usage on the last chunk is reported before that chunk's delta.
+    assert [type(event).__name__ for event in events] == [
+        "StreamDelta",
+        "ProviderUsage",
+        "StreamDelta",
+        "ProviderStreamEnd",
+    ]
     assert all(THOUGHT_MARKER not in repr(event) for event in events)
 
 
@@ -407,7 +420,14 @@ async def test_a_chunk_with_nothing_to_show_produces_no_event(chunk: dict[str, A
     )
     assert error is None
     assert _deltas(events) == ["Hi"]
-    assert len(events) == 2
+    # M15 (D-097): the "Hi" chunk's usage is reported before its delta, so three events. A
+    # chunk that itself carries `usageMetadata` is reported too, and makes four.
+    assert len(events) == (4 if "usageMetadata" in chunk else 3)
+    assert [type(event).__name__ for event in events[-3:]] == [
+        "ProviderUsage",
+        "StreamDelta",
+        "ProviderStreamEnd",
+    ]
 
 
 @pytest.mark.asyncio
@@ -528,8 +548,9 @@ async def test_empty_text_with_max_tokens_is_a_success_with_no_delta(
 ) -> None:
     events, error, _ = await _stream(gemini_frame(chunk))
     assert error is None
-    assert len(events) == 1
-    assert events[0].finish_reason == "max_tokens"
+    # M15 (D-097): the usage on the chunk is reported, then the end; no delta.
+    assert [type(event).__name__ for event in events] == ["ProviderUsage", "ProviderStreamEnd"]
+    assert events[-1].finish_reason == "max_tokens"
 
 
 # Usage (D-075, D-049): latest value per count, then `complete`'s arithmetic

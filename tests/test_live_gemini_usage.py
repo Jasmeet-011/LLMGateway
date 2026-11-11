@@ -143,7 +143,8 @@ async def test_gemini_streamed_usage_is_cumulative_and_the_adapter_reports_the_b
         async for event in adapter.stream(request):
             if isinstance(event, StreamDelta):
                 deltas.append(event.text)
-            else:
+            elif isinstance(event, ProviderStreamEnd):
+                # M15 (D-097): ProviderUsage events come before the end and are not it.
                 end = event
     finally:
         await adapter.aclose()

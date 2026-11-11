@@ -153,9 +153,14 @@ def _tripwire() -> BreakerPolicy:
 # The interface (D-067, D-068, D-073)
 
 
-def test_provider_stream_event_is_a_delta_or_an_end() -> None:
+def test_provider_stream_event_is_a_delta_a_usage_or_an_end() -> None:
+    # M15 (D-097) amends D-067: adapters may also yield `ProviderUsage` before the end.
     base = base_module()
-    assert set(get_args(base.ProviderStreamEvent)) == {StreamDelta, base.ProviderStreamEnd}
+    assert set(get_args(base.ProviderStreamEvent)) == {
+        StreamDelta,
+        base.ProviderUsage,
+        base.ProviderStreamEnd,
+    }
 
 
 def test_stream_joins_the_adapter_protocol() -> None:
