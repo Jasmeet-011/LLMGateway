@@ -237,7 +237,7 @@ def test_integration_tests_fail_with_the_guard_message_for_a_scheme_that_is_not_
 ) -> None:
     # The host is local, so only the scheme is wrong. Every test fails before any request
     # and the failure is the guard's, naming the variable, not an httpx error from later.
-    # D-081 names the host and the failure; the scheme and the message are the guard's own.
+    # D-081 names the scheme rule (http or https), the host rule and the failure.
     run = _run_integration_file(tmp_path, base_url)
     _assert_every_test_failed(run)
     for case in run.cases:

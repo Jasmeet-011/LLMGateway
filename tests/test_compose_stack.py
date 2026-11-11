@@ -6,8 +6,9 @@ against the stack, and so can a laptop.
 
 The gateway's address is read from `LLMGATEWAY_BASE_URL`. If it is unset or empty, every
 test here FAILS with a message that says so. It never skips: a CI job that lost the
-variable must not go green with nothing tested. The host must be `127.0.0.1` or
-`localhost`, or the test fails before any request, so these can only reach a local stack,
+variable must not go green with nothing tested. The scheme must be `http` or `https` and
+the parsed host exactly `127.0.0.1` or `localhost`, or the test fails before any request,
+so these can only reach a local stack,
 which runs the mock (D-078). `tests/test_integration_guard.py` runs this file with the
 variable unset and with other hosts, with no Docker, and checks that all of it fails and
 that nothing is sent.
