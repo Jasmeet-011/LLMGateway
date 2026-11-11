@@ -65,7 +65,8 @@ def _write(kind, target):
 
 
 def _getaddrinfo(host, *args, **kwargs):
-    _write("getaddrinfo", host)
+    # The port is written too (M14), so a test can see which address was asked for.
+    _write("getaddrinfo", (host, args[0] if args else None))
     raise socket.gaierror("refused by the guard test")
 
 
@@ -362,3 +363,22 @@ def test_the_outage_test_is_collected_last_in_the_whole_run(tmp_path: Path) -> N
         "::test_zz_outage_a_valid_key_is_503_with_postgres_stopped_and_200_when_it_returns"
     )
     assert sum("zz_outage" in line for line in ids) == 1
+
+
+@pytest.mark.parametrize(
+    ("base_url", "host", "port"),
+    [
+        pytest.param("http://127.0.0.1:1", "127.0.0.1", 1, id="loopback_address"),
+        pytest.param("http://localhost:2", "localhost", 2, id="localhost"),
+    ],
+)
+def test_the_stack_tests_connect_to_the_address_they_were_given(
+    tmp_path: Path, base_url: str, host: str, port: int
+) -> None:
+    # Added in Mode 2: a guard that returned some other local address passed every
+    # test above, which only counted attempts. The first test sends a request.
+    run = _run_integration_file(tmp_path, base_url)
+    _assert_every_test_failed(run)
+    lookups = [attempt for attempt in run.attempts if attempt.startswith("getaddrinfo")]
+    assert lookups, run.attempts
+    assert set(lookups) == {f"getaddrinfo ('{host}', {port})"}, lookups

@@ -833,6 +833,58 @@ async def test_the_lifespan_shutdown_closes_the_key_store_and_the_router() -> No
     assert adapter.closed == 1
 
 
+class FailingClose(MockProvider):
+    async def aclose(self) -> None:
+        raise RuntimeError("router close failed")
+
+
+@pytest.mark.asyncio
+async def test_the_key_store_is_closed_even_when_the_router_fails_to_close() -> None:
+    # Added in Mode 2: a mutant that skipped the store's close after a router failure
+    # survived. The pool must not be left open because an adapter's close raised.
+    router = Router({"mock": [Route(provider="mock", model="mock-1", adapter=FailingClose())]})
+    app, store = make_app(router=router)
+    with pytest.raises(RuntimeError, match="router close failed"):
+        async with app.router.lifespan_context(app):
+            pass
+    assert store.closed == 1
+
+
+async def _run_lifespan(app: FastAPI) -> list[str]:
+    """Drives the app with an ASGI `lifespan` scope, as a server does, and says what it sent."""
+    inbox: asyncio.Queue[dict[str, str]] = asyncio.Queue()
+    sent: list[str] = []
+
+    async def receive() -> dict[str, str]:
+        return await inbox.get()
+
+    async def send(message: MutableMapping[str, Any]) -> None:
+        sent.append(message["type"])
+
+    task = asyncio.ensure_future(
+        app({"type": "lifespan", "asgi": {"version": "3.0"}}, receive, send)
+    )
+    await inbox.put({"type": "lifespan.startup"})
+    for _ in range(200):
+        if "lifespan.startup.complete" in sent or task.done():
+            break
+        await asyncio.sleep(0)
+    await inbox.put({"type": "lifespan.shutdown"})
+    await asyncio.wait_for(task, timeout=30)
+    return sent
+
+
+@pytest.mark.asyncio
+async def test_the_lifespan_scope_passes_through_auth_and_shutdown_closes_the_store() -> None:
+    # Added in Mode 2: a middleware that authenticated every scope but websockets would
+    # crash the lifespan (it has no path or headers); uvicorn's "auto" mode hides that and
+    # the store would never be closed.
+    app, store = make_app()
+    sent = await _run_lifespan(app)
+    assert sent == ["lifespan.startup.complete", "lifespan.shutdown.complete"]
+    assert store.closed == 1
+
+
 @pytest.mark.asyncio
 async def test_the_key_store_is_not_closed_before_shutdown() -> None:
     app, store = make_app()

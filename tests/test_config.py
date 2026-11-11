@@ -1006,6 +1006,24 @@ def test_database_url_rejects_a_bad_value_naming_the_variable_and_never_the_valu
         assert url not in _everything(error)
 
 
+@pytest.mark.parametrize("port", ["notaport", "99999", "65536", "-1", "12x34", "9x9x9"])
+def test_database_url_rejects_a_port_that_is_not_a_port_without_echoing_it(port: str) -> None:
+    # Added in Mode 2. urlsplit accepts such a URL and only `.port` raises, with a message
+    # that repeats the port; the connection would otherwise fail on every lookup.
+    error = _database_error({DB_VARIABLE: f"postgresql://u:{DB_MARKER}@host:{port}/db"})
+    assert DB_VARIABLE in str(error)
+    text = _everything(error)
+    assert DB_MARKER not in text
+    assert f":{port}" not in text
+    assert "9x9x9" not in text
+
+
+@pytest.mark.parametrize("port", ["0", "1", "5432", "65535"])
+def test_database_url_accepts_a_port_in_range(port: str) -> None:
+    url = f"postgresql://u:pw@host:{port}/db"
+    assert config_module.database_url({DB_VARIABLE: url}) == url
+
+
 def test_database_url_unset_is_an_error_naming_the_variable() -> None:
     assert DB_VARIABLE in str(_database_error({}))
 

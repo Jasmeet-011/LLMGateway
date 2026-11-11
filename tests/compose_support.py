@@ -139,6 +139,17 @@ def row_sql(columns: str, key: str) -> str:
     return f"SELECT {columns} FROM api_keys WHERE key_id = '{key_id_of(key)}'"  # noqa: S608
 
 
+def insert_sql(key_id: str, tenant: str, created_at: str) -> str:
+    """An INSERT of a row with an all-zero hash, for tests that need a chosen creation time.
+
+    The arguments are hex ids, a test-made tenant and a fixed timestamp, never outside input.
+    """
+    zero_hash = "decode('" + "00" * 32 + "', 'hex')"
+    columns = "(key_id, tenant_id, key_hash, created_at)"
+    values = f"('{key_id}', '{tenant}', {zero_hash}, '{created_at}')"
+    return f"INSERT INTO api_keys {columns} VALUES {values}"  # noqa: S608
+
+
 def psql(sql: str) -> "subprocess.CompletedProcess[str]":
     """One statement in the stack's Postgres: unaligned, tuples only (`-At`)."""
     return compose(

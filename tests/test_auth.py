@@ -729,6 +729,35 @@ async def test_a_full_cache_drops_the_oldest_inserted_and_not_the_least_recently
 
 
 @pytest.mark.asyncio
+async def test_a_key_read_again_after_it_expired_counts_as_the_newest_insert() -> None:
+    # Added in Mode 2: a mutant that left the expired entry in place kept the re-read key
+    # at its old position, so it was the next one dropped. The cache is not full when the
+    # key is read again, which is when the old position would survive.
+    clock = FakeClock(100.0)
+    store = FakeKeyStore(*[make_key(n) for n in (1, 2, 3, 4)])
+    authenticator = make_authenticator(store, clock=clock, cache_seconds=10.0, max_entries=3)
+
+    async def ok(n: int) -> None:
+        assert await authenticator.authenticate(make_key(n)) is not None
+
+    def finds() -> list[int]:
+        return [int(k, 16) for k in store.find_calls]
+
+    await ok(1)  # inserted at 100, expires at 110
+    clock.now = 101.0
+    await ok(2)  # inserted at 101
+    clock.now = 110.0  # 1 has expired, 2 has not
+    await ok(1)  # read again: the newest insert now, order is 2, 1
+    await ok(3)  # order 2, 1, 3: full
+    await ok(4)  # drops 2, the oldest inserted
+    assert finds() == [1, 2, 1, 3, 4]
+    await ok(1)
+    assert finds() == [1, 2, 1, 3, 4]
+    await ok(2)
+    assert finds() == [1, 2, 1, 3, 4, 2]
+
+
+@pytest.mark.asyncio
 async def test_the_cache_never_holds_more_than_max_entries() -> None:
     store = FakeKeyStore(*[make_key(n) for n in range(1, 6)])
     authenticator = make_authenticator(store, max_entries=3)

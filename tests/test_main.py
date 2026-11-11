@@ -863,6 +863,77 @@ def test_a_real_server_authenticates_over_a_real_socket() -> None:
         assert secret not in stderr
 
 
+# Added in Mode 2: what main wires into the app. A store that counts its lookups and keeps
+# the URL it was built with sits behind main.app, which answers three requests for one key.
+WIRING_PROBE = """
+import asyncio, json, os
+
+import httpx
+import llmgateway.keystore as _keystore
+
+_FINDS = []
+_DSNS = []
+_Base = _keystore.PostgresKeyStore
+
+
+class _Counting(_Base):
+    def __init__(self, dsn, **kwargs):
+        _DSNS.append(dsn)
+        super().__init__(dsn, **kwargs)
+
+    async def find(self, key_id):
+        _FINDS.append(key_id)
+        return await super().find(key_id)
+
+
+_keystore.PostgresKeyStore = _Counting
+import llmgateway.main as main
+
+
+async def probe():
+    transport = httpx.ASGITransport(app=main.app)
+    headers = {"authorization": os.environ["PROBE_AUTHORIZATION"]}
+    body = {"model": "mock", "messages": [{"role": "user", "content": "hi"}], "max_tokens": 8}
+    async with httpx.AsyncClient(
+        transport=transport, base_url="http://test", headers=headers
+    ) as client:
+        statuses = [(await client.post("/v1/chat", json=body)).status_code for _ in range(3)]
+    print(json.dumps([statuses, len(_FINDS), _DSNS]))
+
+
+asyncio.run(probe())
+"""
+
+
+@pytest.mark.parametrize(
+    ("cache_seconds", "lookups"),
+    [
+        pytest.param("0", 3, id="cache_off"),
+        pytest.param(None, 1, id="default_10_s"),
+        pytest.param("30", 1, id="30_s"),
+    ],
+)
+def test_main_gives_the_app_a_store_built_from_the_url_and_the_cache_time_from_the_environment(
+    cache_seconds: str | None, lookups: int
+) -> None:
+    env = _env(PROBE_AUTHORIZATION=AUTH_HEADERS["authorization"])
+    if cache_seconds is not None:
+        env["LLMGATEWAY_KEY_CACHE_SECONDS"] = cache_seconds
+    # WIRING_PROBE is the fixed script above, not outside input.
+    result = subprocess.run(  # noqa: S603
+        [sys.executable, "-c", child_prelude() + WIRING_PROBE],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    statuses, finds, dsns = json.loads(result.stdout.strip().splitlines()[-1])
+    assert statuses == [200, 200, 200]
+    assert finds == lookups
+    assert dsns == [UNREACHABLE_URL]
+
+
 def test_a_real_server_with_an_unreachable_database_is_503_for_a_key_and_healthz_is_200() -> None:
     cases: list[list[str | None]] = [
         ["no_key", "POST", "/v1/chat", None],

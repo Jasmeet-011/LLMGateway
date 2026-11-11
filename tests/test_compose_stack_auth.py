@@ -27,6 +27,8 @@ What they prove, from PLAN.md's M14 Proof (valid key 200, invalid key 401, revok
 Nothing here imports the gateway's code.
 """
 
+import re
+import secrets
 import time
 from typing import Any
 
@@ -36,9 +38,11 @@ from compose_support import (
     BODY,
     base_url,
     bearer,
+    cli,
     compose,
     create_key,
     gateway,
+    insert_sql,
     key_id_of,
     psql,
     revoke_key,
@@ -225,6 +229,67 @@ def test_a_revocation_is_recorded_as_a_time_and_nothing_else_changes() -> None:
         row_sql("tenant_id, encode(key_hash, 'hex'), created_at, revoked_at IS NOT NULL", key)
     )
     assert after.stdout.strip() == before.stdout.strip() + "|t"
+
+
+def test_revoking_twice_says_already_revoked_and_an_unknown_id_is_no_such_key() -> None:
+    base_url()
+    key = create_key("integration-revoke-twice")
+    first = cli("revoke", key_id_of(key))
+    second = cli("revoke", key_id_of(key))
+    unknown = cli("revoke", "ffffffffffffffff")
+    assert (first.returncode, first.stdout) == (0, f"revoked key_id={key_id_of(key)}\n")
+    assert (second.returncode, second.stdout) == (
+        0,
+        f"already revoked key_id={key_id_of(key)}\n",
+    )
+    assert (unknown.returncode, unknown.stdout) == (1, "")
+    # `docker compose exec` on Docker Desktop for Windows doubles a final newline on stderr.
+    assert unknown.stderr.strip() == "llmgateway.keys: no such key"
+
+
+def test_list_shows_a_tenants_keys_in_creation_order_with_the_revocation_time() -> None:
+    base_url()
+    tenant = f"list-{secrets.token_hex(4)}"
+    keys = [create_key(tenant) for _ in range(3)]
+    other = create_key(f"other-{secrets.token_hex(4)}")
+    revoke_key(keys[1])
+    listed = cli("list", "--tenant", tenant)
+    assert listed.returncode == 0, listed.stderr
+    lines = listed.stdout.splitlines()
+    assert len(lines) == 3, listed.stdout
+    stamp = r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\+00:00"
+    for line, key, revoked in zip(lines, keys, (False, True, False), strict=True):
+        pattern = rf"{key_id_of(key)} tenant={tenant} created={stamp} revoked=({stamp}|-)"
+        match = re.fullmatch(pattern, line)
+        assert match is not None, line
+        assert (match.group(1) != "-") is revoked, line
+    everything = cli("list")
+    assert everything.returncode == 0
+    for key in (*keys, other):
+        assert key_id_of(key) in everything.stdout
+    assert key_id_of(other) not in listed.stdout
+    for key in (*keys, other):
+        assert secret_of(key) not in everything.stdout
+        assert sha256_hex(key) not in everything.stdout
+
+
+def test_list_breaks_a_creation_time_tie_by_key_id() -> None:
+    base_url()
+    tenant = f"tie-{secrets.token_hex(4)}"
+    ids = sorted(secrets.token_hex(8) for _ in range(3))
+    try:
+        # Rows with one creation time, inserted in the opposite order to the key ids.
+        for key_id in reversed(ids):
+            inserted = psql(insert_sql(key_id, tenant, "2020-01-01 00:00:00+00"))
+            assert inserted.returncode == 0, inserted.stderr
+        listed = cli("list", "--tenant", tenant)
+        assert listed.returncode == 0, listed.stderr
+        assert [line.split()[0] for line in listed.stdout.splitlines()] == ids
+        assert all(
+            "created=2020-01-01T00:00:00+00:00" in line for line in listed.stdout.splitlines()
+        )
+    finally:
+        psql(f"DELETE FROM api_keys WHERE tenant_id = '{tenant}'")  # noqa: S608
 
 
 def test_zz_outage_a_valid_key_is_503_with_postgres_stopped_and_200_when_it_returns() -> None:
