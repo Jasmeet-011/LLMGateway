@@ -39,8 +39,11 @@ Key design choices:
   the status (D-074). Events are read by their JSON `type`; thinking, `ping` and
   anything unknown produce nothing, because new event types may be added. Usage is
   cumulative, so a later count replaces an earlier one, and counts are never added.
-  An in-stream `error` is treated as the HTTP status its `error.type` stands for, so
-  an overload right after the 200 retries and falls back like a real 529. Its
+  A `ProviderUsage` follows `message_start` (input, and the small first output count)
+  and every `message_delta` that carries usage (the cumulative output, near the end),
+  so a stream cut short still has the last counts Anthropic gave (D-097). An in-stream
+  `error` is treated as the HTTP status its `error.type` stands for, so an overload
+  right after the 200 retries and falls back like a real 529. Its
   `message` is never read. `async with client.stream` around the yields closes the
   connection on every exit, cancellation included.
 """
@@ -70,6 +73,7 @@ from llmgateway.providers.base import (
     ProviderStreamEvent,
     ProviderTimeout,
     ProviderUnavailable,
+    ProviderUsage,
     parse_retry_after,
 )
 from llmgateway.providers.sse import iter_sse
@@ -261,20 +265,31 @@ class _StreamProgress:
         self.input_tokens: int | None = None
         self.output_tokens: int | None = None
 
-    def read(self, frame: dict[str, Any]) -> ProviderStreamEvent | None:
-        """The event this frame produces, if any; raises `ValueError` on a bad one."""
+    def read(self, frame: dict[str, Any]) -> list[ProviderStreamEvent]:
+        """The events this frame produces; raises `ValueError` on a bad one."""
         match frame.get("type"):
             case "content_block_delta":
-                return self._text(frame)
+                text = self._text(frame)
+                return [text] if text is not None else []
             case "message_start":
                 self._start(frame)
+                return self._usage()
             case "message_delta":
-                self._delta(frame)
+                if self._delta(frame):
+                    return self._usage()
             case "message_stop":
-                return self._end()
+                return [self._end()]
             case "error":
                 raise _in_stream_error(frame)
-        return None
+        return []
+
+    def _usage(self) -> list[ProviderStreamEvent]:
+        # The counts so far (D-097): output is 0 until reported. With no input count yet
+        # (no message_start) there is nothing to report, and message_stop will fail.
+        if self.input_tokens is None:
+            return []
+        usage = Usage(input_tokens=self.input_tokens, output_tokens=self.output_tokens or 0)
+        return [ProviderUsage(usage=usage)]
 
     def _text(self, frame: dict[str, Any]) -> StreamDelta | None:
         delta = frame.get("delta")
@@ -292,18 +307,20 @@ class _StreamProgress:
         if "output_tokens" in message.usage.model_fields_set:
             self.output_tokens = message.usage.output_tokens
 
-    def _delta(self, frame: dict[str, Any]) -> None:
+    def _delta(self, frame: dict[str, Any]) -> bool:
+        """Reads a message_delta; true when it carried usage."""
         parsed = _MessageDelta.model_validate(frame)
         if parsed.delta.stop_reason is not None:
             self.stop_reason = parsed.delta.stop_reason
         usage = parsed.usage
         if usage is None:
-            return
+            return False
         # Cumulative, so a later count replaces an earlier one; never added.
         if usage.input_tokens is not None:
             self.input_tokens = usage.input_tokens
         if usage.output_tokens is not None:
             self.output_tokens = usage.output_tokens
+        return True
 
     def _end(self) -> ProviderStreamEnd:
         if (
@@ -327,11 +344,10 @@ async def _stream_events(
     try:
         async with aclosing(iter_sse(response.aiter_bytes())) as frames:
             async for frame in frames:
-                event = progress.read(_FRAME.validate_json(frame.data))
-                if event is not None:
+                for event in progress.read(_FRAME.validate_json(frame.data)):
                     yield event
-                if isinstance(event, ProviderStreamEnd):
-                    return
+                    if isinstance(event, ProviderStreamEnd):
+                        return
     except ValueError:
         # ValidationError and UnicodeDecodeError are both ValueErrors. The 2xx status
         # tells the router this generation was billed (D-052).

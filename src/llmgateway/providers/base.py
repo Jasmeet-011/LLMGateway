@@ -9,7 +9,9 @@ Key design choices:
   match it structurally without inheriting anything.
 - `stream` is an async generator on every adapter (D-067): non-empty deltas, then
   exactly one `ProviderStreamEnd`. A generator closes its connection on `aclose()`
-  and on cancellation, which is what stops a stream nobody is reading.
+  and on cancellation, which is what stops a stream nobody is reading. Along the way
+  it yields a `ProviderUsage` whenever the provider reports usage, because a
+  generator closed early cannot return its counts at the end (D-097).
 - Adapters return a `ProviderResult`, not a `ChatResponse`, and end a stream with a
   `ProviderStreamEnd`, not a `StreamEnd`. The gateway builds those because only it
   knows the gateway response ID and the requested alias.
@@ -55,7 +57,19 @@ class ProviderStreamEnd(BaseModel):
     provider_response_id: Annotated[str, Field(min_length=1)] | None = None
 
 
-ProviderStreamEvent = StreamDelta | ProviderStreamEnd
+class ProviderUsage(BaseModel):
+    """The usage a stream has reported so far (D-097).
+
+    The router keeps the latest one of an attempt, so a stream cut short still has the
+    last counts the provider gave. It is never sent to a client and is not a first event.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    usage: Usage
+
+
+ProviderStreamEvent = StreamDelta | ProviderUsage | ProviderStreamEnd
 
 
 class ProviderAdapter(Protocol):

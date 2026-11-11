@@ -27,9 +27,14 @@ Key design choices:
   the status the client got, so a stream that failed partway says 200; a bug during
   a stream adds its class name through `state`, and the rest is in the router's
   `stream_failed` line (D-069).
-- The app owns its router and authenticator: on shutdown its lifespan calls
-  `router.aclose()`, which closes each adapter's HTTP client, and then
-  `authenticator.aclose()`, which closes the key store's pool.
+- With a `recorder` (D-099), each request gets a meter that turns every attempt the
+  router makes into a usage record with this key's tenant and key id (D-095). Recording
+  only queues the record; the database write happens on the recorder's own task, so it
+  never adds to a response's latency or fails it. Without one, nothing is recorded.
+- The app owns its router, recorder and authenticator: on shutdown its lifespan calls
+  `router.aclose()`, which closes each adapter's HTTP client, then `recorder.aclose()`,
+  which drains the queue for a few seconds, then `authenticator.aclose()`, which closes
+  the key store's pool; each still runs if an earlier one raises.
 - A small pure ASGI middleware, not `BaseHTTPMiddleware`, assigns the request ID,
   adds `x-request-id` to every response, writes one log line per request, and turns
   unexpected exceptions into the standard 500 body. It handles those itself
@@ -72,6 +77,7 @@ from llmgateway.providers.base import ProviderError
 from llmgateway.router import ClientDisconnected, Router, UnknownAlias, build_router
 from llmgateway.schema import ChatRequest, ChatResponse
 from llmgateway.streaming import open_event_stream
+from llmgateway.usage import UsageRecorder
 
 logger = logging.getLogger("llmgateway.request")
 
@@ -149,16 +155,22 @@ def create_app(
     id_factory: Callable[[], str] | None = None,
     *,
     authenticator: Authenticator,
+    recorder: UsageRecorder | None = None,
 ) -> FastAPI:
     gateway = router if router is not None else build_router(parse_config(DEFAULT_CONFIG), {})
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         yield
+        # The router first, so a stream it closes is still recorded (D-099).
         try:
             await gateway.aclose()
         finally:
-            await authenticator.aclose()
+            try:
+                if recorder is not None:
+                    await recorder.aclose()
+            finally:
+                await authenticator.aclose()
 
     app = FastAPI(
         title="LLMGateway",
@@ -190,9 +202,19 @@ def create_app(
             ) from None
         request.state.provider = first.provider
         request.state.provider_model = first.model
+        # One usage record per attempt, with this key's tenant (D-095, D-099).
+        meter = (
+            None
+            if recorder is None
+            else recorder.meter(
+                request_id=request_id_of(request),
+                principal=request.state.principal,
+                alias=body.model,
+            )
+        )
         if body.stream:
             try:
-                stream = await open_event_stream(gateway, body, request)
+                stream = await open_event_stream(gateway, body, request, meter=meter)
             except ClientDisconnected:
                 raise GatewayError(499, "client_disconnected", "The client disconnected.") from None
             request.state.provider = stream.route.provider
@@ -204,6 +226,7 @@ def create_app(
                 body,
                 request_id=request_id_of(request),
                 is_disconnected=request.is_disconnected,
+                meter=meter,
             )
         except ClientDisconnected:
             raise GatewayError(499, "client_disconnected", "The client disconnected.") from None

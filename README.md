@@ -19,7 +19,7 @@ FastAPI gateway
   ├─ router          timeouts, retries (backoff + jitter), circuit breaker,
   │                  fallback to the other provider before the first streamed byte
   ├─ adapters        unified schema ⇄ Claude / Gemini / mock provider (async httpx, SSE streaming)
-  └─ accounting      token counts and cost per request; Prometheus metrics (stretch)
+  └─ accounting      token counts and cost per provider attempt, in Postgres; Prometheus metrics (stretch)
   │
   ▼
 Claude API · Gemini API · mock provider (default; configurable latency and failure rate)
@@ -67,7 +67,7 @@ Each provider instance has a circuit breaker, held in process memory, so with se
 
 A request goes down its alias's list: everything but a bad request moves to the next entry, including rate limits, auth errors and a malformed 2xx, and an empty `max_tokens` answer counts as an answer (D-060). The client gets the last failure that really happened. One 90 s deadline covers the whole request, and a non-last entry must finish 30 s before it, so a hung first entry still leaves the next one time (D-061). Each move writes one `fallback_taken` log line. The response's `provider_instance` names the config instance that served (D-063). Before each retry and each move the gateway checks that the client is still connected; if it has gone, no further call is made and the request line says `status=499` (D-062).
 
-Set `stream` to true and the same endpoint answers with server-sent events: `delta` events, then one `end` event with the usage and everything else a normal response carries, in the same shape for Claude, Gemini and the mock (D-073). For Claude and Gemini that is proven against provider frames built from their docs, and one real streaming request per provider passed in the owner's live run on 2026-11-11 (D-074, D-075). How Gemini's usage counts behave across chunks is still unverified: that run shows counts above 0, not whether they are cumulative (D-075). Terminal 2, with the mock:
+Set `stream` to true and the same endpoint answers with server-sent events: `delta` events, then one `end` event with the usage and everything else a normal response carries, in the same shape for Claude, Gemini and the mock (D-073). For Claude and Gemini that is proven against provider frames built from their docs, and one real streaming request per provider passed in the owner's live run on 2026-11-11 (D-074, D-075). A second live run showed Gemini's streamed usage counts are cumulative, so the gateway takes the last value and never adds them up; whether Gemini's thinking count behaves the same in a stream is still unverified (D-075, D-097). Terminal 2, with the mock:
 
 ```powershell
 $body = @{ model = "mock"; max_tokens = 32; stream = $true; messages = @(@{ role = "user"; content = "hello there" }) } | ConvertTo-Json -Depth 5
@@ -75,6 +75,12 @@ $body | curl.exe -sN -X POST http://127.0.0.1:8000/v1/chat -H "authorization: Be
 ```
 
 A stream goes down its alias's list exactly as above until its first event, a delta with text or the end, so a failure before then retries or falls back, and if nothing serves, the client gets the usual JSON error, not a 200 (D-068). After the first event there is no retry and no fallback: a failure sends one `error` event with a fixed code and ends the body, with no `end` event, so a client can tell a partial answer from a whole one, and it writes a `stream_failed` line (D-069). The limit after the first event is 60 s between events, with no limit on the total (D-070). A stream counts as one breaker outcome, decided when it ends, so a provider that drops streams partway still trips the breaker (D-071). A client that disconnects, or stops reading for 60 s, closes the upstream connection at once (D-072). Whether closing it stops the provider's billing at that moment is not documented, so that part is unverified.
+
+**Usage and cost (D-095 to D-099).** Every call the gateway makes to a provider is one row in Postgres's `usage_records` table: retries, fallback attempts, failures and streams cut short included, not just the answer the client got. A row names the key's tenant and key id, the alias, the provider instance and model, the attempt number, the outcome (`success`, `failed` or `abandoned`, with a fixed reason), the token counts as the provider reported them (thinking included, never capped at `max_tokens`) and the cost in integer nano-dollars (10⁻⁹ USD). A stream that stops early records the last counts the provider gave and is marked `partial`; a failed non-streaming call has no counts. Prices come from `src/llmgateway/prices.toml`, where each price carries its source page and the day it was read; a configured Claude or Gemini model without a price stops startup. The mock costs 0, and its counts are words, not tokens. Records are queued in memory and written in batches by a background task, so writing never slows down or fails an answer; a failed write is logged (`usage_write_failed`) and those rows are lost. To see a tenant's spend in the Compose stack:
+
+```powershell
+docker compose exec -T postgres psql -U llmgateway -d llmgateway -c "SELECT tenant_id, count(*), sum(cost_nanousd) / 1e9 AS usd FROM usage_records GROUP BY tenant_id"
+```
 
 Two mocks in one alias, with no key: `$env:LLMGATEWAY_CONFIG = "config/mock-fallback.toml"`, then send alias `mock-fallback`. Its first instance has 20 ms latency and fails 30% of attempts, and a request whose attempts all fail, or that its breaker refuses, is served by the second instance. That failure rate can also open the breaker by chance (D-057).
 
@@ -128,7 +134,7 @@ $env:LLMGATEWAY_BASE_URL = "http://127.0.0.1:8000"
 uv run pytest -m integration
 ```
 
-The integration tests make, revoke and read keys through `docker compose exec`, so they need the `docker` CLI, and the last one stops and restarts Postgres to prove the 503 (D-094).
+The integration tests make, revoke and read keys and usage rows through `docker compose exec`, so they need the `docker` CLI, and the last one stops and restarts Postgres to prove the 503 (D-094, D-100).
 
 GitHub Actions runs `check.ps1` on Linux, and builds and starts the Compose stack and runs the integration tests against it, on every push to `main` and every pull request (D-080, D-081). It uses no secrets, never runs the live tests, and every job has a 15-minute limit.
 

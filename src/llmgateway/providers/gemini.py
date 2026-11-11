@@ -48,10 +48,13 @@ Key design choices:
   same function, so it cannot lose `MINIMAL` thinking (D-049). Thought parts produce no
   event. It reads to the end of the body, because usage may follow the finish reason. A
   later count replaces an earlier one, a count left out keeps it, and counts are never
-  added, because Google does not say how they behave across chunks and adding would
-  be badly wrong if they are cumulative. The final `output_tokens` is the same
-  `candidatesTokenCount + thoughtsTokenCount` as `complete`. Gemini has no terminator,
-  so the finish reason is the only proof that a stream ended.
+  added: the owner's live run showed them cumulative (D-075), so adding them would
+  overstate usage several times over. `thoughtsTokenCount` follows the same rule. Each
+  chunk with `usageMetadata` yields a `ProviderUsage` of the merged counts, before that
+  chunk's text, so a stream cut short keeps the last counts (D-097). The final
+  `output_tokens` is the same `candidatesTokenCount + thoughtsTokenCount` as
+  `complete`. Gemini has no terminator, so the finish reason is the only proof that a
+  stream ended.
 """
 
 import re
@@ -81,6 +84,7 @@ from llmgateway.providers.base import (
     ProviderStreamEvent,
     ProviderTimeout,
     ProviderUnavailable,
+    ProviderUsage,
     parse_retry_after,
 )
 from llmgateway.providers.sse import iter_sse
@@ -289,8 +293,8 @@ class _StreamProgress:
         self.response_id: str | None = None
         self.usage: _UsageMetadata | None = None
 
-    def read(self, body: dict[str, Any], status: int) -> StreamDelta | None:
-        """The text in this chunk, if any; raises `ValueError` on a bad chunk."""
+    def read(self, body: dict[str, Any], status: int) -> list[ProviderStreamEvent]:
+        """This chunk's usage, if it has any, then its text; raises `ValueError` on a bad one."""
         if _is_blocked(body):
             raise ProviderBadRequest(
                 "gemini: prompt blocked", status=status, reason="prompt_blocked"
@@ -301,16 +305,30 @@ class _StreamProgress:
         chunk = _StreamChunk.model_validate(body)
         if isinstance(chunk.response_id, str) and chunk.response_id:
             self.response_id = chunk.response_id
+        events: list[ProviderStreamEvent] = []
         if chunk.usage_metadata is not None:
             self._merge(chunk.usage_metadata)
+            events.append(ProviderUsage(usage=self._usage()))
         if not chunk.candidates:
-            return None
+            return events
         candidate = _StreamCandidate.model_validate(chunk.candidates[0])
         if candidate.finish_reason:
             self.finish_reason = candidate.finish_reason
         parts = candidate.content.parts if candidate.content is not None else []
         text = "".join(p.text for p in parts if p.text is not None and not p.thought)
-        return StreamDelta(text=text) if text else None
+        if text:
+            events.append(StreamDelta(text=text))
+        return events
+
+    def _usage(self) -> Usage:
+        usage = self.usage
+        if usage is None:
+            raise ValueError("no usageMetadata in any chunk")
+        # The same arithmetic as `complete`: thinking is billed as output (D-049).
+        return Usage(
+            input_tokens=usage.prompt_token_count,
+            output_tokens=usage.candidates_token_count + usage.thoughts_token_count,
+        )
 
     def _merge(self, usage: _UsageMetadata) -> None:
         # Per field: a later count replaces an earlier one, one left out keeps it.
@@ -321,15 +339,9 @@ class _StreamProgress:
         self.usage = self.usage.model_copy(update=fresh)
 
     def end(self) -> ProviderStreamEnd:
-        usage = self.usage
-        if usage is None:
-            raise ValueError("no usageMetadata in any chunk")
         return ProviderStreamEnd(
             finish_reason=_FINISH_REASONS.get(self.finish_reason, "other"),
-            usage=Usage(
-                input_tokens=usage.prompt_token_count,
-                output_tokens=usage.candidates_token_count + usage.thoughts_token_count,
-            ),
+            usage=self._usage(),
             provider_response_id=self.response_id,
         )
 
@@ -343,9 +355,8 @@ async def _stream_events(
     try:
         async with aclosing(iter_sse(response.aiter_bytes())) as frames:
             async for frame in frames:
-                delta = progress.read(_BODY.validate_json(frame.data), status)
-                if delta is not None:
-                    yield delta
+                for event in progress.read(_BODY.validate_json(frame.data), status):
+                    yield event
         if progress.finish_reason:
             yield progress.end()
             return

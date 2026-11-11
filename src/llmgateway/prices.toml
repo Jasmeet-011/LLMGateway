@@ -1,0 +1,50 @@
+# Provider prices (D-096, D-098). Read by llmgateway/prices.py at startup.
+#
+# Each model is a list of periods. A record is priced by the period with the latest
+# `from` on or before its UTC date. Prices are USD per million tokens, written as
+# strings with at most three decimal places, standard paid tier. `source` is the
+# provider's pricing page and `checked` the day the price was read there. Change a
+# price only with its source and the day you read it.
+#
+# Mock instances are not listed: they cost 0 by rule (D-098).
+
+[[claude."claude-haiku-5-5"]]
+from = 2026-11-11
+input = "0.10"
+output = "0.50"
+# Anthropic prices Haiku 5.5 higher "for prompts over 100,000 tokens".
+long_prompt_over = 100000
+long_input = "0.50"
+long_output = "2.50"
+source = "https://platform.claude.com/docs/en/about-claude/pricing"
+checked = 2026-11-11
+
+[[claude."claude-opus-5-5"]]
+from = 2026-11-11
+input = "4"
+output = "20"
+source = "https://platform.claude.com/docs/en/about-claude/pricing"
+checked = 2026-11-11
+
+# Google's output price is labeled "including thinking tokens".
+[[gemini."gemini-3.5-flash-lite"]]
+from = 2026-11-11
+input = "0.30"
+output = "2.50"
+source = "https://aistudio.google.com/docs/pricing"
+checked = 2026-11-11
+
+[[gemini."gemini-3.6-flash"]]
+from = 2026-11-11
+input = "0.75"
+output = "3.75"
+source = "https://aistudio.google.com/docs/pricing"
+checked = 2026-11-11
+
+# "$1.50 starting January 1, 2027" and "$7.50 starting January 1, 2027".
+[[gemini."gemini-3.6-flash"]]
+from = 2027-01-01
+input = "1.50"
+output = "7.50"
+source = "https://aistudio.google.com/docs/pricing"
+checked = 2026-11-11

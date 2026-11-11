@@ -44,6 +44,7 @@ from llmgateway.errors import provider_error_status, request_id_of
 from llmgateway.providers.base import ProviderError, ProviderStreamEnd
 from llmgateway.router import ClientDisconnected, Route, Router, ServedStream
 from llmgateway.schema import ChatRequest, StreamDelta, StreamEnd, StreamError
+from llmgateway.usage import Meter
 
 _HEADERS: Final = {"cache-control": "no-cache", "x-accel-buffering": "no"}
 
@@ -72,7 +73,9 @@ async def _close_opened(opening: "asyncio.Task[ServedStream]") -> None:
         await opening.result().aclose()
 
 
-async def open_event_stream(gateway: Router, body: ChatRequest, request: Request) -> "EventStream":
+async def open_event_stream(
+    gateway: Router, body: ChatRequest, request: Request, *, meter: Meter | None = None
+) -> "EventStream":
     """Opens the stream, or raises what the client should see (D-068, D-072).
 
     Nothing has been sent when this returns or raises. A client that leaves meanwhile
@@ -86,7 +89,9 @@ async def open_event_stream(gateway: Router, body: ChatRequest, request: Request
         return gone.done()
 
     opening = asyncio.ensure_future(
-        gateway.open_stream(body, request_id=request_id, is_disconnected=is_disconnected)
+        gateway.open_stream(
+            body, request_id=request_id, is_disconnected=is_disconnected, meter=meter
+        )
     )
     client_left = False
     try:
