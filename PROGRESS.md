@@ -95,6 +95,39 @@ Newest sessions go here. When this file passes 50 KB, move the session log and t
 4. Prove the stack from a clean clone and the integration tests locally, then on CI.
 5. Tester, Mode 2; reviewer; push; CI green on `main`.
 
+**D-089 and the stop rule.** D-089 supersedes the order in D-018 and D-045's position for the alias check. CLAUDE.md makes contradicting a D-entry a stop condition. It was not treated as one, because PLAN.md lists this exact order question as an M14 issue to settle and D-045 says to revisit it in M14; DECISIONS.md's rule for reversing an entry is a new entry that supersedes it. The owner can overrule this.
+
+**Tests, Mode 1** (d4cd4be). New: `tests/auth_support.py`, `test_auth.py`, `test_auth_app.py`, `test_keystore.py` (real asyncpg against a refused port and a silent server, no Postgres), `test_keys_cli.py`, `test_migrations.py` (offline), `compose_support.py` (D-081's guard moved here) and `test_compose_stack_auth.py` (integration, D-094). Every existing test that builds an app or a child got a key and an authenticator as setup only; `git diff -U0` showed no removed `assert` line. `tests/conftest.py` sorts `test_zz_outage_*` last, so the outage test runs after every other integration test. **Red run, `src/` unchanged, from `--junitxml`:** 640 failed, 4 collection errors (the four new files that import `llmgateway.auth` at module level), 3312 passed, 23 deselected. The tester also built a throwaway implementation in its scratch folder to check its tests could pass; it never touched `src/`.
+
+**Build** (9d1251d). `auth.py`, `keystore.py`, `keys.py`, `migrations/`, `config.py`, `app.py`, `main.py`, `compose.yaml`, `.env.example`, README. Three test failures on the first run, each the code not matching the brief: `list --tenant=` passed `""` instead of `None` (the brief said `T or None`); the wrong-scheme and missing-host URL errors shared one message; and ruff's import order in four new test files, which it can only judge once `llmgateway.auth` exists (fixed by `ruff --fix`, no assertion touched). `.\scripts\check.ps1` PASS: 4374 passed, 23 deselected in 183.50 s; mypy clean on 64 files.
+
+**Compose from a clean clone** (Lesson 13). Docker Desktop's engine answered 500 for over an hour after it was started, until `docker desktop restart`. Then a fresh `git clone` at 9d1251d: `docker compose build --no-cache --pull`, `docker compose up --wait --wait-timeout 180`: `migrate` exited 0 (`migrations applied`), api, postgres and redis healthy. `LLMGATEWAY_BASE_URL=http://127.0.0.1:8000 uv run pytest -m integration`: 15 passed in 35.25 s, including the outage test (Postgres stopped, a never-used key gets 503 `auth_unavailable`; started again, the same key gets 200). In the image, `llmgateway/migrations/versions/` holds `0001_api_keys.py`, so the migrations ship in the wheel. The TCP healthcheck rests on the image's `docker-entrypoint.sh`, line 297: the first-run temporary server sets `listen_addresses=''` (D-078's note).
+
+**Mutation checks, Mode 2.** One mutant at a time, each reverted with `git checkout` and checked byte-identical, `git diff -- src/` empty at the end. Nine SQL mutants of `keystore.py` ran only against the live stack: copied into the api container with `docker cp`, the integration tests run (never the outage test), then the container recreated from the image. Totals checked by the builder: 238 = 203 + 23 + 12.
+
+| Area | Mutants | Caught at first | After a new test | Equivalent | Uncaught | Hung |
+| --- | --- | --- | --- | --- | --- | --- |
+| `bearer_key` | 11 | 9 | 0 | 2 | 0 | 0 |
+| `KEY_PATTERN` | 9 | 9 | 0 | 0 | 0 | 0 |
+| `Authenticator` | 40 | 37 | 1 | 2 | 0 | 0 |
+| `AuthMiddleware` | 28 | 26 | 1 | 1 | 0 | 0 |
+| Leaks (key, secret, hash at INFO and DEBUG) | 10 | 10 | 0 | 0 | 0 | 0 |
+| `app.py` (order, request line, lifespan) | 11 | 9 | 1 | 1 | 0 | 0 |
+| `keystore.py` | 24 | 7 | 16 | 1 | 0 | 0 |
+| `keys.py` CLI | 35 | 35 | 0 | 0 | 0 | 0 |
+| `config.py` | 23 | 19 | 2 | 2 | 0 | 0 |
+| `main.py` | 7 | 5 | 1 | 1 | 0 | 0 |
+| Migration DDL (offline) | 16 | 16 | 0 | 0 | 0 | 0 |
+| URL guard (M13's G group, now in `compose_support.py`) | 15 | 12 | 1 | 2 | 0 | 0 |
+| SQL on the live stack (integration only) | 9 | 9 | 0 | 0 | 0 | 0 |
+| **Total** | **238** | **203** | **23** | **12** | **0** | **0** |
+
+- **Survivors, fixed by new tests** (ac7dbc4): 16 `keystore.py` mutants that need a driver error, a row or a pool to see (driver-error tuple, the DSN in the cause chain, revoke mapping, list order, parameters, pool close, the `DBAPIError` family in `run_migrations`), now caught by `tests/test_keystore_pool.py` over a fake pool; C30 (an expired entry left in place keeps its old age); W26 (authenticating the lifespan scope); D07 (a router `aclose` that raises skipped the store's close); F06 and F08 (a non-numeric port); N05 (main ignoring the environment's cache time); U11 (the guard returning another local address).
+- **Equivalent:** B08 and C31 (the format check rejects the same keys), B11 (ASGI header names are lower-case), C12 (a 0 s entry expires at once), W28 (an extra state key), D08 (the order of the two closes is unspecified), S18 (an empty tenant cannot reach `list_keys`), F05, F23, U01 and U12 (blank or padded URLs fail or pass the same way), N07 (`SystemExit` with a message prints no traceback). F05, F23, N07, U01 and U12 rest on argument plus the targeted run, not the full suite.
+- The migration DDL mutants ran only through the offline renderer, not against a real database, because that would mean recreating the stack's volume; the integration test of the table's checks passes on the real one.
+
+After Mode 2, `.\scripts\check.ps1` PASS: 4549 passed, 26 deselected in 554.75 s (Docker Desktop and the stack were running), ruff clean, 76 files formatted, mypy clean on 65 files. `uv run pytest -m integration` against the stack: 18 passed in 246.70 s.
+
 ### 2026-11-11: owner's live run, D-071 approval, M13 Docker Compose and CI
 
 **State check.** The brief's expected HEAD was left as an unfilled placeholder (`[PASTE git log --oneline -1]`), so it could not be compared; HEAD was e915468, clean, on `main`, level with origin after `git pull`. `.\scripts\check.ps1` PASS: 3798 passed, 7 deselected in 45.12 s, matching the brief.
@@ -151,5 +184,8 @@ Older rows are in [docs/archive/2026-11-sessions.md](docs/archive/2026-11-sessio
 
 | Date | What went wrong | How it was caught | Fix |
 | --- | --- | --- | --- |
+| 2026-11-11 | M14: the builder's first edit script for the D-018, D-019, D-025 and D-045 notes was PowerShell that joined each string to a newline with `+` inside an array literal, where the comma binds tighter than `+`, so the pairs were not what was written. | The script's own all-or-nothing count check (0 matches), before anything was written. | Rewritten as a Python script with the same count check (Lesson 12). |
+| 2026-11-11 | M14: the builder's `keys.py` passed an empty `--tenant=` to the store as `""`, though its own brief to the tester said `T or None`; and `database_url` gave one message for a wrong scheme and a missing host. | Two Mode 1 tests on the first run of the build. | `args.tenant or None`; two messages (9d1251d). |
+| 2026-11-11 | M14: the build's `keystore.py` had 16 behaviors no Mode 1 test could see without a database (driver-error mapping per class, the DSN in the cause chain, revoke and list results, pool close), and the lifespan close order and a non-numeric port were unpinned. | Tester, Mode 2 (S, C30, W26, D07, F06, F08, N05, U11). | `tests/test_keystore_pool.py` with a fake pool, and seven more tests (ac7dbc4). |
 | 2026-11-11 | M13: the builder's D-081 spec named the host rule but not the URL scheme, and the Mode 1 guard tests let three mutants through: `endswith` on the host, `netloc.split(":")[0]` (which would accept `http://localhost:80@evil-host`), and no scheme check. | Tester, Mode 2 (G04c, G04e, G05). | Two new tests in `tests/test_integration_guard.py`, and the scheme and parsed-host rule added to D-081 (88cfcdc). |
 | 2026-11-11 | M13: the tester's first G02b mutant had an `and`/`or` precedence slip that left the empty-URL check in place, so it survived for the wrong reason and briefly read as a gap. | The tester, rereading the surviving mutant. | Rewritten as `if value.strip() and (...)`; the corrected mutant is caught, and the table records that form. |
