@@ -28,10 +28,10 @@ import asyncio
 import dataclasses
 import logging
 import re
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 from stream_support import WALL_START, FakeClock, pass_time, until
@@ -81,6 +81,14 @@ async def running(
 def unavailable(name: str = "OSError") -> Exception:
     error: Exception = usage_module().UsageStoreUnavailable(name)
     return error
+
+
+def line_count_is(caplog: pytest.LogCaptureFixture, count: int) -> Callable[[], bool]:
+    return lambda: len(usage_lines(caplog)) == count
+
+
+def lines_exceed(caplog: pytest.LogCaptureFixture, seen: int) -> Callable[[], bool]:
+    return lambda: len(usage_lines(caplog)) > seen
 
 
 async def written(store: FakeUsageStore, count: int) -> None:
@@ -340,7 +348,7 @@ async def test_the_long_prompt_prices_reach_the_record() -> None:
 @pytest.mark.asyncio
 async def test_record_returns_none_at_once_and_writes_nothing_before_the_loop_runs() -> None:
     async with running() as (recorder, store):
-        assert recorder.record(make_record(1)) is None
+        assert cast(Any, recorder).record(make_record(1)) is None
         assert store.attempted == []
         await written(store, 1)
         assert store.records == [make_record(1)]
@@ -496,7 +504,7 @@ async def test_the_writer_keeps_running_after_every_kind_of_failure(
         ):
             store.error = error
             recorder.record(make_record(n))
-            await until(lambda n=n: len(usage_lines(caplog)) == n + 1, "the failure line")
+            await until(line_count_is(caplog, n + 1), "the failure line")
         store.error = None
         recorder.record(make_record(9))
         await written(store, 1)
@@ -616,7 +624,7 @@ async def test_a_record_offered_to_a_full_queue_is_dropped_and_counted_once_per_
 ) -> None:
     async with running(max_queue=3) as (recorder, store):
         for n in range(5):
-            assert recorder.record(make_record(n)) is None
+            assert cast(Any, recorder).record(make_record(n)) is None
         assert usage_lines(caplog) == []
         await written(store, 3)
         await until(lambda: bool(usage_lines(caplog)), "the drop to be logged")
@@ -700,7 +708,7 @@ async def test_drops_during_a_slow_write_are_one_line_after_that_batch(
 async def test_record_never_raises_whatever_the_queue_holds() -> None:
     async with running(max_queue=1) as (recorder, _):
         for n in range(20):
-            assert recorder.record(make_record(n)) is None
+            assert cast(Any, recorder).record(make_record(n)) is None
 
 
 # Shutdown (D-099)
@@ -768,7 +776,7 @@ async def test_a_record_offered_after_aclose_is_dropped_at_once_with_reason_clos
 ) -> None:
     recorder, store = make_recorder()
     await recorder.aclose()
-    assert recorder.record(make_record(1)) is None
+    assert cast(Any, recorder).record(make_record(1)) is None
     assert usage_lines(caplog) == [(logging.WARNING, "usage_dropped count=1 reason=closed")]
     recorder.meter(request_id=REQUEST_ID, principal=PRINCIPAL, alias=ALIAS)(attempt())
     assert usage_messages(caplog) == ["usage_dropped count=1 reason=closed"] * 2
@@ -935,14 +943,14 @@ async def test_no_line_for_a_failure_a_drop_a_timeout_or_a_closed_record_holds_r
             seen = len(usage_lines(all_logs))
             store.error = error
             meter(attempt())
-            await until(lambda seen=seen: len(usage_lines(all_logs)) > seen, "a failure line")
+            await until(lines_exceed(all_logs, seen), "a failure line")
         store.error = None
         store.hang()
         seen = len(usage_lines(all_logs))
         meter(attempt())
         await until(lambda: len(store.attempted) == 5, "a write to hang")
         await pass_time(clock, 1.5)
-        await until(lambda seen=seen: len(usage_lines(all_logs)) > seen, "the timeout line")
+        await until(lines_exceed(all_logs, seen), "the timeout line")
         await rec.aclose()
         rec.record(marked(50))
         meter(attempt())

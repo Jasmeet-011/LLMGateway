@@ -23,6 +23,7 @@ Streams are in `test_stream_usage.py`. Time is the fake clock, as in `test_retri
 
 import asyncio
 import contextlib
+import inspect
 import logging
 from typing import Any
 
@@ -65,7 +66,7 @@ from llmgateway.providers.base import (
     ProviderTimeout,
     ProviderUnavailable,
 )
-from llmgateway.router import ClientDisconnected
+from llmgateway.router import ClientDisconnected, Router
 from llmgateway.schema import ChatRequest
 
 
@@ -596,3 +597,10 @@ async def test_the_router_gives_the_meter_nothing_but_the_attempt() -> None:
     assert len(args) == 1
     assert kwargs == {}
     assert type(args[0]).__name__ == "AttemptUsage"
+
+
+@pytest.mark.parametrize("method", ["serve", "complete", "open_stream"])
+def test_the_router_methods_take_a_keyword_only_meter_defaulting_to_none(method: str) -> None:
+    parameter = inspect.signature(getattr(Router, method)).parameters["meter"]
+    assert parameter.kind is inspect.Parameter.KEYWORD_ONLY
+    assert parameter.default is None

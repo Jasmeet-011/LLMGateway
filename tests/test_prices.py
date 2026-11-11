@@ -232,7 +232,7 @@ def test_a_complete_table_parses_into_periods() -> None:
 
 def test_the_price_period_is_a_frozen_dataclass_with_the_documented_fields() -> None:
     found = parse(haiku()).price_on("claude", HAIKU, DAY)
-    assert dataclasses.is_dataclass(found)
+    assert dataclasses.is_dataclass(found) is True
     assert [f.name for f in dataclasses.fields(found)] == [
         "start",
         "input_nanousd",

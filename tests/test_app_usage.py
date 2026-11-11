@@ -21,6 +21,7 @@ Time is the fake clock where a limit is involved; waits are event loop turns (`u
 
 import asyncio
 import itertools
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import Any
 
@@ -685,7 +686,7 @@ def lifespan_app(
     monkeypatch: pytest.MonkeyPatch,
     log: list[str],
     *,
-    errors: dict[str, Exception] | None = None,
+    errors: Mapping[str, Exception] | None = None,
     with_recorder: bool = True,
 ) -> FastAPI:
     raising = errors or {}

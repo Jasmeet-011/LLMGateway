@@ -826,7 +826,7 @@ async def test_the_mock_stream_yields_deltas_then_one_end_and_no_usage_event() -
 @pytest.mark.asyncio
 async def test_a_mock_stream_that_is_closed_early_has_no_counts_to_report() -> None:
     provider = MockProvider()
-    generator = provider.stream(_request("mock-1"))
+    generator: Any = provider.stream(_request("mock-1"))
     first = await anext(generator)
     await generator.aclose()
     assert isinstance(first, StreamDelta)

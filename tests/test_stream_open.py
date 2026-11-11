@@ -169,8 +169,15 @@ def test_stream_joins_the_adapter_protocol() -> None:
 
 def test_open_stream_has_the_signature_the_spec_gives() -> None:
     signature = inspect.signature(router_module().Router.open_stream)
-    assert list(signature.parameters) == ["self", "request", "request_id", "is_disconnected"]
-    for name in ("request_id", "is_disconnected"):
+    # M15 (D-095) adds the keyword-only `meter`, default None.
+    assert list(signature.parameters) == [
+        "self",
+        "request",
+        "request_id",
+        "is_disconnected",
+        "meter",
+    ]
+    for name in ("request_id", "is_disconnected", "meter"):
         parameter = signature.parameters[name]
         assert parameter.kind is inspect.Parameter.KEYWORD_ONLY
         assert parameter.default is None

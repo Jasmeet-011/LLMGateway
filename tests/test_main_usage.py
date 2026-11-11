@@ -373,7 +373,9 @@ async def probe():
     rows = [dataclasses.asdict(row) for row in _ROWS]
     for row in rows:
         row["recorded_at"] = row["recorded_at"].isoformat()
-    print(json.dumps({**out, "rows": rows, "dsns": _DSNS, **_STATE}))
+    # The DSN is reported as a fact, not printed: the leak check below scans this output.
+    dsn_is_the_url = _DSNS == [os.environ["LLMGATEWAY_DATABASE_URL"]]
+    print(json.dumps({**out, "rows": rows, "dsn_is_the_url": dsn_is_the_url, **_STATE}))
 
 
 asyncio.run(probe())
@@ -419,7 +421,7 @@ def test_the_served_app_has_a_recorder_that_reaches_the_swapped_store() -> None:
 
 def test_main_builds_the_usage_store_from_the_database_url_and_closes_it_once_at_shutdown() -> None:
     out = _wiring(_env(PROBE_AUTHORIZATION=AUTH_HEADERS["authorization"]))
-    assert out["dsns"] == [UNREACHABLE_URL]
+    assert out["dsn_is_the_url"] is True
     assert out["closed"] == 1
     # Both rows were drained into the store when the lifespan ended.
     assert len(out["rows"]) == 2
