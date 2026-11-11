@@ -79,6 +79,25 @@ Distilled from the mistakes logs. The full history is in [docs/archive/2026-11-s
 
 Newest sessions go here. When this file passes 50 KB, move the session log and the mistakes rows, unchanged, to a new file in [docs/archive/](docs/archive/), and keep the Lessons section current.
 
+### 2026-11-11: owner's live run, D-071 approval, M13 Docker Compose and CI
+
+**State check.** The brief's expected HEAD was left as an unfilled placeholder (`[PASTE git log --oneline -1]`), so it could not be compared; HEAD was e915468, clean, on `main`, level with origin after `git pull`. `.\scripts\check.ps1` PASS: 3798 passed, 7 deselected in 45.12 s, matching the brief.
+
+**Owner's results, recorded first** (6c68587). The owner's live run, `uv run --env-file .env pytest -m live -v`: 7 passed, as reported. D-074 and D-075 each got a dated note. `alt=sse` is verified. **Gemini's streamed usage counts being cumulative is still unverified:** `test_real_gemini_stream_through_app_accepts_alt_sse` asserts only that each final count is above 0, which per-chunk counts would also pass. D-071 is approved on the owner's condition that a client that disconnects or stops reading mid-stream is neutral. That was already the code and already pinned through the app by four tests in `tests/test_stream_disconnect.py`. A mutation check by the main session confirmed they bite: `ServedStream.aclose` recording a failure for every abandoned stream failed 23 tests, and recording one only for `client_stalled` failed 10; `git diff -- src/` was empty afterwards. No fix was needed.
+
+**Plan for M13.**
+1. Spec first: D-078 to D-084, a settled note on D-066, FLOW.md section 6 and the module map, PLAN.md's settled line.
+2. Tester, Mode 1: tests for D-082 (log times, including a child with a non-UTC `TZ`), D-081's integration tests, and D-084's move of `tests/test_retries.py` off `GUARD_SECONDS`. Red run before any `src/` change.
+3. Build: `llmgateway/logtime.py`, the breaker and `main.py` on it; `Dockerfile`, `.dockerignore`, `compose.yaml`, `.github/workflows/ci.yml`, the marker in `pyproject.toml`; README.
+4. Prove `docker compose up --build --wait` and the integration tests locally, then on CI.
+5. Tester, Mode 2; reviewer; push; CI green on `main`.
+
+**Investigation: Windows TIME_WAIT** (D-083). A scratch pytest plugin counted per test file: 2,672 `socket.socketpair()` calls, exactly one per async test, which is each test's event loop self-pipe; 44 other TCP sockets, all in the real-uvicorn section of `tests/test_stream_disconnect.py`; 33 child processes in `tests/test_main.py` (16) and `tests/test_faults.py` (17). A bare script that creates and closes 200 event loops leaves 200 loopback TIME_WAIT sockets, for every loop type. So the buildup is the per-test loop, not real servers, and every other test already uses an in-process transport: there was nothing to switch. What remains, and why: the real-uvicorn tests (D-072 on a real server, Lesson 13), the startup children (real exit codes and a real server), and the per-test loops (isolation). A session-wide loop was measured as the alternative: 3798 passed with 1 socketpair, 39.17 s against 48.36 s. It is rejected in D-083 for isolation.
+
+**Investigation: the 5 s app import.** `python -X importtime -c "import llmgateway.main"`, today, awake: 963 ms cumulative under importtime; five plain runs took 763 to 779 ms against 51 to 56 ms for a bare `python -c pass`. The slow imports by self time: fastapi 187 ms (`fastapi.routing` to `fastapi.params` to `fastapi.openapi.models` and `fastapi.exceptions` is the longest chain), pydantic 131 ms, asyncio 51 ms, opentelemetry 50 ms (fastapi 0.143.1 imports `opentelemetry-api` in `fastapi.telemetry`), starlette 39 ms, httpx 33 ms plus its CLI (`httpx._main` pulls in click, rich and pygments when they are installed, 47 ms cumulative). The repo's own modules: 55 ms self. The 5,159 ms recorded in M12 came with a bare interpreter at 319 ms, six times today's, and a full suite at 258 s against 45 s today, on the same code. **So the cause is the machine's state at the time, not the repo, and nothing is changed.** What slowed the machine then is not known; Defender's real-time protection is on, but that is not shown to be the cause.
+
+**D-066 on Linux.** In the pinned Python image, a throwaway hanging test under `-o timeout=3` failed alone and the next test passed: `1 failed, 1 passed in 3.04s`. Recorded in D-066.
+
 ## Agent Mistakes Log
 
 Older rows are in [docs/archive/2026-11-sessions.md](docs/archive/2026-11-sessions.md) and [docs/archive/2026-11-m12-sessions.md](docs/archive/2026-11-m12-sessions.md).

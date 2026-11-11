@@ -64,13 +64,13 @@ One line per entry, with what superseded it. A session reads this index plus eve
 - D-056 The breaker counts each attempt; timeouts, unavailable and auth failures count, rate limits and bad requests do not
 - D-057 Trip rule: 15 failures in the last 20 outcomes; 30 s cooldown; one probe
 - D-058 The router checks the breaker before every attempt; a refused request gets 503 `provider_circuit_open`
-- D-059 One log line per breaker state change
+- D-059 One log line per breaker state change (the `ts` format superseded by D-082)
 - D-060 Everything but a bad request falls back
 - D-061 One deadline for the whole request; a non-last entry leaves 30 s; attempts number per entry
 - D-062 The router checks the client before every retry and fallback attempt; 499 when it is gone
 - D-063 `ChatResponse.provider_instance` says which instance served
 - D-064 `LLMGATEWAY_FAULTS`: fault windows for mock instances only
-- D-065 Tests keep `main.py` from setting the gateway logger's level in-process
+- D-065 Tests keep `main.py` from setting the gateway logger's level in-process (the prefix made a contract by D-082)
 - D-066 One 300 s limit per test with pytest-timeout
 - D-067 Adapters stream through one async generator, with one event shape
 - D-068 The first event commits a stream; before it, a stream is an ordinary request
@@ -83,6 +83,13 @@ One line per entry, with what superseded it. A session reads this index plus eve
 - D-075 Gemini streaming: `streamGenerateContent`, D-049's thinking, and usage reported the same way
 - D-076 One byte-level SSE decoder, not httpx's `aiter_lines`
 - D-077 The mock streams its one answer, word by word
+- D-078 One image for the api, and Compose with the api, Postgres and Redis
+- D-079 Pins: images by tag and digest, actions by commit, uv by version, all under the age floor
+- D-080 CI: one GitHub Actions workflow on Linux, running `check.ps1` itself
+- D-081 Integration tests: the `integration` marker, run against the Compose stack
+- D-082 Every log timestamp is UTC with an explicit `+00:00` offset
+- D-083 Windows TIME_WAIT: the cause is one event loop per async test, and the loops stay
+- D-084 `tests/test_retries.py` waits on fake time, not on `GUARD_SECONDS`
 
 ## Entry format
 
@@ -708,6 +715,7 @@ One line per entry, with what superseded it. A session reads this index plus eve
 - **Alternatives:** A Prometheus gauge (stretch, D-031); a `/breaker` status endpoint polled by k6 (an extra surface, and polling can miss a short state); an in-memory list of transitions (lost on restart and needs an endpoint to read); the logging formatter's timestamp only (absent from a bare handler, and untestable); the request ID in the line (misleading: the provider's history caused the change, not that request).
 - **Risk:** Wall-clock time can jump (NTP, standby), so ordering should follow the file, not `ts`. A breaker that opens and closes repeatedly writes a line each time, bounded by one cycle per cooldown. The `open` to `half_open` line is written at the first request after the cooldown (D-057).
 - **Revisit when:** Prometheus metrics are added (stretch), or M18 finds the lines are not enough to draw measurement 8.
+- **Superseded in part by D-082:** `ts` now ends in `+00:00`, not `Z`, such as `2026-11-04T21:00:00.123+00:00`. Everything else here stands.
 
 ## D-060 Everything but a bad request falls back
 
@@ -774,6 +782,7 @@ One line per entry, with what superseded it. A session reads this index plus eve
 - **Alternatives:** `caplog.set_level(logging.DEBUG, logger="llmgateway")` at each call (138 edits, a new test can forget it, and a first import after the call still resets the level); a fixture that resets the level (a first import inside a test comes after the fixture); moving logger setup out of import into a startup function (the cleanest, but it changes the real startup path to fix a problem only tests have).
 - **Risk:** `main.py`'s branch runs only in subprocess tests, so an in-process test cannot cover it. Anything that imports `llmgateway.main` before `conftest.py` loads, such as a pytest plugin, would bring the blind spot back; the pins in `tests/test_main.py` would fail.
 - **Revisit when:** Logger setup moves out of import, or M18 puts `fallback_taken` on a timeline: D-061 says measurement 8 needs the moves, that line has no `ts`, and the prefix would be its only clock.
+- **Superseded in part by D-082:** the prefix is now a contract, UTC with a `+00:00` offset from `UtcFormatter`, pinned by tests. The rest of this entry stands.
 
 ## D-066 One 300 s limit per test with pytest-timeout
 
@@ -782,6 +791,7 @@ One line per entry, with what superseded it. A session reads this index plus eve
 - **Alternatives:** A timeout on each `subprocess.run` (the startup tests removed exactly that, because it fails on host stalls, and it covers only those tests); `faulthandler_timeout` alone (dumps stacks, stops nothing); only a job limit in CI (M13) (a local run would still block).
 - **Risk:** Measured on this machine with throwaway tests and a 3 s limit: on Windows a hang does not fail one test. The `thread` method dumps the stacks and ends the whole pytest process with exit 1, so the tests after it never run and no summary is printed. `check.ps1` still stops with a failure, so a session is not blocked, but the stack dump is the only report. On Linux the `signal` method should fail just the one test and go on, which is what the plugin's source does but has not been run here (unverified until M13). A hung child outlives pytest on Windows and has to be stopped by hand. A host stall over 300 s inside one test ends a healthy run, loudly.
 - **Revisit when:** A real test needs more than a minute, M13 shows the `signal` method behaving differently in CI, or a stall ends a healthy run.
+- **Settled for Linux in M13 (2026-11-11):** in `python:3.12.15-slim-trixie` (the image D-079 pins) with pytest 9.1.1 and pytest-timeout 2.4.0, a throwaway file with one test sleeping 60 s and one passing test, run with `-o timeout=3`, gave `Failed: Timeout (>3.0s) from pytest-timeout` on the first and `1 failed, 1 passed in 3.04s`. So on Linux, and in CI (D-080), a hang fails that one test and the run goes on, as the plugin's source says. The Windows behavior above is unchanged.
 
 ## D-067 Adapters stream through one async generator, with one event shape
 
@@ -935,3 +945,91 @@ Sources: https://platform.claude.com/docs/en/build-with-claude/streaming, read 2
 - **Alternatives:** A `stream_failure_after` setting (config, validation and docs for something only tests need, and fakes do it already); one delta holding the whole reply (it would hide bugs that need two events).
 - **Risk:** `LLMGATEWAY_FAULTS` cannot show a mid-stream failure in a demo.
 - **Revisit when:** M18 measures streams.
+
+## D-078 One image for the api, and Compose with the api, Postgres and Redis
+
+- **Decision:** Settles PLAN.md M13's scope for Compose.
+  - **`Dockerfile`, two stages.** The build stage copies the `uv` binary from the uv image and runs `uv sync --locked --no-dev`, first without the project (a layer that only changes with `uv.lock`) and then with it, `--no-editable`, into `/app/.venv`, with bytecode compiled and Python downloads off, so the image's own interpreter is used. The final stage is the same Python image with only `/app/.venv` and `config/` copied in: no uv, no compiler, no source tree, no tests. It runs as a non-root system user, uid 10001. The command is `uvicorn llmgateway.main:app --host 0.0.0.0 --port 8000`, in exec form, so uvicorn is PID 1 and gets the stop signal. A `HEALTHCHECK` fetches `/healthz` with the standard library, because the slim image has no curl.
+  - **`.dockerignore` is an allowlist:** `pyproject.toml`, `uv.lock`, `.python-version`, `src/` and `config/`, with `__pycache__` left out. So `.env`, `.venv`, `.git` and the tests never reach the build context.
+  - **`compose.yaml`:** three services. `api` is built from the `Dockerfile` and published on `127.0.0.1:8000` only. It gets no environment, so it starts on the built-in mock-only config (D-044) with no keys, as CLAUDE.md asks of the default. `postgres` and `redis` run the images D-079 pins, each with a healthcheck (`pg_isready`, `redis-cli ping`), on the Compose network only: no port is published. Postgres keeps its data in a named volume. `api` has no `depends_on` yet, because nothing in it connects to either; M14 and M16 add `depends_on` with `condition: service_healthy` when they add the first connection.
+  - **Postgres credentials:** user and database `llmgateway`, and the password `${POSTGRES_PASSWORD:-llmgateway-dev-only}`. The default is a local development value, not a secret: the port is not published, so only containers on the Compose network can reach it. Anything beyond a local run sets `POSTGRES_PASSWORD`.
+  - **Proof:** `docker compose up --build --wait` brings all three to healthy from a clean clone, and the integration tests (D-081) then pass against the api over a real socket. CI does exactly this on every push (D-080).
+- **Why:** PLAN.md's M13 asks for Compose with the api, Postgres and Redis. Two stages keep the build tools out of the running image. Building from `uv.lock` with `--locked` means the image holds exactly what the checks ran against, under the same age floor (D-029). Not publishing Postgres and Redis keeps the development default password harmless, and nothing on the host needs them before M14.
+- **Alternatives:** One stage (uv and the build cache stay in the running image); `pip install .` (ignores `uv.lock`, so the image could drift from what was tested); a distroless or Alpine Python base (no shell for the healthcheck, or musl wheels the lock was not checked against); a required `POSTGRES_PASSWORD` with no default (`docker compose up` from a clean clone would fail, which is the proof); `depends_on` now (a dependency nothing has).
+- **Risk:** `uv sync --no-editable` builds the project's wheel, which fetches `uv_build` from PyPI inside the build; build requirements are not in `uv.lock`, so that version is bounded only by `pyproject.toml`'s `uv_build>=0.11.32,<0.12.0`, the same as on a developer machine. The image's Python patch release differs from the one the checks run on (D-079). The development password is in a public repo by design; a deployment that forgets to set `POSTGRES_PASSWORD` and publishes the port would expose a known password. Postgres and Redis are only shown to start, not used, until M14 and M16.
+- **Revisit when:** M14 or M16 first connects to Postgres or Redis, a cloud deploy is built (stretch), or the image's Python is moved.
+
+## D-079 Pins: images by tag and digest, actions by commit, uv by version, all under the age floor
+
+- **Decision:** Settles PLAN.md M13's issues on image versions and on how CI pins third-party actions. D-029's floor extends to everything else the build pulls: nothing is pinned that was published less than 7 days before it was pinned.
+  - **Images** are written as `tag@sha256:<index digest>`, the multi-platform index, so the same pin works on the owner's x86-64 machine and on the CI runner. The digest is the one the tag pointed to on Docker Hub or ghcr.io when pinned, and only a tag last pushed at least 7 days earlier qualifies. On 2026-11-11 that gave:
+    - `python:3.12.15-slim-trixie@sha256:a0f57064cbdcd6285fa45f51237ab0b35ea8ebaed06a1f5973e89e19dfb86704`, last pushed 2026-10-22.
+    - `postgres:18.4-alpine3.24@sha256:9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15`, last pushed 2026-07-08. Every 18.5 and 18.6 tag was pushed inside the last 7 days.
+    - `redis:8.8.3-alpine3.23@sha256:cc9d0aecc235bda23e80287b5ef7c131cae443045b9a332d45932feb71a1e70e`, last pushed 2026-10-26.
+    - `ghcr.io/astral-sh/uv:0.12.1@sha256:cf4eedcaa81655197f625739489effcbe71b61ceb1506f332c3facae5deceded`, the uv release the owner's machine runs (released 2026-07-31).
+  - **Actions** are pinned by full commit SHA, with the release in a comment, and only a release published at least 7 days earlier qualifies: `actions/checkout` v7.0.1, `3d3c42e5aac5ba805825da76410c181273ba90b1` (published 2026-07-20), and `astral-sh/setup-uv` v10.3.3, `68559e99cc807c1eb7e9238fd43a15bba460eec2` (published 2026-10-28). The SHAs were read from GitHub's API for those tags, which are lightweight tags on those commits.
+  - **uv** is 0.12.1 everywhere: `setup-uv`'s `version` input in CI and the uv image in the `Dockerfile`.
+  - **Python:** CI runs the checks on 3.12.12, the version on the owner's machine, through `setup-uv`'s `python-version` input. The image runs 3.12.15, the newest 3.12 slim image under the floor; 3.12.12's slim image was last built on 2026-02-27, so it would ship nine months of unpatched Debian packages.
+  - Pins move by hand, deliberately, like `exclude-newer`. No bot updates them.
+- **Why:** A tag can be moved to different content, and so can a release tag on an action, so only a digest or a commit SHA says what ran. A supply-chain compromise is usually found and pulled within days, which is D-029's reason for the floor, and it applies to an image or an action as much as to a wheel. Matching uv and Python to the owner's machine means a CI failure reproduces locally.
+- **Alternatives:** Floating tags such as `postgres:18-alpine` (the newest fixes, but a rebuild can change what runs with no change in the repo); digests without the floor (postgres 18.6 instead of 18.4, at the cost of trusting a same-day push); actions by version tag (readable, but movable); Dependabot (would propose same-day versions; whether its cooldown setting can enforce the floor is unverified here); the image on 3.12.12 (matches the checks exactly, but with stale OS packages).
+- **Risk:** The floor keeps Postgres two patch releases behind today, and every pin goes stale until someone moves it; nothing reminds anyone. A digest can be deleted from a registry, which breaks the build loudly. The image's Python (3.12.15) is not the one the unit tests ran on (3.12.12); the integration tests run against the image itself, which covers the serving path, not every module.
+- **Revisit when:** M14 or M16 starts using Postgres or Redis (move those pins forward then), a pinned image or action gets a security advisory, or the owner's machine moves to a new Python or uv.
+
+## D-080 CI: one GitHub Actions workflow on Linux, running `check.ps1` itself
+
+- **Decision:** Settles PLAN.md M13's CI scope and its Windows TIME_WAIT issue for CI. `.github/workflows/ci.yml` runs on every push to `main` and on every pull request, with `permissions: contents: read`, no secrets, `persist-credentials: false` on checkout, and a concurrency group that cancels a superseded run of the same ref. Two jobs, each on `ubuntu-24.04` with `timeout-minutes: 15`:
+  - **`checks`** runs `scripts/check.ps1` under `pwsh`, which the runner image has, so CI runs the same five checks in the same order, with `uv sync --locked`, as a local run, from one file. `-m 'not live and not integration'` in `pyproject.toml` keeps out the live tests, and no key is set anywhere in the workflow.
+  - **`compose`** runs `docker compose up --build --wait --wait-timeout 180`, then `uv run pytest -m integration` against the stack (D-081), prints the Compose logs if anything failed, and always ends with `docker compose down -v`.
+  - D-066's 300 s limit ends a hung test; the job's 15 minutes is the outer guard, for a hang outside pytest such as a stuck build or Compose.
+  - There is no Windows job.
+- **Why:** One script means CI cannot drift from what a session runs before it says done. Linux is what the image runs on. On Linux `socket.socketpair()` uses `AF_UNIX` (Python's documented default where it exists), so the TIME_WAIT buildup PLAN.md's M13 names cannot happen there, and PLAN.md's rule that a Windows CI job must not run the suite in parallel has nothing to apply to. The Windows path keeps its coverage where it lives: every session runs `check.ps1` on the owner's Windows machine before reporting done. Fifteen minutes is about ten times the expected job, so a slow runner passes and a hang does not hold a runner for GitHub's default of six hours.
+- **Alternatives:** The five commands written out in the workflow (two lists to keep in step); a Windows job as well (doubles CI time for what every session already runs locally, and would reintroduce the TIME_WAIT question); GitHub's `services:` containers for Postgres and Redis (they repeat the image pins and healthchecks, and test neither the image nor `compose.yaml`; D-081); a matrix over Python versions (the project targets one).
+- **Risk:** A Windows-only failure is caught only locally. `check.ps1` running under `pwsh` on Linux is one more thing that could break; its output then names the step. The workflow's own syntax is only checked when it runs.
+- **Revisit when:** A failure shows up on one platform and not the other, the project supports another Python, or M14 or M16 needs a database in the `checks` job.
+
+## D-081 Integration tests: the `integration` marker, run against the Compose stack
+
+- **Decision:** Settles PLAN.md M13's issue on how integration tests are marked and selected.
+  - The marker `integration` means "needs the Compose stack running". `pyproject.toml`'s `addopts` becomes `-m 'not live and not integration'`, so a plain `uv run pytest` and `check.ps1` run neither kind, and `uv run pytest -m integration` selects these alone.
+  - They read the gateway's address from `LLMGATEWAY_BASE_URL`. **Unset or empty, each test fails** with a message saying so; it never skips, so a CI job that lost the variable cannot go green with nothing tested. The host must be `127.0.0.1` or `localhost`, or the test fails before any request, so they can only ever reach a local stack, which runs the mock (D-078).
+  - In M13 they cover what `docker compose up` must give: `GET /healthz` is 200 `{"status": "ok"}`; `POST /v1/chat` with alias `mock` is a 200 `ChatResponse` from the mock with `x-request-id` equal to its `id`; the same request with `stream=true` is a `text/event-stream` of deltas and one `end`, whose text is the non-streaming `content`; an unknown alias is the 400 `unknown_model` JSON error. They run over a real socket against the real image, so they are Lesson 13's proof in CI.
+  - M14 and M16 add integration tests against Postgres and Redis under the same marker.
+- **Why:** The Compose stack is what a user runs, so testing it is testing the deliverable, and one definition serves a laptop and CI. Failing instead of skipping is the lesson from the live tests turned around: a skipped live test is fine, because only the owner runs them; a skipped integration test in CI would be a silent pass.
+- **Alternatives:** Integration tests in the default run, skipped without the stack (a laptop without Docker skips them, and so could CI); GitHub `services:` for Postgres and Redis with the api run by pytest (D-080); `testcontainers` (a new dependency, and M13 allows none).
+- **Risk:** Until M14 and M16 there is nothing to test in Postgres or Redis beyond their healthchecks, so "integration tests against service containers" is, for now, tests against the api's container. The tests trust whatever answers on the address; another local service on port 8000 would make them fail, not pass.
+- **Revisit when:** M14 or M16 adds the first test that talks to Postgres or Redis.
+
+## D-082 Every log timestamp is UTC with an explicit `+00:00` offset
+
+- **Decision:** Settles PLAN.md M13's item on log timestamps. Supersedes the format in D-059 and the "no contract" sentence on the prefix in D-065.
+  - `llmgateway/logtime.py` holds `utc_timestamp(seconds: float) -> str`, the one time format in the gateway's logs: `YYYY-MM-DDTHH:MM:SS.mmm+00:00`, such as `2026-11-04T21:00:00.123+00:00`. It is the given POSIX time in UTC, truncated to the millisecond (not rounded), with the whole milliseconds taken first so the seconds and the fraction cannot disagree, as in D-059.
+  - The breaker's `ts` field (D-059) uses it, from the injected `wall_clock`. Only the suffix changes: `Z` becomes `+00:00`.
+  - `logtime.py` also holds `UtcFormatter`, a `logging.Formatter` whose time (`%(asctime)s`) is `utc_timestamp(record.created)`. `main.py`'s handler uses it with the same format string as before, `%(asctime)s %(levelname)s %(name)s %(message)s`. So the prefix on every gateway line is the same UTC format, and it is now a contract, which D-065 left it without.
+  - uvicorn's own lines keep uvicorn's default format, which has no timestamp (read from uvicorn 0.54.0's `LOGGING_CONFIG`), so there is no other `ts` to change.
+  - **Tests** use an injected clock: a fixed `wall_clock` for the breaker, a fixed `record.created` for the formatter, and exact expected strings. A local-time bug gives the same text on a UTC host, and CI runners are UTC (mutant B075 in M10 was caught only because this machine is not). So one test runs a child Python with `TZ` set to a fixed non-UTC zone, `XXX-05:30`, and checks the exact UTC text from both the breaker's formatting and the real `main.py` handler. Measured on this machine: a child with `TZ=XXX-05:30` sees `datetime.fromtimestamp(0)` as `1970-01-01 05:30:00`, so Windows' C runtime honors it; glibc documents the same POSIX `TZ` syntax.
+- **Why:** PLAN.md asks for UTC with an explicit offset. `+00:00` states the offset as a number, in the form Python's `isoformat` writes and every ISO 8601 parser reads, and one spelling everywhere means a prefix and a `ts` can be compared as text. Measurement 8 will line these lines up with k6's output (D-059, D-065), which cannot be done with a prefix in the host's local time and no zone, as the default `asctime` writes it.
+- **Alternatives:** Keep `Z` (RFC 3339 says the same thing; rejected for one spelling that names the offset, as PLAN.md words it); local time with its real offset (unambiguous, but lines from hosts in different zones would not sort as text); `logging.Formatter.converter = time.gmtime` (UTC, but `asctime` still has no offset and a comma before the milliseconds); a JSON log format (a bigger change than M13 needs).
+- **Risk:** Any reader already parsing `Z` breaks; none exists yet, since measurement 8 is M18. The `TZ` test depends on the C runtime reading `TZ` in a child, verified on this machine and documented for glibc, not proven on every platform; if a platform ignored it, the test would pass for the wrong reason, so the test also asserts that the child's local time really is offset.
+- **Revisit when:** Logs move to a structured format, or metrics replace the breaker line (stretch).
+
+## D-083 Windows TIME_WAIT: the cause is one event loop per async test, and the loops stay
+
+- **Decision:** Settles PLAN.md M13's Windows TIME_WAIT issue: no change to the test suite's event loops or transports. Measured on 2026-11-11 with a scratch pytest plugin that counted, per test file, every `socket.socketpair()` call, every other TCP socket created in the test process, and every child process:
+  - **2,672 socketpairs, one per async test.** On Windows an asyncio event loop's self-pipe is a loopback TCP socketpair, and pytest-asyncio gives each test its own loop (`asyncio_default_test_loop_scope` is unset, so `function`). Creating and closing 200 loops in a bare script left exactly 200 loopback sockets in TIME_WAIT, for the Proactor loop, the Selector loop and `asyncio.run` alike. This is the buildup.
+  - **44 other TCP sockets**, all in `tests/test_stream_disconnect.py`'s last section: a real uvicorn, a real upstream and a real client socket on 127.0.0.1. That section exists to prove D-072 on a real server (Lesson 13), so it stays.
+  - **33 child processes:** 16 in `tests/test_main.py` and 17 in `tests/test_faults.py`. They prove real startup: the exit code, stderr, and a real server serving. They stay.
+  - Every other test already uses an in-process transport: `httpx.MockTransport`, `httpx.ASGITransport` or the `Wire` harness. So there was nothing to switch, and switching transports could not have reduced the count.
+  - The suite's TIME_WAIT count grew by 2,322 over one full run (some expire during the run), which matches PLAN.md's "about 2,600".
+- **Why the loops stay:** a fresh loop per test is what keeps one test's leftover task, timer or patched `loop.time` (`virtual_time`) from running inside the next test, and the suite's timing tests depend on exact loop turns. The cost appears only when about six full runs overlap within two minutes on Windows, which only a mutation harness does, and Lesson 15 already bounds its workers. CI is Linux, where the self-pipe is `AF_UNIX` (D-080).
+- **Alternatives:** One session-wide loop, `asyncio_default_test_loop_scope = "session"`: measured on 2026-11-11, all 3798 tests passed with 1 socketpair instead of 2,672, in 39.17 s against 48.36 s. Rejected for isolation, not for failing: a passing run proves the suite has no cross-test bleed today, not that a future mutant or test cannot introduce one, and a mutant that leaks a task could then be caught or missed depending on test order. A module-wide loop (about 57 loops; the same trade, smaller); `SO_LINGER` 0 on the loop's self-pipe (reaches into private asyncio attributes); a `TcpTimedWaitDelay` registry change (machine-wide, needs admin, not the repo's to set).
+- **Risk:** A mutation harness on Windows with more than six workers will still exhaust the ephemeral ports. If a test ever needs a shared loop, the session-scope numbers above are the starting point.
+- **Revisit when:** Mutation runs on Windows need more than six workers, or CI gains a Windows job.
+
+## D-084 `tests/test_retries.py` waits on fake time, not on `GUARD_SECONDS`
+
+- **Decision:** Settles PLAN.md M13's item on `GUARD_SECONDS`. The tests in `tests/test_retries.py` that used `GUARD_SECONDS = 2.0` as a real-time outer limit, nine sites, and the real 0.02 s attempt timeouts they guarded, run on the test's `FakeClock` instead, with the technique M11 and M12 use (`stream_support`): the running loop's `time` is patched to the same fake clock the router reads, a hung attempt's timeout fires when the test moves that clock, and every wait is bounded by event loop turns, not seconds. No real-time limit is left in the file. No assertion changes: each test still asserts the same outcome, attempts, cancels and lines.
+- **Why:** A real 2 s limit fails a healthy test when the host stalls, which happened to the startup test under Modern Standby in M9 (D-066). A turn bound costs nothing on a stalled host and fails a broken router at once. The router's per-attempt timeout is `asyncio.timeout`, which reads `loop.time`, so fake time reaches it without changing `src/`.
+- **Alternatives:** A larger real guard such as 60 s (fails later, still fails under a long stall); no guard (a hung router would hang the run until D-066's 300 s limit, which on Windows ends the whole run).
+- **Risk:** A test on fake time proves the router's arithmetic, not that real `asyncio.timeout` fires on real time; that is Python's to prove, and the real-server tests in `tests/test_main.py` still run on real time.
+- **Revisit when:** The router's timeouts stop using the event loop's clock.

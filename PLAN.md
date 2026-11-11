@@ -82,6 +82,7 @@ Worked in order. Status and evidence are in [PROGRESS.md](PROGRESS.md); this fil
 - **Proof:** `docker compose up` works from a clean clone; a green CI run.
 - **Dependencies allowed:** none.
 - **Open issues to settle:** on Windows each asyncio loop's self-pipe is a loopback TCP socketpair, and one full `uv run pytest` leaves about 2,600 sockets in TIME_WAIT, so about six concurrent runs within 120 s exhaust the ephemeral ports (measured in M12 Mode 2); a Windows CI job must not run the suite in parallel, or the cause must be handled. Image versions and how they are pinned; how CI pins third-party actions; how integration tests are marked and selected; how CI runs `uv sync --locked` under the age floor (D-029).
+- **Settled:** D-078 (the image and Compose), D-079 (pins for images, actions, uv and Python, under the age floor), D-080 (CI on Linux running `check.ps1`; no Windows job), D-081 (the `integration` marker, run against the Compose stack), D-082 (UTC log times with `+00:00`), D-083 (TIME_WAIT: one event loop per async test, kept), D-084 (`GUARD_SECONDS` replaced by fake time). Added by the owner for M13: the TIME_WAIT investigation, the app import timing, and the CI runtime next to the local one (session log).
 
 ### M14 Hashed API keys in Postgres
 

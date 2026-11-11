@@ -203,7 +203,7 @@ A neutral outcome is not added to the window. On a probe it frees the slot and c
 
 An outcome counts only if the state has not changed since its call was allowed: a call that started before the breaker opened cannot close it, restart its cooldown, or stand in for the probe (D-057).
 
-Every state change writes one line to `llmgateway.breaker` at WARNING, and nothing else does (D-059): `breaker_state_change ts=%s provider=%s from=%s to=%s reason=%s`, with `ts` in UTC to the millisecond, and `reason` the code on the diagram's arrow. None of it reaches a client. When an attempt trips the breaker, this line comes before that attempt's `attempt_failed` line.
+Every state change writes one line to `llmgateway.breaker` at WARNING, and nothing else does (D-059): `breaker_state_change ts=%s provider=%s from=%s to=%s reason=%s`, with `ts` in UTC to the millisecond with an explicit offset, such as `2026-11-04T21:00:00.123+00:00` (D-082), and `reason` the code on the diagram's arrow. None of it reaches a client. When an attempt trips the breaker, this line comes before that attempt's `attempt_failed` line.
 
 ## 7. One request, step by step (target design)
 
@@ -261,6 +261,7 @@ src/llmgateway/
 ├── breaker.py           CircuitBreaker, BreakerPolicy: one per config instance
 ├── router.py            alias selection, timeouts, retries, breaker checks and fallback; open_stream, ServedStream
 ├── main.py              module-level app for uvicorn, config from the environment
+├── logtime.py           utc_timestamp, UtcFormatter: one UTC format for every log time (D-082)
 ├── auth                 API key hashing and lookup
 ├── ratelimit            Redis Lua token bucket
 ├── cache                cache key and storage
