@@ -65,6 +65,11 @@ async def _stop(task: "asyncio.Future[Any]") -> None:
     await asyncio.wait({task})
 
 
+async def _close_opened(opening: "asyncio.Task[ServedStream]") -> None:
+    if opening.done() and not opening.cancelled() and opening.exception() is None:
+        await opening.result().aclose()
+
+
 async def open_event_stream(gateway: Router, body: ChatRequest, request: Request) -> "EventStream":
     """Opens the stream, or raises what the client should see (D-068, D-072).
 
@@ -81,18 +86,26 @@ async def open_event_stream(gateway: Router, body: ChatRequest, request: Request
     opening = asyncio.ensure_future(
         gateway.open_stream(body, request_id=request_id, is_disconnected=is_disconnected)
     )
+    client_left = False
     try:
         racing: set[asyncio.Future[Any]] = {opening, gone}
         await asyncio.wait(racing, return_when=asyncio.FIRST_COMPLETED)
         if not opening.done():
+            client_left = True
             await _stop(opening)
     except BaseException:
         await _stop(opening)
+        # The opening may have finished in the same turn as this cancel: what it
+        # opened must still be closed, or its upstream and its permit leak (D-072).
+        await _close_opened(opening)
         await _stop(gone)
         raise
     if opening.cancelled():
         await _stop(gone)
-        raise ClientDisconnected("client disconnected")
+        if client_left:
+            raise ClientDisconnected("client disconnected")
+        # The adapter's own cancellation, not the client: it propagates (D-050, D-072).
+        opening.result()
     try:
         served = opening.result()
     except BaseException:
