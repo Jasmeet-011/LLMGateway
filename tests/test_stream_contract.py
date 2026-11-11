@@ -521,6 +521,31 @@ async def test_any_other_exception_from_send_closes_the_upstream_and_propagates(
     assert outcomes.of(gateway.breaker()) == ["neutral"]
 
 
+@pytest.mark.parametrize("at", [0, 1], ids=["the_start", "a_delta"])
+@pytest.mark.asyncio
+async def test_any_other_exception_from_send_is_abandoned_as_send_failed(
+    at: int, monkeypatch: pytest.MonkeyPatch, all_logs: pytest.LogCaptureFixture
+) -> None:
+    # D-072 (review round 1): a bug in `send` is not a client that left. The stream closes
+    # the same way, with one neutral outcome and the upstream closed once, but the line
+    # says `reason=send_failed`, never `client_gone`, and the exception propagates.
+    outcomes = Outcomes(monkeypatch)
+    adapter = StepsAdapter([Text("one"), Text("two"), Done()])
+    gateway = _gateway(adapter, monkeypatch, idle=NEVER)
+    wire = SendRaises(RuntimeError("send broke"), at)
+    async with wire.running(gateway.app()):
+        with pytest.raises(RuntimeError, match="send broke"):
+            await wire.finished()
+    request_id = request_record(all_logs).getMessage().split()[0].removeprefix("request_id=")
+    abandoned = [r for r in all_logs.records if r.getMessage().startswith("stream_abandoned")]
+    assert [r.getMessage() for r in abandoned] == [
+        abandoned_line(FIRST, "send_failed", request_id=request_id)
+    ]
+    assert [(r.name, r.levelname) for r in abandoned] == [("llmgateway.router", "INFO")]
+    assert adapter.closes == [1]
+    assert outcomes.of(gateway.breaker()) == ["neutral"]
+
+
 # A real adapter's key, when the client leaves mid-stream (D-072, the leak rule)
 
 
