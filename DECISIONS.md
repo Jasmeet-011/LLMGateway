@@ -23,14 +23,14 @@ One line per entry, with what superseded it. A session reads this index plus eve
 - D-015 Non-streaming adapter interface first
 - D-016 Mock provider design
 - D-017 pytest-asyncio for async tests
-- D-018 Order of checks per request
-- D-019 HTTP status mapping (the `stream=true` 501 superseded by D-073)
+- D-018 Order of checks per request (the first steps superseded by D-089: auth runs first)
+- D-019 HTTP status mapping (the `stream=true` 501 superseded by D-073; key rejections settled by D-089 and D-091)
 - D-020 Response ID format and `x-request-id`
 - D-021 Cache-hit header name
 - D-022 First endpoints (the `stream=true` 501 superseded by D-073)
 - D-023 Error body
 - D-024 App factory
-- D-025 Known gaps of the first endpoint
+- D-025 Known gaps of the first endpoint (the auth gap closed by D-089; the body size limit is still open)
 - D-026 Request logging
 - D-027 Temporary: model echoed, one provider (superseded in part by D-036, then by D-044 and D-045)
 - D-028 Web dependencies
@@ -50,7 +50,7 @@ One line per entry, with what superseded it. A session reads this index plus eve
 - D-042 Gemini checks before any network call: model ID and stop sequences
 - D-043 Adapters never follow redirects; undecodable bodies are unavailable
 - D-044 Gateway configuration: a TOML file named by `LLMGATEWAY_CONFIG`
-- D-045 Alias resolution, and what the response reports
+- D-045 Alias resolution, and what the response reports (its place in the order superseded by D-089)
 - D-046 The Gemini model-ID check stays in the adapter and also runs at startup
 - D-047 Initial alias lists
 - D-048 Gemini invalid key is an auth error; 402 is an auth error on both adapters
@@ -90,6 +90,16 @@ One line per entry, with what superseded it. A session reads this index plus eve
 - D-082 Every log timestamp is UTC with an explicit `+00:00` offset
 - D-083 Windows TIME_WAIT: the cause is one event loop per async test, and the loops stay
 - D-084 `tests/test_retries.py` waits on fake time, not on `GUARD_SECONDS`
+- D-085 Postgres dependencies: asyncpg for queries, Alembic on SQLAlchemy's asyncio engine for migrations
+- D-086 Key format: `lgw_<key id>_<secret>`, shown once, never stored; what the logs may hold
+- D-087 Key hash: SHA-256 of the whole key, no pepper, not bcrypt or argon2
+- D-088 Lookup by key id, then a constant-time compare, with a dummy compare when the id is unknown
+- D-089 Auth runs first, before the body is read; one 401 for every bad key (supersedes the order in D-018 and D-045)
+- D-090 A per-process cache of found keys, 10 s by default; revocation takes effect within that
+- D-091 Postgres down or slow: 2 s per lookup, then 503 `auth_unavailable`; the database URL is required at startup
+- D-092 Keys are made with a CLI; each request carries a `Principal` (key id, tenant) forward
+- D-093 Database schema: the `api_keys` table, created by Alembic migration 0001
+- D-094 M14 integration tests: keys and table reads through `docker compose exec`; Postgres stays unpublished
 
 ## Entry format
 
@@ -252,6 +262,7 @@ One line per entry, with what superseded it. A session reads this index plus eve
 - **Risk:** How spend caps stay atomic across a provider call, and whether cache hits count against rate limits, are still open.
 - **Revisit when:** The spend cap step starts.
 - **Amended by D-045:** the alias check (400 `unknown_model`) runs between body validation and the API key check.
+- **Superseded in part by D-089:** the API key is now checked first, before the body is read; then body validation, then the alias check, then the rest of this order unchanged.
 
 ## D-019 HTTP status mapping
 
@@ -262,6 +273,7 @@ One line per entry, with what superseded it. A session reads this index plus eve
 - **Revisit when:** The auth, rate limiter, and spend cap steps choose their codes, or the router adds fallback, which changes which provider errors ever reach the client.
 - **Extended by D-058:** `ProviderCircuitOpen` maps to 503 `provider_circuit_open`, with a `Retry-After` header while the breaker is open.
 - **Extended by D-062:** a client that disconnected before a retry or fallback attempt gets status 499 `client_disconnected`, in the log only. **D-060** decides which provider errors reach the client once fallback exists.
+- **Settled by D-089 and D-091:** every bad or missing key gets 401 `invalid_api_key`; a key that cannot be checked because Postgres is down or slow gets 503 `auth_unavailable`.
 
 ## D-020 Response ID format and `x-request-id`
 
@@ -311,6 +323,7 @@ One line per entry, with what superseded it. A session reads this index plus eve
 - **Alternatives:** A `Content-Length` check now (false sense of safety against chunked bodies); delay the endpoint until auth exists (nothing to test the error mapping end to end).
 - **Risk:** Anyone who binds to `0.0.0.0` exposes an unauthenticated endpoint that spends provider money once real adapters exist, and accepts bodies of any size.
 - **Revisit when:** The auth step, and before any non-local deployment.
+- **Partly closed by D-089:** auth exists, and a rejected request's body is never read. The body size limit is still open.
 
 ## D-026 Request logging
 
@@ -502,6 +515,7 @@ One line per entry, with what superseded it. A session reads this index plus eve
 - **Risk:** Two entries of the same type with the same model string give responses that cannot be told apart. That matters for M11's proof with two mocks and is open there. The alias check runs before auth exists (M14), so anyone who can reach the gateway can probe alias names; they are not secret. `model_copy(update=...)` skips validation, which is safe only because the config already checked the model.
 - **Revisit when:** M11 (the response must say which provider served), M14 (where the alias check sits relative to auth), M17 (whether the cache key uses the alias or the provider model).
 - **Settled in D-063:** `ChatResponse.provider_instance` names the instance that served, which also covers two entries with one model string.
+- **Superseded in part by D-089:** the alias check now runs after the API key check, so only a key holder can probe alias names.
 
 ## D-046 The Gemini model-ID check stays in the adapter and also runs at startup
 
@@ -1034,3 +1048,119 @@ Sources: https://platform.claude.com/docs/en/build-with-claude/streaming, read 2
 - **Alternatives:** A larger real guard such as 60 s (fails later, still fails under a long stall); no guard (a hung router would hang the run until D-066's 300 s limit, which on Windows ends the whole run).
 - **Risk:** A test on fake time proves the router's arithmetic, not that real `asyncio.timeout` fires on real time; that is Python's to prove, and the real-server tests in `tests/test_main.py` still run on real time.
 - **Revisit when:** The router's timeouts stop using the event loop's clock.
+
+## D-085 Postgres dependencies: asyncpg for queries, Alembic on SQLAlchemy's asyncio engine for migrations
+
+- **Decision:** Settles PLAN.md M14's dependency choice. Runtime dependencies, pinned exactly and locked under the existing `exclude-newer` of 2026-10-15 (D-029), which did not move: `asyncpg==0.32.0` (uploaded 2026-10-06), `alembic==1.20.0` (2026-09-11) and `sqlalchemy[asyncio]==2.1.4` (2026-10-07). They bring in greenlet 3.5.6 (SQLAlchemy's `asyncio` extra), Mako 1.4.3 and MarkupSafe 3.0.4 (Alembic). The gateway's queries go straight through asyncpg with `$n` parameters: the key lookup is one primary-key `SELECT` on the hot path and needs no ORM. Alembic runs the migrations through SQLAlchemy's asyncio engine on the same asyncpg driver, so one driver serves both. SQLAlchemy is declared directly because the migration imports it (as D-037 did for starlette). asyncpg ships no type information (no `py.typed`), so `pyproject.toml` tells mypy to treat `asyncpg` as untyped (`ignore_missing_imports`), and `llmgateway/keystore.py`, the only module that imports it, converts every value it reads to a typed one at the boundary.
+- **Why:** asyncpg has its own connection pool and is the fastest Python driver for Postgres, and the hot path is a single indexed read, so a thin, typed wrapper is clearer than an ORM session. PLAN.md allows "an async Postgres driver and Alembic, with SQLAlchemy". Using asyncpg for Alembic too avoids a second, synchronous driver.
+- **Alternatives:** psycopg 3 (async and sync in one package, typed; but pooling needs `psycopg_pool`, one more package PLAN.md does not list); SQLAlchemy's async ORM for the lookup (a session and a mapped class for one query, and more work per request); `asyncpg-stubs` for types (one more package, not listed); raw SQL migration files with no Alembic (PLAN.md names Alembic, and version tracking is what it is for).
+- **Risk:** asyncpg is untyped, so a wrong assumption about what it returns is caught only by tests; the boundary conversion in `keystore.py` and the integration tests against real Postgres are the guard. greenlet is a compiled extension; it has wheels for the owner's Windows machine and for Linux, checked in the lock.
+- **Revisit when:** A second query joins the hot path, or asyncpg gains type information.
+
+## D-086 Key format: `lgw_<key id>_<secret>`, shown once, never stored; what the logs may hold
+
+- **Decision:** Settles PLAN.md M14's key format question.
+  - A key is `lgw_`, then a **key id** of 16 lowercase hex characters (`secrets.token_hex(8)`, 64 bits), then `_`, then a **secret** of 64 lowercase hex characters (`secrets.token_hex(32)`, 256 bits): 85 characters in all. A presented key is well formed only if it fully matches `lgw_[0-9a-f]{16}_[0-9a-f]{64}`; upper-case hex, surrounding spaces or any other length are malformed.
+  - The **key id is the public half**, like a user name: it is stored in plain text as the primary key, listed by the CLI, and written on the request line of an authenticated request (D-092). It grants nothing without the secret.
+  - The **full key is shown exactly once**, on the CLI's standard output when it is created (D-092), and is never stored anywhere: Postgres holds only its hash (D-087). Lost keys cannot be recovered, only revoked and replaced. `NewKey`, the value `generate_key()` returns, leaves the key out of its `repr`, and `KeyRecord` leaves the hash out of its `repr`, so neither can reach a log by being printed.
+  - **Logs never hold** the `Authorization` header or any part of a rejected one, the secret, the full key, or a hash. The only key-related values a log line may hold are the key id and tenant of a key that was verified (D-092).
+- **Why:** The id lets the gateway find one row by primary key and then compare in constant time (D-088), gives revocation and logs a handle that is not a credential, and lets an operator tell keys apart without the secret. 256 bits of secret make guessing hopeless and justify a fast hash (D-087). The `lgw_` prefix makes a leaked key recognizable to a secret scanner and to a person. Lowercase hex has one spelling, so a key has exactly one valid text and one hash.
+- **Alternatives:** An opaque random key with no id, found by its hash (works, and is common; but every lookup is by a hash compared inside Postgres, and there is no non-secret handle for logs or revocation, D-088); base62 or base64url secrets (shorter, but `-` and `_` complicate the separator and case matters); a UUID as the key (122 random bits at most, and UUIDs are often logged as if harmless).
+- **Risk:** A key in a URL, a shell history or a client log is still a leak; the prefix only helps find it. The key id is in logs, so log access tells an attacker which ids exist, which is no help without the secrets.
+- **Revisit when:** Keys need scopes or expiry, or a secret scanner needs a registered prefix format.
+
+## D-087 Key hash: SHA-256 of the whole key, no pepper, not bcrypt or argon2
+
+- **Decision:** Settles PLAN.md M14's hash scheme. The stored hash is `hashlib.sha256(key.encode("ascii")).digest()`, the 32 bytes of SHA-256 over the whole 85-character key, stored as `bytea`. There is no salt, no pepper and no server-side secret. `hash_key(key)` in `llmgateway/auth.py` is the one function that computes it, for the CLI when a key is created and for the gateway on every request.
+- **Why:** Slow password hashes (bcrypt, scrypt, argon2) exist because passwords have little entropy: if the hashes leak, an attacker can try likely passwords offline, and the slowness makes each guess expensive. These secrets have 256 random bits (D-086). No amount of offline guessing finds a 256-bit preimage of SHA-256, fast or slow, so a slow hash adds no protection. What it would add is cost on every request, because the gateway must verify the key each time: a deliberately expensive hash in the hot path, paid in CPU by the gateway, which would push up measurement 1's overhead and give any unauthenticated caller a cheap way to burn the gateway's CPU with made-up keys. A salt protects against precomputed tables for guessable inputs; random 256-bit inputs have no table. Hashing the whole key rather than only the secret binds the hash to its id at no cost.
+- **Alternatives:** bcrypt or argon2 (no gain for high-entropy secrets, a large per-request cost, an unauthenticated CPU lever, and a new dependency); HMAC-SHA-256 with a pepper held outside the database (it would protect a leaked table only if the secrets were guessable, which they are not; it adds a secret to manage, and rotating it invalidates every key); keep the plaintext key (any read of the table is a full compromise; CLAUDE.md forbids it).
+- **Risk:** The argument rests on the secrets' entropy. A key not made by `generate_key()` (a hand-typed one) would need a slow hash; the CLI is the only way to make a key, and the format check rejects anything that is not 64 hex characters of secret, though it cannot tell a random one from a chosen one.
+- **Revisit when:** Keys can be chosen by people, or SHA-256 is weakened against preimages.
+
+## D-088 Lookup by key id, then a constant-time compare, with a dummy compare when the id is unknown
+
+- **Decision:** Settles PLAN.md M14's lookup. For a well-formed key, the gateway reads the row for its key id: `SELECT tenant_id, key_hash, revoked_at IS NOT NULL FROM api_keys WHERE key_id = $1`, a primary-key lookup, parameterized. Then it always computes `hash_key` of the presented key and compares it with `hmac.compare_digest` against the row's hash or, when there is no row, against a fixed 32-byte dummy. It accepts the key only if a row exists, the digests are equal and the row is not revoked. Revocation is checked after the compare, so a revoked key and a wrong secret do the same work. A malformed key is rejected before any lookup or hash.
+- **Why:** CLAUDE.md asks for a constant-time compare. Comparing in the gateway with `compare_digest` is that, whatever Postgres does. The dummy compare means an unknown id costs the same hashing and comparing as a known one with a wrong secret. What timing can still show is whether a key id exists (an index hit and a row versus none) and whether a key was well formed (no lookup at all). Neither is secret: the format is public (D-086), and an id grants nothing without its secret.
+- **Alternatives:** Look the key up by its hash, `WHERE key_hash = $1` (common and works: the attacker controls only the input to SHA-256, so the B-tree's non-constant compare of digests leaks nothing usable; but the compare is then Postgres', not the gateway's, and there is no id for logs or revocation); compare the hex strings with `==` (leaks the length of the matching prefix); skip the dummy compare (an unknown id would answer measurably faster than a wrong secret).
+- **Risk:** The dummy compare equalizes the gateway's work, not the database's; the difference that remains is on the id, as above.
+- **Revisit when:** The key format changes, or keys get scopes that make an id sensitive.
+
+## D-089 Auth runs first, before the body is read; one 401 for every bad key
+
+- **Decision:** Supersedes the order of the first steps in D-018 and D-045's position for the alias check, settles FLOW.md section 11's question on checking the key before the body, D-045's "revisit in M14", D-019's open status for a missing key, and D-025's first gap.
+  - A pure ASGI `AuthMiddleware` sits just inside `RequestContextMiddleware`. Every HTTP request **except one whose path is exactly `/healthz`** must authenticate there before the app sees it, so a rejected request's body is never read, parsed or validated, and an unknown route or method needs a key too. The new order is: authenticate, validate the body (422), check the alias (400 `unknown_model`), then the rest of D-018 unchanged.
+  - The key travels as `Authorization: Bearer <key>`. The request must carry exactly one `Authorization` header; its value is split at the first space; the part before it must equal `bearer` ignoring case; the part after it must be a well-formed key (D-086) as it stands, with nothing stripped. No other header (such as `x-api-key`) is read.
+  - **One response for every bad key:** a missing header, two or more headers, another scheme, a malformed key, an unknown key id, a wrong secret and a revoked key all get **401**, code `invalid_api_key`, message "A valid API key is required.", with `WWW-Authenticate: Bearer`. The body and headers are the same in every case except the request ID.
+  - `create_app` takes a required keyword argument `authenticator`, so there is no way to build an app without auth. Tests pass one over a fake store.
+  - D-025's second gap, no body size limit, stays open, but only a key holder can now send a body.
+- **Why:** Checking the key first means an unauthenticated caller cannot make the gateway read and parse a large body, cannot get a 422 that describes the schema, and cannot probe alias names through `unknown_model` (D-045's risk). The cost is a key lookup for a key holder's malformed request, which the cache (D-090) usually answers. One response for every failure tells an attacker nothing about which part was wrong, and whether a key was revoked is learned only by someone who holds it. 401 with `WWW-Authenticate: Bearer` is what RFC 6750 asks of a bearer-token API; 403 would say "known but not allowed", which is a distinction this gateway does not have. A required `authenticator` makes "no auth" impossible to build by accident, the same way the mock is the only default provider (CLAUDE.md).
+- **Alternatives:** PLAN.md's suggestion, a format check in middleware and the lookup after body validation (a made-up but well-formed key would still get the body parsed and the aliases probed); auth as a FastAPI dependency (FastAPI reads and validates the body before it runs dependencies, so the order would not change); different codes for missing and invalid keys (tells a scanner which keys exist); `create_app` with auth off by default (an app without auth would be one forgotten argument away).
+- **Risk:** Every request to an unknown route now costs a lookup; FastAPI's `/docs` and `/openapi.json` need a key too. With no body size limit, a key holder can still send a huge body. A key holder can still probe alias names, which are not secret.
+- **Revisit when:** A body size limit is designed (before any non-local deployment, D-025), or a route needs to be public besides `/healthz`.
+
+## D-090 A per-process cache of found keys, 10 s by default; revocation takes effect within that
+
+- **Decision:** `Authenticator` keeps an in-process cache of rows found by key id, revoked or not, for `LLMGATEWAY_KEY_CACHE_SECONDS` seconds (default 10; any finite number from 0 to 60; 0 turns the cache off), measured on an injected monotonic clock. An entry is used while the clock is before its expiry and is otherwise dropped and looked up again. A key id with no row is never cached. A cached row still goes through the full hash compare and revocation check on every request (D-088). The cache holds at most 10,000 entries; inserting one more drops the oldest inserted. There is no single flight: two concurrent requests for an uncached id both look it up.
+- **Revocation takes effect** at the next lookup of that key id: at once on a worker that has no cached row for it, and within the cache time on one that has, so at most 10 s after the row changes by default. A new key works at once, since misses are not cached.
+- **Effect on measurement 1 (gateway overhead):** with the cache on, a key's row is read from Postgres at most once per cache time per worker, so in a steady load test almost every request pays only a dictionary lookup, one SHA-256 of 85 bytes and a 32-byte compare; with `LLMGATEWAY_KEY_CACHE_SECONDS=0`, every request also pays one Postgres round trip, which joins the gateway's overhead. No figure is given here: M18 runs measurement 1 with the default and records the setting, and a second run with 0 shows what the lookup costs (CLAUDE.md: numbers only from measured runs).
+- **Why:** A database round trip on every request is the largest cost auth could add to measurement 1, and it would make every request depend on Postgres being up. Ten seconds keeps a revoked key's tail short enough for a leaked key while cutting lookups for a busy key to one per ten seconds. Caching rows, not verdicts, means a wrong secret for a cached id is still rejected. Not caching misses means a key works the moment it is created and an attacker cannot fill the cache with made-up ids: only real keys get entries.
+- **Alternatives:** No cache (instant revocation, but a round trip on every request); a cache in Redis (shared across workers, but a network hop of its own, and Redis is M16's); Postgres `LISTEN/NOTIFY` to drop entries at once (instant revocation, but a connection per worker and more failure modes); caching misses (a new key would fail for the cache time, and made-up ids would fill the cache).
+- **Risk:** A revoked key keeps working for up to the cache time on each worker that cached it. Misses are not cached, so a flood of well-formed made-up keys reaches Postgres once per request; the pool's size and D-091's timeout bound the damage, turning it into 503s for uncached keys, not unbounded load, and M16's limiter cannot help because it runs after auth.
+- **Revisit when:** Revocation must be instant, measurement 1 shows the lookup matters with the cache on, or an unauthenticated flood is seen.
+
+## D-091 Postgres down or slow: 2 s per lookup, then 503 `auth_unavailable`; the database URL is required at startup
+
+- **Decision:** Auth fails closed.
+  - Each lookup is bounded by **2 s** in total (`asyncio.timeout`, covering taking a pool connection, connecting and the query). A timeout, or a connection or driver error from the store (`OSError`, `asyncpg.PostgresError` or `asyncpg.InterfaceError`, which `PostgresKeyStore` raises as `KeyStoreUnavailable`), gets **503**, code `auth_unavailable`, message "Authentication is temporarily unavailable.", with no `Retry-After` and no `WWW-Authenticate`. The request is never served without a verified row. A row still in the cache (D-090) is used as usual during an outage.
+  - It writes one WARNING line on `llmgateway.auth`: `auth_unavailable request_id=<id> reason=<timeout|store_error> error=<exception type name>`, and never the database URL, the key or an exception message.
+  - Any other exception from the store is a bug and gets the usual 500 `internal_error` (D-019).
+  - **Startup:** `LLMGATEWAY_DATABASE_URL` is required. Unset or blank, a value `urlsplit` cannot parse, a scheme other than `postgresql` or `postgres`, or no host, stops startup with `llmgateway: configuration error: <message>`; the message names the variable and never contains its value, which holds a password. `LLMGATEWAY_KEY_CACHE_SECONDS`, when set, must be a finite number from 0 to 60, or startup stops the same way. These are read after the provider config, so a bad provider config is still reported first. The pool (`min_size=0`, `max_size=10`) is created on the first lookup and opens no connection until one is needed, so the gateway starts while Postgres is down and recovers by itself when it returns.
+- **Why:** Serving without a verified key would let anyone spend provider money, so the gateway must refuse when it cannot check. 503 says "temporarily, try later" and is what a client already retries; 401 would tell a valid client its key is bad, and 500 would look like a bug. Its own code keeps it apart from the provider 503s (D-019, D-058). No `Retry-After`, because the gateway does not know when Postgres will be back. Two seconds is far above a healthy primary-key lookup on a local network and short enough that clients do not pile up behind a dead database. Requiring the URL at startup follows D-044: a configuration mistake stops the process instead of turning into 503s, while a database that is down at startup is an outage, not a mistake, and must not stop the gateway.
+- **Alternatives:** Fail open while Postgres is down (free provider calls for anyone); serve stale cache entries past their expiry during an outage (a revoked key could live as long as the outage); 401 or 500 (above); stop startup when Postgres is unreachable (a restart loop during an outage, and Compose ordering would then matter for correctness); a longer timeout such as the 5 s connect timeout of the provider clients (requests pile up for longer).
+- **Risk:** A slow but healthy database over 2 s turns into 503s. During an outage every uncached key fails. The pool's 10 connections per worker bound concurrent lookups; under a flood, waiting for a connection counts against the 2 s.
+- **Revisit when:** Postgres moves off the local network, or the outage behavior is measured.
+
+## D-092 Keys are made with a CLI; each request carries a `Principal` (key id, tenant) forward
+
+- **Decision:**
+  - **CLI:** `python -m llmgateway.keys <command>`, reading `LLMGATEWAY_DATABASE_URL` with D-091's rules:
+    - `migrate`: runs the Alembic migrations to the newest (D-093).
+    - `create --tenant <tenant>`: the tenant must fully match `[A-Za-z0-9][A-Za-z0-9._-]*` and be at most 64 characters, else exit 1 with a message on standard error and no database call. It makes a key with `generate_key()`, stores its id, tenant and hash, prints **the full key alone, on one line, on standard output**, and `created key_id=<id> tenant=<tenant>` plus a note that the key is shown once on standard error. Exit 0.
+    - `revoke <key_id>`: sets `revoked_at` if it is not set. Exit 0 with `revoked key_id=<id>`, or with `already revoked key_id=<id>`; exit 1 with `no such key` for an id with no row or one that is not 16 lowercase hex characters (no database call then).
+    - `list [--tenant <tenant>]`: one line per key, ordered by `created_at` then `key_id`: `<key_id> tenant=<tenant> created=<UTC time> revoked=<UTC time or ->`, times as `YYYY-MM-DDTHH:MM:SS+00:00`. Never a hash.
+    - A configuration error exits 1 with `llmgateway.keys: configuration error: <message>`; an unreachable database (`KeyStoreUnavailable`) exits 1 with `llmgateway.keys: database unavailable (<exception type name>)`. Neither prints the URL. Argument errors are argparse's own, exit 2.
+  - **Compose:** a one-shot `migrate` service, from the same image, runs `python -m llmgateway.keys migrate` once Postgres is healthy; `api` starts only after it has exited successfully, and both get `LLMGATEWAY_DATABASE_URL` pointing at the `postgres` service with D-078's password. A key is made with `docker compose exec api python -m llmgateway.keys create --tenant <tenant>`.
+  - **Tenant forward:** a verified key becomes `Principal(key_id, tenant_id)`, a frozen dataclass, stored by `AuthMiddleware` in the request state as `principal`, so handlers read `request.state.principal`. M16's limiter keys on `principal.key_id` (PLAN.md: a per-key bucket); M17's cache key includes `principal.tenant_id` (D-003). The request line becomes `request_id=<id> tenant=<tenant> key_id=<key id> provider=...`, with `-` for both when no key was verified; everything after `provider=` is unchanged.
+- **Why:** A CLI run where the database is, by an operator, is the smallest way to make keys that keeps the full key out of every log and every stored file: it goes to the operator's terminal once. Standard output carries only the key, so `KEY=$(... create ...)` captures it and nothing else. Migrations as their own step, not at app startup, cannot race when several workers start, and a failed migration stops `api` from starting rather than serving on a half-made schema. A tenant is a set of keys, so one customer can have several keys, rotate them, and share one cache and one bill.
+- **Alternatives:** An HTTP admin endpoint (needs an admin credential and is an admin surface; PLAN.md puts admin UI out of scope); hand-written SQL (the operator would compute hashes by hand); migrations at app startup (several workers race, and a failed migration becomes a crash loop); tenant equals key (no rotation without losing the tenant's cache and history).
+- **Risk:** Anyone who can run the CLI against the database can make keys; that is the same trust as database access. The key passes through the operator's terminal and anything that records it.
+- **Revisit when:** Keys need expiry or scopes, or an admin API is put in scope.
+
+## D-093 Database schema: the `api_keys` table, created by Alembic migration 0001
+
+- **Decision:** The gateway's first database schema, in `src/llmgateway/migrations/versions/0001_api_keys.py` (revision `0001`, no parent), run by Alembic through `llmgateway/migrations/env.py` with the script location `llmgateway:migrations`, so the migrations ship inside the package and the image:
+
+  ```sql
+  CREATE TABLE api_keys (
+      key_id     text PRIMARY KEY CHECK (key_id ~ '^[0-9a-f]{16}$'),
+      tenant_id  text NOT NULL CHECK (tenant_id ~ '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$'),
+      key_hash   bytea NOT NULL CHECK (octet_length(key_hash) = 32),
+      created_at timestamptz NOT NULL DEFAULT now(),
+      revoked_at timestamptz
+  );
+  CREATE INDEX api_keys_tenant_id_idx ON api_keys (tenant_id);
+  ```
+
+  No column holds a key or a secret. The downgrade drops the table.
+- **Why:** The checks repeat D-086's and D-092's rules in the database, so a row written by anything but the CLI still cannot hold a secret in `key_id`, a hash of the wrong size or a tenant that would break a log line. `revoked_at` is a time, not a flag, so the time of a revocation is kept. The tenant index serves `list --tenant` and M15's per-tenant rows later.
+- **Alternatives:** A separate `tenants` table with a foreign key (no tenant attribute exists yet to put in it); `revoked boolean` (loses when); a `name` or label column (nothing reads one yet).
+- **Risk:** The regex checks must stay in step with `auth.py`; the integration tests insert through the CLI only, so a mismatch shows up there as a failed insert.
+- **Revisit when:** M15 adds usage rows, or tenants get attributes.
+
+## D-094 M14 integration tests: keys and table reads through `docker compose exec`; Postgres stays unpublished
+
+- **Decision:** Extends D-081 for M14. The `integration` tests still reach the gateway only at `LLMGATEWAY_BASE_URL`, under D-081's guard. They make and revoke keys by running the real CLI in the api container (`docker compose exec -T api python -m llmgateway.keys ...`), and read the table with `psql` in the postgres container (`docker compose exec -T postgres psql ...`). Postgres's port stays unpublished (D-078). They prove: a valid key gets 200, for a stream too; a missing, malformed, unknown, wrong-secret or revoked key gets the same 401; a key used before it is revoked gets 401 within the cache time plus a margin; `/healthz` needs no key; every column of every row holds no key and no secret, and `key_hash` is the SHA-256 of the created key; and, last in the run, with Postgres stopped an uncached valid key gets 503 `auth_unavailable`, and after Postgres is started again the same key gets 200. The existing D-081 tests use a key made the same way. Unit tests use a fake store; tests that need no database but a real driver (asyncpg against a closed port and against a server that never answers) run in the default suite.
+- **Why:** Going through the CLI and the real api tests what an operator does, on the real image. `psql` reads the table as stored, not as the gateway's code reports it. Keeping Postgres unpublished keeps D-078's development password harmless.
+- **Alternatives:** Publish Postgres on `127.0.0.1` and connect from pytest (a second path to the database that operators do not use); GitHub `services:` (D-080).
+- **Risk:** The tests need the `docker` CLI and the Compose project in the working directory. The outage test stops a service; if its restore fails, later tests in the same run fail, so it runs last and restores in a `finally`.
+- **Revisit when:** The stack runs somewhere `docker compose exec` cannot reach.

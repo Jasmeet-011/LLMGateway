@@ -90,6 +90,7 @@ Worked in order. Status and evidence are in [PROGRESS.md](PROGRESS.md); this fil
 - **Proof:** valid key 200, invalid key 401, revoked key 401; the table holds only hashes.
 - **Dependencies allowed:** an async Postgres driver and Alembic, with SQLAlchemy, which Alembic requires (pick and record a D-entry; declare SQLAlchemy directly if the code imports it, as D-037 did for starlette).
 - **Open issues to settle:** the D-018 order question: a key format check in middleware before the body is read, plus a body size cap (D-025); the hash scheme; the key format; the status code for a missing key (D-019 left it open).
+- **Settled:** D-085 (asyncpg, Alembic, SQLAlchemy), D-086 (key format, shown once, logs), D-087 (SHA-256, no pepper), D-088 (lookup by id, constant-time compare), D-089 (auth first, before the body; one 401; the body size cap stays open), D-090 (lookup cache, revocation, measurement 1), D-091 (Postgres down: 503 `auth_unavailable`; startup), D-092 (CLI, `Principal`), D-093 (the `api_keys` schema), D-094 (integration tests). Added by the owner for M14: each of these with the alternative rejected, and a live test for Gemini's streamed usage (D-075), which M15 waits on.
 
 ### M15 Token and cost accounting
 

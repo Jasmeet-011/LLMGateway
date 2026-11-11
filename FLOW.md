@@ -32,17 +32,20 @@ Where spend caps, coalescing state, and usage records live is not decided yet (s
 
 ## 4. Order of checks per request
 
-Decided in D-018. Body validation rejects with 422 (D-019), and a `model` that is not a configured alias with 400 `unknown_model` (D-045). Which checks exist today is in [PROGRESS.md](PROGRESS.md).
+Decided in D-018, with the API key moved first by D-089. A missing or bad key is rejected with 401 `invalid_api_key`, and a key that cannot be checked with 503 `auth_unavailable` (D-091), before the body is read. Body validation rejects with 422 (D-019), and a `model` that is not a configured alias with 400 `unknown_model` (D-045). Which checks exist today is in [PROGRESS.md](PROGRESS.md).
 
 ```mermaid
 flowchart TD
-    A[Request arrives] --> B{Body valid}
+    A[Request arrives] --> HZ{Path is /healthz}
+    HZ -->|yes| HOK[Serve /healthz, no key]
+    HZ -->|no| C{API key valid}
+    C -->|no| R2[Reject with 401 invalid_api_key]
+    C -->|cannot check| R5[Reject with 503 auth_unavailable]
+    C -->|yes| B{Body valid}
     B -->|no| R1[Reject with 422]
     B -->|yes| AL{Model is a configured alias}
     AL -->|no| R0[Reject with 400 unknown_model]
-    AL -->|yes| C{API key valid}
-    C -->|no| R2[Reject, status to be decided]
-    C -->|yes| D{Within rate limit}
+    AL -->|yes| D{Within rate limit}
     D -->|no| R3[Reject, status to be decided]
     D -->|yes| K{Cacheable, deterministic and non streaming}
     K -->|yes| E{Cache hit}
@@ -65,8 +68,8 @@ flowchart TD
 
 Why each check sits where it does:
 
-1. **Validate the body first.** It is the cheapest check and needs no database or Redis call. A malformed request should not cost a key lookup. Rejected with 422 (D-019). Then the `model` must exactly match a configured alias (D-045), another check that needs nothing but the config. An unknown alias gets 400 `unknown_model`, for a stream too, before any provider call.
-2. **API key next.** Every later check is per key (rate limit, cache key, spend cap), so the gateway must know who is calling before it can apply them.
+1. **API key first, before the body is read (D-089).** Every request except `/healthz` must carry exactly one `Authorization: Bearer <key>` header with a well-formed key (D-086). The gateway reads the row for the key's id from Postgres, or from its per-process cache of found rows (D-090), compares SHA-256 digests in constant time (D-087, D-088), and refuses a revoked key. A missing, malformed, unknown, wrong or revoked key gets the same 401 `invalid_api_key` with `WWW-Authenticate: Bearer`. If Postgres does not answer within 2 s or fails, the request gets 503 `auth_unavailable` and is never served (D-091). Checking first means an unauthenticated caller cannot make the gateway parse a body or probe alias names. Every later check is per key or tenant (rate limit, cache key, spend cap), and the verified key travels on as `request.state.principal`, its key id and tenant (D-092).
+2. **Validate the body next.** It needs no database or Redis call. Rejected with 422 (D-019). Then the `model` must exactly match a configured alias (D-045), another check that needs nothing but the config. An unknown alias gets 400 `unknown_model`, for a stream too, before any provider call.
 3. **Rate limit before any expensive work.** A caller over its limit should be turned away before the gateway does a cache lookup or calls a provider. Whether cache hits also count against the limit is an open question (section 11). PLAN.md measurement 5 expects 429 for this case, and D-019 reserves 429 for the gateway's own rate limiter.
 4. **Cache lookup before calling anyone.** Only cacheable requests are looked up; the rest go straight to the spend cap. A hit made no upstream call, so it is returned at once and billed zero (D-012). The cache key includes the caller, so one tenant never sees another tenant's response (D-003).
 5. **Coalescing after a cache miss (stretch, D-031).** If an identical request is already on its way to a provider, this one waits for that result instead of making a second upstream call. PLAN.md measurement 6 targets exactly one upstream call for N identical requests. The coalescing key is the cache key, including the caller, so tenants never share an in-flight result. Only cacheable requests coalesce.
@@ -219,9 +222,9 @@ sequenceDiagram
     participant A as Adapter
     participant LLM as Provider
     C->>G: POST chat request with API key
+    G->>P: Look up the key's id, unless its row is cached
+    P-->>G: Row found, digests equal, not revoked
     G->>G: Validate body
-    G->>P: Look up hashed API key
-    P-->>G: Key found
     G->>R: Take a rate limit token
     R-->>G: Allowed
     G->>R: Cache lookup
@@ -262,7 +265,10 @@ src/llmgateway/
 ├── router.py            alias selection, timeouts, retries, breaker checks and fallback; open_stream, ServedStream
 ├── main.py              module-level app for uvicorn, config from the environment
 ├── logtime.py           utc_timestamp, UtcFormatter: one UTC format for every log time (D-082)
-├── auth                 API key hashing and lookup
+├── auth.py              key format, hash_key, Principal, Authenticator and its cache, AuthMiddleware
+├── keystore.py          PostgresKeyStore over asyncpg: find, create, revoke, list; run_migrations
+├── keys.py              the key CLI: python -m llmgateway.keys migrate | create | revoke | list
+├── migrations/          Alembic env.py and versions/0001_api_keys.py (D-093)
 ├── ratelimit            Redis Lua token bucket
 ├── cache                cache key and storage
 ├── coalescing           stretch (D-031)
@@ -275,7 +281,8 @@ src/llmgateway/
 
 | Where | What |
 | --- | --- |
-| Postgres | Hashed API keys, managed with SQLAlchemy and Alembic |
+| Postgres | The `api_keys` table: key id, tenant, SHA-256 of the key, created and revoked times (D-093). Created by Alembic migrations, read with asyncpg (D-085) |
+| Process memory | Found key rows, per worker, for `LLMGATEWAY_KEY_CACHE_SECONDS` (default 10 s); misses are not cached (D-090) |
 | Redis | Rate limit token buckets, updated by a Lua script using Redis server time (D-002) |
 | Redis | Cached responses, keyed by a hash of the normalized request, model, params, and caller (D-003) |
 | Process memory | Circuit breaker state, one per config instance in each worker, lost on restart (D-055) |
@@ -309,7 +316,7 @@ Listed, not answered.
 - Retry counts, timeouts and breaker thresholds are chosen (D-050, D-051, D-057) but not yet measured.
 - How coalesced requests are billed (stretch, D-031).
 - How spend caps stay atomic across a provider call (stretch, D-031).
-- Whether the API key is checked before the request body is parsed, once auth exists. Parsing first lets unauthenticated callers make the gateway parse large bodies (D-018, D-025).
+- A request body size limit (D-025). Since D-089 only a key holder can send a body.
 
 ## 12. Keeping this file honest
 
@@ -400,10 +407,12 @@ The first candidate's non-thought text is streamed; thought parts produce no eve
 | An adapter's stream stops with no end event (D-068) | `ProviderUnavailable` | yes | none, `stream_truncated` | 502, or an `error` event after the first event | `provider_unavailable` |
 | No event for `stream_idle_timeout` after the first event (D-070) | `ProviderTimeout` | n/a, always after the first event | none, `stream_idle` | an `error` event | `provider_timeout` |
 
-### Gateway errors (`errors.py`, `app.py`)
+### Gateway errors (`errors.py`, `app.py`, `auth.py`)
 
 | Outcome | Client status | Client code |
 | --- | --- | --- |
+| Any request but `/healthz` with no `Authorization` header, more than one, a scheme other than `Bearer` (any case), a key that does not fully match `lgw_[0-9a-f]{16}_[0-9a-f]{64}`, an unknown key id, a wrong secret, or a revoked key. The same body and headers in every case, with `WWW-Authenticate: Bearer`; the body is never read (D-089) | 401 | `invalid_api_key` |
+| The key's row cannot be read: no answer within 2 s, or a connection or driver error, and no cached row (D-091). No `Retry-After`; one `auth_unavailable` WARNING line | 503 | `auth_unavailable` |
 | Body fails validation, or is not valid JSON (`details` holds `loc` and `msg` only); a body that is not valid UTF-8 gets 400 `http_error` instead (row below) | 422 | `validation_error` |
 | `model` is not a configured alias (exact, case-sensitive match; the value is not echoed; no provider is called; for a stream too, D-045) | 400 | `unknown_model` |
 | Unknown route | 404 | `not_found` |
@@ -439,4 +448,7 @@ These never reach a client: the process exits at import with `llmgateway: config
 | A `model` that is empty or longer than 128 characters | Stops |
 | A Gemini entry whose `model` does not fully match the D-042 pattern (D-046) | Stops |
 | An instance of type `claude` and `ANTHROPIC_API_KEY` unset or blank; type `gemini` and `GEMINI_API_KEY` unset or blank | Stops |
+| After a valid provider config: `LLMGATEWAY_DATABASE_URL` unset or blank, not parseable by `urlsplit`, with a scheme other than `postgresql` or `postgres`, or with no host (D-091). The message names the variable, never the value | Stops |
+| `LLMGATEWAY_KEY_CACHE_SECONDS` set but not a finite number from 0 to 60 (D-090); unset means 10 | Stops |
+| Postgres down or unreachable at startup | Starts; the pool connects on the first lookup, and lookups get 503 `auth_unavailable` until Postgres answers (D-091) |
 | Valid config | One adapter per instance; mock settings are passed to that instance's `MockProvider` |

@@ -82,6 +82,19 @@ Distilled from the mistakes logs. The full history is in [docs/archive/2026-11-s
 
 Newest sessions go here. When this file passes 50 KB, move the session log and the mistakes rows, unchanged, to a new file in [docs/archive/](docs/archive/), and keep the Lessons section current.
 
+### 2026-11-11: Gemini usage live test, M14 Hashed API keys in Postgres
+
+**State check.** HEAD 7264831, clean, on `main`, level with origin after `git pull`, as the brief expected. `.\scripts\check.ps1` PASS: 3850 passed, 11 deselected in 88.26 s, matching the brief. `.claude/agents/tester.md` and `reviewer.md` both present.
+
+**Live test first** (c2bdf7a). `tests/test_live_gemini_usage.py`, written, never run: one stream on `gemini-3.5-flash-lite`, `max_tokens` 256, through the adapter over a transport that records the raw bytes; it prints every chunk's `usageMetadata` and checks that the counts are cumulative and that the adapter reports the final billed counts, against `countTokens`. Fewer than three text chunks fail it as inconclusive. Collected only under `-m live` (1 deselected by default); ruff and mypy clean. Noted on D-075. **M15 waits for the owner's run.**
+
+**Plan for M14.**
+1. Spec first: D-085 to D-094, notes on D-018, D-019, D-025 and D-045, FLOW.md sections 4, 7, 8, 9, 11 and 13, PLAN.md's settled line. Dependencies: asyncpg 0.32.0, alembic 1.20.0, sqlalchemy[asyncio] 2.1.4, under the unchanged `exclude-newer`.
+2. Tester, Mode 1: unit tests over a fake store for the key format, hashing, the authenticator and its cache, the middleware and the one 401, the 503, the request line and leaks, config, the CLI, and the startup path; default-run tests with real asyncpg against a closed port and a silent server; integration tests (D-094); setup-only changes so the existing tests carry a key. Red run before any `src/` change.
+3. Build: `auth.py`, `keystore.py`, `keys.py`, `migrations/`, `config.py`, `app.py`, `main.py`; `compose.yaml` with the `migrate` service; README.
+4. Prove the stack from a clean clone and the integration tests locally, then on CI.
+5. Tester, Mode 2; reviewer; push; CI green on `main`.
+
 ### 2026-11-11: owner's live run, D-071 approval, M13 Docker Compose and CI
 
 **State check.** The brief's expected HEAD was left as an unfilled placeholder (`[PASTE git log --oneline -1]`), so it could not be compared; HEAD was e915468, clean, on `main`, level with origin after `git pull`. `.\scripts\check.ps1` PASS: 3798 passed, 7 deselected in 45.12 s, matching the brief.
