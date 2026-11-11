@@ -1,0 +1,9 @@
+# An allowlist (D-078): only what the image is built from reaches the build context,
+# so .env, .venv, .git and the tests never do.
+*
+!pyproject.toml
+!uv.lock
+!.python-version
+!src/
+!config/
+**/__pycache__

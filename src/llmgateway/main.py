@@ -8,7 +8,8 @@ Key design choices:
 
 - It gives the `llmgateway` logger an INFO handler if it has none, because
   uvicorn configures only its own loggers and the request log lines (D-026) would
-  otherwise be dropped.
+  otherwise be dropped. Each line starts with its time in UTC with a `+00:00`
+  offset, from `UtcFormatter` (D-082).
 - The config is the TOML file named by `LLMGATEWAY_CONFIG`, or the built-in
   mock-only default when that is unset (D-044). API keys come only from the
   environment: `ANTHROPIC_API_KEY` and `GEMINI_API_KEY`, each required only when
@@ -26,6 +27,7 @@ from collections.abc import Mapping
 
 from llmgateway.app import create_app
 from llmgateway.config import ConfigError, load_config
+from llmgateway.logtime import UtcFormatter
 from llmgateway.router import Router, build_router
 
 
@@ -36,7 +38,7 @@ def router_from_env(environ: Mapping[str, str]) -> Router:
 _logger = logging.getLogger("llmgateway")
 if not _logger.handlers:
     _handler = logging.StreamHandler()
-    _handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s"))
+    _handler.setFormatter(UtcFormatter("%(asctime)s %(levelname)s %(name)s %(message)s"))
     _logger.addHandler(_handler)
     _logger.setLevel(logging.INFO)
 

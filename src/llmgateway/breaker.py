@@ -26,7 +26,7 @@ Key design choices:
 - Every state change writes one fixed line on its own logger (D-059). Measurement 8
   reads these, and Prometheus is stretch. Elapsed time uses the injected monotonic
   `clock`; the line's `ts` uses the injected `wall_clock`, so it can be lined up
-  with a load test's output.
+  with a load test's output. `ts` is UTC with a `+00:00` offset (D-082).
 """
 
 import logging
@@ -35,9 +35,9 @@ import time
 from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import UTC, datetime
 from typing import Literal
 
+from llmgateway.logtime import utc_timestamp
 from llmgateway.providers.base import (
     ProviderAuthError,
     ProviderError,
@@ -92,13 +92,6 @@ class Permit:
     """Leave to make one call, valid for the generation it was given in."""
 
     generation: int
-
-
-def _timestamp(seconds: float) -> str:
-    # Whole milliseconds first, so the seconds and the fraction cannot disagree.
-    millis = math.floor(seconds * 1000)
-    moment = datetime.fromtimestamp(millis // 1000, UTC)
-    return f"{moment:%Y-%m-%dT%H:%M:%S}.{millis % 1000:03d}Z"
 
 
 class CircuitBreaker:
@@ -182,7 +175,7 @@ class CircuitBreaker:
         # Fixed fields only: the instance name and fixed codes, nothing from a request.
         logger.warning(
             "breaker_state_change ts=%s provider=%s from=%s to=%s reason=%s",
-            _timestamp(self._wall_clock()),
+            utc_timestamp(self._wall_clock()),
             self._provider,
             self._state,
             to,

@@ -89,6 +89,31 @@ foreach ($alias in "fast", "no-such-alias") {
 
 When done, stop uvicorn (Ctrl+C) and, in terminal 1, `Remove-Item Env:LLMGATEWAY_CONFIG, Env:ANTHROPIC_API_KEY, Env:GEMINI_API_KEY`.
 
+Every gateway log line starts with its time in UTC with an explicit offset, such as `2026-11-04T21:00:00.123+00:00`, and `breaker_state_change`'s `ts` field uses the same format (D-082).
+
+### With Docker Compose
+
+Docker with Compose v2. From a clean clone, this builds the gateway's image and starts it with Postgres and Redis, and returns once all three are healthy (D-078):
+
+```powershell
+docker compose up --build --wait
+Invoke-RestMethod http://127.0.0.1:8000/healthz
+```
+
+The gateway is on `127.0.0.1:8000` only, with the built-in mock-only config and no keys. Postgres and Redis are not used yet (M14, M16), and their ports are not published. Postgres's password is a local development default unless `POSTGRES_PASSWORD` is set. `docker compose down -v` stops everything and removes the database volume. Every image is pinned by tag and digest (D-079).
+
+## Tests and CI
+
+`.\scripts\check.ps1` runs `uv sync --locked`, pytest, ruff, ruff format and mypy, and prints `PASS` (CLAUDE.md). Two kinds of test are left out of a plain `uv run pytest`: `live`, which call the real providers and only the owner runs, and `integration`, which need the Compose stack:
+
+```powershell
+docker compose up --build --wait
+$env:LLMGATEWAY_BASE_URL = "http://127.0.0.1:8000"
+uv run pytest -m integration
+```
+
+GitHub Actions runs `check.ps1` on Linux, and builds and starts the Compose stack and runs the integration tests against it, on every push to `main` and every pull request (D-080, D-081). It uses no secrets, never runs the live tests, and every job has a 15-minute limit.
+
 ## Results
 
 None yet. Any performance figures will be added only from measured runs recorded in `docs/RESULTS.md` together with the test conditions.

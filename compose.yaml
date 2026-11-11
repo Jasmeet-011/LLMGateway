@@ -1,0 +1,41 @@
+# The api, Postgres and Redis for local development and CI (D-078).
+# `docker compose up --build --wait` brings all three to healthy.
+# Image pins are tag plus digest, under the age floor (D-079).
+
+name: llmgateway
+
+services:
+  api:
+    build: .
+    # No environment: the built-in mock-only config, with no keys (D-044).
+    ports:
+      - "127.0.0.1:8000:8000"
+
+  # Nothing connects to Postgres or Redis yet. M14 and M16 add `depends_on` with
+  # `condition: service_healthy` when the api first does. No port is published.
+  postgres:
+    image: postgres:18.4-alpine3.24@sha256:9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15
+    environment:
+      POSTGRES_USER: llmgateway
+      POSTGRES_DB: llmgateway
+      # A local development value, not a secret: the port is not published.
+      # Anything beyond a local run sets POSTGRES_PASSWORD.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-llmgateway-dev-only}
+    volumes:
+      - pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U llmgateway -d llmgateway"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  redis:
+    image: redis:8.8.3-alpine3.23@sha256:cc9d0aecc235bda23e80287b5ef7c131cae443045b9a332d45932feb71a1e70e
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+volumes:
+  pgdata:
