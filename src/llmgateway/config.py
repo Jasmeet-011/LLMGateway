@@ -333,6 +333,7 @@ BURST_ENV: Final = "LLMGATEWAY_RATE_LIMIT_BURST"
 PER_SECOND_ENV: Final = "LLMGATEWAY_RATE_LIMIT_PER_SECOND"
 MAX_BODY_ENV: Final = "LLMGATEWAY_MAX_BODY_BYTES"
 MAX_BURST: Final = 1_000_000
+MIN_PER_SECOND: Final = 0.001
 MAX_PER_SECOND: Final = 1_000_000.0
 MIN_MAX_BODY_BYTES: Final = 1_024
 MAX_MAX_BODY_BYTES: Final = 67_108_864
@@ -355,6 +356,10 @@ def redis_url(environ: Mapping[str, str]) -> str:
         raise ConfigError(f"{REDIS_URL_ENV} must be a redis:// or rediss:// URL")
     if not host:
         raise ConfigError(f"{REDIS_URL_ENV} must name a host")
+    # redis-py would read options from a query and let them override D-106's client
+    # settings, and a bad one would fail at import with a traceback (D-106's amendment).
+    if "?" in value:
+        raise ConfigError(f"{REDIS_URL_ENV} must not carry options (a query string)")
     return value
 
 
@@ -386,8 +391,9 @@ def rate_limit_per_second(environ: Mapping[str, str]) -> float:
         rate = float(value)
     except ValueError:
         rate = math.nan
-    if not 0 < rate <= MAX_PER_SECOND:
-        raise ConfigError(f"{PER_SECOND_ENV} must be a number above 0 and at most 1,000,000")
+    # At least 0.001, so the script's expiry stays inside PEXPIRE's range (D-105).
+    if not MIN_PER_SECOND <= rate <= MAX_PER_SECOND:
+        raise ConfigError(f"{PER_SECOND_ENV} must be a number from 0.001 to 1,000,000")
     return rate
 
 

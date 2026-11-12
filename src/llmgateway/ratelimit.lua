@@ -30,5 +30,6 @@ else
 end
 redis.call('HSET', KEYS[1], 'tokens', tokens, 'ts', ts)
 -- Gone once it would be full again, which is how a missing bucket starts (D-105).
-redis.call('PEXPIRE', KEYS[1], math.max(1, math.ceil((capacity - tokens) * 1000 / rate)))
+-- As whole digits, never a Lua number in exponent form (D-103's amendment).
+redis.call('PEXPIRE', KEYS[1], string.format('%.0f', math.max(1, math.ceil((capacity - tokens) * 1000 / rate))))
 return {allowed, retry_after_ms}
