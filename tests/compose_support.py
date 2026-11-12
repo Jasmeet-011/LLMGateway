@@ -45,6 +45,22 @@ BODY = {
 }
 
 
+def local_url(value: str, *, what: str) -> str:
+    """`value` if it is an http(s) URL with a local parsed host; otherwise a failure naming `what`.
+
+    D-081's two rules, in one place for every address a test may talk to: the stack's own
+    (`base_url`) and, since M16 (D-109), the second gateway's (`second_gateway_url`).
+    """
+    parts = urlsplit(value.strip())
+    host = parts.hostname
+    if parts.scheme not in ("http", "https") or host not in LOCAL_HOSTS:
+        pytest.fail(
+            f"{what} must be an http(s) URL whose host is one of {', '.join(LOCAL_HOSTS)}: "
+            "these tests only ever talk to a local stack, and no request was sent."
+        )
+    return value.strip().rstrip("/")
+
+
 def base_url() -> str:
     """The stack's address, or a failure that says why not. Never a skip (D-081)."""
     value = os.environ.get(VARIABLE, "")
@@ -54,14 +70,21 @@ def base_url() -> str:
             f"address, for example {VARIABLE}=http://127.0.0.1:8000. They fail and never "
             "skip, so a run that lost the variable cannot pass with nothing tested."
         )
-    parts = urlsplit(value.strip())
-    host = parts.hostname
-    if parts.scheme not in ("http", "https") or host not in LOCAL_HOSTS:
-        pytest.fail(
-            f"{VARIABLE} must be an http(s) URL whose host is one of {', '.join(LOCAL_HOSTS)}: "
-            "these tests only ever talk to a local stack, and no request was sent."
-        )
-    return value.strip().rstrip("/")
+    return local_url(value, what=VARIABLE)
+
+
+# The second gateway of the exactness test (D-109), published by the test on this address only.
+SECOND_GATEWAY_PORT = 8001
+
+
+def second_gateway_url() -> str:
+    """The second gateway's address, after the same guard as the stack's own (D-081, D-109).
+
+    Calls `base_url()` first, so a run with the variable unset or not local fails before any
+    docker command, exactly as every other integration test does.
+    """
+    base_url()
+    return local_url(f"http://127.0.0.1:{SECOND_GATEWAY_PORT}", what="the second gateway address")
 
 
 def bearer(key: str) -> dict[str, str]:
@@ -85,6 +108,22 @@ def compose(
     return subprocess.run(  # noqa: S603
         ["docker", "compose", "-f", str(COMPOSE_FILE), *args],  # noqa: S607
         input=stdin,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=timeout,
+    )
+
+
+def docker(*args: str, timeout: float = DOCKER_TIMEOUT) -> "subprocess.CompletedProcess[str]":
+    """Plain `docker <args>`, for the one thing Compose cannot name: a container by its name.
+
+    Used only to remove or inspect the second gateway the exactness test started (D-109).
+    The caller has passed `base_url()`.
+    """
+    # The command is `docker` with arguments written in the tests, not outside input.
+    return subprocess.run(  # noqa: S603
+        ["docker", *args],  # noqa: S607
         capture_output=True,
         text=True,
         check=False,

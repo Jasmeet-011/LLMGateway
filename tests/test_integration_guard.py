@@ -107,14 +107,28 @@ def _expected_count(file: Path = INTEGRATION_FILE) -> int:
 
 
 def _run_integration_file(
-    tmp_path: Path, base_url: str | None, file: Path = INTEGRATION_FILE
+    tmp_path: Path,
+    base_url: str | None,
+    file: Path = INTEGRATION_FILE,
+    *,
+    stubbed_repo: bool = False,
 ) -> Run:
+    """Runs `file` in a child pytest. With `stubbed_repo` (M16), the files go in a `tests`
+    directory of a fake repository root holding a stub `src/llmgateway/ratelimit.lua`, because
+    the rate limit tests read the script from the repository before their first docker command,
+    and a test that failed on a missing file would never make the attempt the control counts."""
+    base = tmp_path / "tests" if stubbed_repo else tmp_path
+    base.mkdir(exist_ok=True)
+    if stubbed_repo:
+        lua = tmp_path / "src" / "llmgateway" / "ratelimit.lua"
+        lua.parent.mkdir(parents=True, exist_ok=True)
+        lua.write_text("return {1, 0}\n", encoding="utf-8")
     (tmp_path / "pytest.ini").write_text(INI, encoding="utf-8")
     (tmp_path / "conftest.py").write_text(RECORDER, encoding="utf-8")
-    (tmp_path / SUPPORT_FILE.name).write_text(
+    (base / SUPPORT_FILE.name).write_text(
         SUPPORT_FILE.read_text(encoding="utf-8"), encoding="utf-8"
     )
-    (tmp_path / file.name).write_text(file.read_text(encoding="utf-8"), encoding="utf-8")
+    (base / file.name).write_text(file.read_text(encoding="utf-8"), encoding="utf-8")
     log = tmp_path / "attempts.log"
     report = tmp_path / "report.xml"
     env = {
@@ -140,7 +154,7 @@ def _run_integration_file(
             "-m",
             "integration",
             f"--junitxml={report}",
-            str(tmp_path / file.name),
+            str(base / file.name),
         ],
         cwd=tmp_path,
         env=env,
@@ -416,6 +430,8 @@ def test_the_usage_tests_do_attempt_docker_or_a_connection_for_a_local_url(
 def test_the_outage_test_is_still_collected_last_with_the_usage_tests_in_the_run(
     tmp_path: Path,
 ) -> None:
+    # Written before M16: the Postgres outage test is the last of three files' tests, and the
+    # only outage test among them.
     files = (INTEGRATION_FILE, AUTH_INTEGRATION_FILE, USAGE_INTEGRATION_FILE, SUPPORT_FILE)
     for file in files:
         (tmp_path / file.name).write_text(file.read_text(encoding="utf-8"), encoding="utf-8")
@@ -458,3 +474,149 @@ def test_the_outage_test_is_still_collected_last_with_the_usage_tests_in_the_run
     )
     assert sum("zz_outage" in line for line in ids) == 1
     assert any("test_compose_stack_usage.py" in line for line in ids)
+
+
+# M16: the rate limit tests, which run docker, send requests to a second gateway on 127.0.0.1:8001
+# and stop Redis (D-109)
+
+RATELIMIT_INTEGRATION_FILE = TESTS_DIR / "test_compose_stack_ratelimit.py"
+POSTGRES_OUTAGE = "test_zz_outage_a_valid_key_is_503_with_postgres_stopped_and_200_when_it_returns"
+REDIS_OUTAGE = "test_zz_outage_a_valid_key_is_200_with_redis_stopped_and_the_limiter_recovers"
+
+
+@pytest.mark.parametrize("base_url", NOT_LOCAL)
+def test_the_ratelimit_tests_fail_before_any_docker_command_or_request_without_a_local_url(
+    tmp_path: Path, base_url: str | None
+) -> None:
+    run = _run_integration_file(tmp_path, base_url, RATELIMIT_INTEGRATION_FILE, stubbed_repo=True)
+    _assert_every_test_failed(run, RATELIMIT_INTEGRATION_FILE)
+    for case in run.cases:
+        assert VARIABLE in case.text, (case.name, case.text)
+    assert run.attempts == []
+
+
+@pytest.mark.parametrize("base_url", ["http://127.0.0.1:1", "http://localhost:1"])
+def test_the_ratelimit_tests_do_attempt_docker_or_a_connection_for_a_local_url(
+    tmp_path: Path, base_url: str
+) -> None:
+    run = _run_integration_file(tmp_path, base_url, RATELIMIT_INTEGRATION_FILE, stubbed_repo=True)
+    _assert_every_test_failed(run, RATELIMIT_INTEGRATION_FILE)
+    assert len(run.attempts) >= len(run.cases), run.output
+    docker_commands = [attempt for attempt in run.attempts if attempt.startswith("popen")]
+    assert docker_commands, run.output
+    assert all("docker" in attempt for attempt in docker_commands), docker_commands
+    assert any("redis-cli" in attempt for attempt in docker_commands), docker_commands
+
+
+@pytest.mark.parametrize(
+    "address",
+    [
+        "http://127.0.0.1:8001",
+        "http://localhost:8001",
+        "https://127.0.0.1:8001",
+    ],
+)
+def test_the_shared_guard_lets_a_local_address_through_and_returns_it_without_a_slash(
+    address: str,
+) -> None:
+    import compose_support
+
+    assert compose_support.local_url(address + "/", what="the address") == address
+
+
+@pytest.mark.parametrize(
+    "address",
+    [
+        "http://gateway.invalid:8001",
+        "http://127.0.0.2:8001",
+        "http://127.0.0.1@gateway.invalid:8001",
+        "http://localhost.:8001",
+        "http://[::1]:8001",
+        "ftp://127.0.0.1:8001",
+        "",
+    ],
+)
+def test_the_shared_guard_fails_for_an_address_that_is_not_local_naming_what_it_checked(
+    address: str,
+) -> None:
+    import compose_support
+
+    with pytest.raises(pytest.fail.Exception) as info:
+        compose_support.local_url(address, what="the second gateway address")
+    assert "the second gateway address" in str(info.value)
+
+
+def test_the_second_gateway_address_is_port_8001_on_the_loopback_address_and_is_guarded_first(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import compose_support
+
+    monkeypatch.delenv(VARIABLE, raising=False)
+    with pytest.raises(pytest.fail.Exception) as info:
+        compose_support.second_gateway_url()
+    assert VARIABLE in str(info.value)
+    monkeypatch.setenv(VARIABLE, "http://127.0.0.1:8000")
+    assert compose_support.second_gateway_url() == "http://127.0.0.1:8001"
+    monkeypatch.setenv(VARIABLE, "http://gateway.invalid:8000")
+    with pytest.raises(pytest.fail.Exception):
+        compose_support.second_gateway_url()
+
+
+def test_both_outage_tests_are_collected_last_with_the_ratelimit_tests_in_the_run(
+    tmp_path: Path,
+) -> None:
+    files = (
+        INTEGRATION_FILE,
+        AUTH_INTEGRATION_FILE,
+        RATELIMIT_INTEGRATION_FILE,
+        USAGE_INTEGRATION_FILE,
+        SUPPORT_FILE,
+    )
+    for file in files:
+        (tmp_path / file.name).write_text(file.read_text(encoding="utf-8"), encoding="utf-8")
+    (tmp_path / "pytest.ini").write_text(INI, encoding="utf-8")
+    shutil.copy(TESTS_DIR / "conftest.py", tmp_path / "conftest.py")
+    env = {k: v for k, v in os.environ.items() if k not in ("PYTEST_ADDOPTS", VARIABLE)}
+    # The command is fixed text and copies of this repo's own test files.
+    result = subprocess.run(  # noqa: S603
+        [
+            sys.executable,
+            "-m",
+            "pytest",
+            "-c",
+            str(tmp_path / "pytest.ini"),
+            "--rootdir",
+            str(tmp_path),
+            "-p",
+            "no:cacheprovider",
+            "-m",
+            "integration",
+            "--collect-only",
+            "-q",
+            str(tmp_path / USAGE_INTEGRATION_FILE.name),
+            str(tmp_path / RATELIMIT_INTEGRATION_FILE.name),
+            str(tmp_path / AUTH_INTEGRATION_FILE.name),
+            str(tmp_path / INTEGRATION_FILE.name),
+        ],
+        cwd=tmp_path,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    ids = [line for line in result.stdout.splitlines() if "::" in line]
+    assert len(ids) == sum(
+        _expected_count(file)
+        for file in (
+            INTEGRATION_FILE,
+            AUTH_INTEGRATION_FILE,
+            RATELIMIT_INTEGRATION_FILE,
+            USAGE_INTEGRATION_FILE,
+        )
+    ), result.stdout
+    assert sum("zz_outage" in line for line in ids) == 2
+    # Each stops a service and restores it; both run after every other test, in file order.
+    assert sorted(line.rsplit("::", 1)[1] for line in ids[-2:]) == sorted(
+        [POSTGRES_OUTAGE, REDIS_OUTAGE]
+    )
+    assert any("test_compose_stack_ratelimit.py" in line for line in ids)

@@ -470,7 +470,14 @@ def test_a_real_server_writes_the_info_request_line_to_stderr() -> None:
     assert result.returncode == 0, result.stderr
     status, request_id = result.stdout.strip().splitlines()[-1].split()
     assert status == "200"
-    lines = [line for line in result.stderr.splitlines() if f"request_id={request_id}" in line]
+    # M16: the limiter, which cannot reach the unreachable Redis the environment names, writes
+    # its own WARNING with this request ID (D-106), so the request line is picked out by its
+    # logger. The same assertions then hold of that one line.
+    lines = [
+        line
+        for line in result.stderr.splitlines()
+        if "llmgateway.request" in line and f"request_id={request_id}" in line
+    ]
     assert len(lines) == 1, result.stderr
     assert "provider=mock model='mock' status=200 latency_ms=" in lines[0]
     assert lines[0].endswith(" provider_model='mock-1'")
