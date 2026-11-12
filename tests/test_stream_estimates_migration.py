@@ -219,3 +219,13 @@ def test_downgrade_touches_nothing_but_usage_records() -> None:
     sql = _downgrade()
     assert set(re.findall(r"\bALTER TABLE (\w+)", sql)) == {"usage_records"}
     assert "api_keys" not in sql.lower()
+
+
+# Added by the D-101 mutation checks: a gap a mutant got through
+
+
+def test_downgrade_does_not_cascade_to_anything_that_depends_on_the_columns() -> None:
+    # "Touches nothing else": CASCADE would drop views and constraints of other objects too, as
+    # 0002's downgrade is pinned not to (a plain DROP COLUMN already takes the table's own
+    # checks and comments with it).
+    assert "CASCADE" not in _downgrade().upper()

@@ -102,6 +102,35 @@ Newest sessions go here. When this file passes 50 KB, move the session log and t
 2. Tester, Mode 1: router reports of `delivered_chars` on every stream path (failed or abandoned before and after the first event, a send that fails, stalls or is cancelled, success and non-streaming None), the meter's estimate per provider type, the store's 19 columns, migration 0003 offline, integration rows and checks, the live rate test. Red run before any `src/` change.
 3. Build, Mode 2, review, push, CI. Then M16.
 
+**Spec** (440ea9b). D-101; the rates are Google's "a token is equivalent to about 4 characters" (https://ai.google.dev/gemini-api/docs/tokens, 301 to https://aistudio.google.com/docs/tokens) and Anthropic's glossary, 3.5 English characters per token on earlier models with about 30% more tokens from Claude 4.7 on, both read 2026-11-11. The values go on every stream attempt that did not reach its end, a superset of the owner's "every partial row", so a cut stream with no reported usage still has a signal; D-101 says why. "Delivered" is counted after the frame's `send` returned, which the generator feeding Starlette's `StreamingResponse` learns by being resumed past its `yield`.
+
+**Tests, Mode 1** (89f3f96). New: `test_usage_estimate`, `test_stream_delivered`, `test_stream_delivered_wire`, `test_stream_estimates_migration`, `test_live_estimate_rate` (live, not run). Existing usage tests now expect the new fields exactly: `usage_support.attempt()` refuses a cut-stream attempt built without its delivered count, so about 60 assertions in `test_stream_usage.py` became stricter. The builder read every removed line with `git diff -U0`: each replaced assertion is stricter (the migration chain gains 0003 and checks every parent; 17 columns become 19). The tester's first session stopped on its usage limit and was resumed. **Red run, checked by the builder from `--junitxml`, `git diff -- src/` empty:** 5502 tests, 485 failed, 0 errors, 46 deselected.
+
+**Build** (53b27ba). `usage.py`, `router.py`, `streaming.py`, `usagestore.py`, migration 0003, README.md. First run: 18 failed, all in `test_stream_delivered.py`, and all test defects, sent to the tester with the reason and fixed by it: its `deliver()` helper stopped only on `StopAsyncIteration`, so the failure a committed stream raises once (D-069) escaped before the assertions; and one expected total was 13 where "héllo" plus "😀 wörld" is 12 code points. Only that one expected value changed. `.\scripts\check.ps1` PASS: 5502 passed, 46 deselected in 1304.62 s (this machine ran slow all session: the same suite took 342 s at the start); ruff clean; 101 files formatted; mypy clean on 88 files.
+
+**Compose from a clean clone** (Lesson 13). Fresh `git clone` at 53b27ba, `docker compose down -v`, `build --no-cache --pull`, `up --wait`: `migrate` exited 0, api, postgres and redis healthy, so migration 0003 ran on a new database. `uv run pytest -m integration`: 35 passed in 528.15 s.
+
+**Mutation checks, Mode 2** (D-101's diff, 89f3f96..53b27ba). Three workers in clones at 53b27ba under the scratchpad (`mut101/w1` to `w4`), never the real tree: one exact replacement per mutant, the targeted files with `-x`, revert with `git checkout`, sha256 compared, `git diff -- src/` empty in every clone and in the real tree. Results in `mut101/results_*.jsonl`, harness `mut101/harness.py` (not in the repo). Totals checked by the builder from the files: 143 rows, 137 caught, 6 survived, every row reverted; the four full-suite survivor runs show 5502 passed each.
+
+| Area | Mutants | Caught at first | After a new test | Equivalent | Uncaught | Hung |
+| --- | --- | --- | --- | --- | --- | --- |
+| Router call sites (None, 0, `_delivered` or 1 at each of 12 sites; `partial` from delivered) | 23 | 23 | 0 | 0 | 0 | 0 |
+| `mark_delivered` and the total | 10 | 9 | 0 | 1 | 0 | 0 |
+| `EventStream`'s mark (dropped, before the yield, wrong text, twice, on the end or error frame, in `finally`) | 10 | 8 | 0 | 2 | 0 | 0 |
+| Estimate rates and rounding | 16 | 16 | 0 | 0 | 0 | 0 |
+| Estimate provider switch | 7 | 6 | 0 | 1 | 0 | 0 |
+| Meter fields | 12 | 12 | 0 | 0 | 0 | 0 |
+| Estimate never in counts or cost | 6 | 6 | 0 | 0 | 0 | 0 |
+| Dataclass shape | 5 | 4 | 0 | 1 | 0 | 0 |
+| `usagestore` INSERT (order, names, casts) | 12 | 12 | 0 | 0 | 0 | 0 |
+| Migration 0003 (offline text) | 38 | 37 | 1 | 0 | 0 | 0 |
+| Leaks (the delivered text logged at INFO, WARNING, DEBUG, ERROR) | 4 | 4 | 0 | 0 | 0 | 0 |
+| **Total** | **143** | **137** | **1** | **5** | **0** | **0** |
+
+- **Equivalent (5):** a mark after the `end` frame, or after the `error` frame, and a `ServedStream` that ignores marks once settled, since the total is read once, when the attempt is reported, and a stream is settled before either frame goes out (each run against the full suite: 5502 passed); `startswith("c")` for `== "claude"`, since the only types are `claude`, `gemini` and `mock` (full suite: 5502 passed); `int` for `int | None` on one field's annotation, no runtime effect, but mypy rejects it, so `check.ps1` still catches it.
+- **After a new test (1):** `CASCADE` on 0003's downgrade, which 0002's downgrade is pinned against; `test_downgrade_does_not_cascade_to_anything_that_depends_on_the_columns` added, the mutant rerun and caught.
+- **Migration DDL on live Postgres:** 0001, 0002 and each mutated 0003 applied in scratch databases `mut101_<n>` in the stack's Postgres (all dropped after, counted 0), 22 insert cases each: 38 mutants, 35 caught, 3 survived, all caught offline (the revision, the parent, `CASCADE`). The real constraint names are `usage_records_delivered_chars_check`, `usage_records_estimated_output_tokens_check`, `usage_records_estimate_pair` and `usage_records_estimate_only_cut_streams`. Postgres was never stopped and the api never touched.
+
 ### 2026-11-11: owner's results, M15 Token and cost accounting
 
 **State check.** HEAD f1a43de, clean, on `main`, level with origin after `git pull`, as the brief expected. `.\scripts\check.ps1` PASS: 4549 passed, 26 deselected in 180.80 s, matching the brief. `.claude/agents/tester.md` and `reviewer.md` both present.
@@ -171,3 +200,5 @@ Older rows are in [docs/archive/2026-11-sessions.md](docs/archive/2026-11-sessio
 | 2026-11-11 | M15: the builder's `usagestore.py` built its `INSERT` with an f-string from the column list. No value went into it, but CLAUDE.md asks for SQL that is plainly parameterized. | ruff S608, on the build's first lint run. | A literal statement with `$1` to `$17` (620d7ad). |
 | 2026-11-11 | M15: two tester defects in Mode 1. The startup wiring probe printed the DSN its fake store received, so the DSN leak check failed on the probe's own output; and an M12 signature test still pinned `open_stream` without D-095's `meter`. Also 17 type-only mypy errors in the new tests, visible only once `src/` existed. | The builder's first run against the implementation, and mypy. | The tester fixed all three without changing what an assertion checks (bc3599b). |
 | 2026-11-11 | M15: Mode 1 left 25 behaviors unpinned, among them report-versus-close ordering with a blocking upstream close, `aclose` cancelled or racing pool creation, `check` stopping at the first alias, and two table checks on real Postgres; one mutant hung a drain test at teardown. | Tester, Mode 2 (688 mutants). | 31 default tests and 2 integration tests (f0c5b16). |
+| 2026-11-11 | D-101: the builder appended D-101 with a Bash heredoc, which broke on an apostrophe in the text, after Lesson 12 says not to. Nothing was written. | The shell's parse error, then `grep -c` and `git diff --stat` showing no entry. | Written with the Write tool to a scratch file and appended with PowerShell, LF endings kept. |
+| 2026-11-11 | D-101: two tester defects in Mode 1. `deliver()` in `test_stream_delivered.py` let the failure a committed stream raises once escape before the assertions (18 tests), and one expected total said 13 characters where the spec gives 12. | The builder's first run against the build. | The tester fixed both; the helper now records the error and the tests assert its class and reason. |
