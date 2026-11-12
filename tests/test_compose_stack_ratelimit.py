@@ -741,15 +741,29 @@ def test_zz_outage_a_valid_key_is_200_with_redis_stopped_and_the_limiter_recover
         time.sleep(1.0)
     assert healthy, f"Redis did not answer {RECOVERY_BOUND} s after it was started"
 
-    # The gateway's client finds Redis again: a request leaves a bucket for the key.
-    exists = "0"
+    # The gateway's client finds Redis again: requests leave a bucket for the key. With the
+    # defaults (burst 60, one token per second) a bucket expires when it would be full, so one
+    # take leaves it for only a second, less than `docker compose exec` takes (D-105). A round of
+    # back-to-back requests leaves it for about as many seconds as there were requests, and the
+    # tokens are then read in the same `redis-cli` session as the TTL.
+    round_size = 15
+    found: list[str] = []
+    last_id = ""
     with gateway(key) as client:
         while time.monotonic() < deadline:
-            assert client.post("/v1/chat", json=BODY).status_code == 200
-            ((exists,),) = session((f"EXISTS {bucket}", 1))
+            for _ in range(round_size):
+                response = client.post("/v1/chat", json=BODY)
+                assert response.status_code == 200
+                last_id = response.headers["x-request-id"]
+            ((exists,), (ttl,)) = session((f"EXISTS {bucket}", 1), (f"PTTL {bucket}", 1))
             if exists == "1":
+                found = [exists, ttl]
                 break
             time.sleep(1.0)
     delete(bucket)
-    assert exists == "1", f"no bucket for the key {RECOVERY_BOUND} s after Redis was started"
+    assert found, f"no bucket for the key {RECOVERY_BOUND} s after Redis was started"
+    # The bucket is the limiter's work: its time to full is many seconds, not the 1 s of a
+    # single take, and the last request was not served by failing open.
+    assert int(found[1]) > 0
+    assert _ratelimit_lines(last_id) == []
     assert request_id

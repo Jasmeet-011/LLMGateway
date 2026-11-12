@@ -17,12 +17,13 @@ Key design choices:
   from the environment (D-105). Every request after auth and the body limit counts, a
   malformed one or a cache hit too, because the limiter runs before the body is parsed
   (D-108).
-- Redis down or slow fails open: after 250 ms, or on a Redis or socket error, or an
+- Redis down or slow fails open: after 1 s, or on a Redis or socket error, or an
   unusable reply, the request is served as if allowed, with one `ratelimit_unavailable`
   line. Auth fails closed because it decides who may spend at all; the limiter only
   decides how fast a verified key may go, and a Redis outage must not become a gateway
   outage (D-106). The client makes one attempt per request, no retries, from a blocking
-  pool whose wait counts against the same 250 ms.
+  pool whose wait counts against the same 1 s. 250 ms was too short under a burst on a
+  busy event loop, which failed open exactly when the limit mattered (D-106's amendment).
 - A refused request gets 429 `rate_limited` with `Retry-After`, the bucket's time to
   one token in whole seconds, at least 1. It stops here, so it reaches no provider, makes
   no usage record and is neither a failure nor a success for any breaker (D-107).
@@ -54,7 +55,7 @@ SCRIPT: Final = (
 )
 SCRIPT_SHA: Final = hashlib.sha1(SCRIPT.encode("utf-8"), usedforsecurity=False).hexdigest()
 BUCKET_PREFIX: Final = "llmgateway:ratelimit:"
-LIMIT_TIMEOUT_SECONDS: Final = 0.25
+LIMIT_TIMEOUT_SECONDS: Final = 1.0
 DEFAULT_BURST: Final = 60
 DEFAULT_PER_SECOND: Final = 1.0
 MAX_CONNECTIONS: Final = 50

@@ -13,7 +13,7 @@ classes. The script itself runs on a real Redis in `test_compose_stack_ratelimit
   exactly one `EVAL`; the reply parsed exactly (allowed, or a wait rounded up to whole seconds and
   never below 1); every unusable reply is `bad_reply`; each way of failing is one
   `RateLimitUnavailable` with D-106's reason and the exception's type name; one budget of
-  0.25 s for the whole call, with the pending call cancelled; nothing is ever retried; any other
+  1 s for the whole call, with the pending call cancelled; nothing is ever retried; any other
   exception, a bug, passes through unchanged.
 - `redis_client`: D-106's client, built without a connection.
 - Real drivers (Lesson 17): the real client against a closed port and against a server that
@@ -68,7 +68,7 @@ async def take_error(limiter: Any, key_id: str = KEY_ID) -> Any:
 def test_the_constants_have_the_values_of_d_103() -> None:
     module = ratelimit_module()
     assert module.BUCKET_PREFIX == "llmgateway:ratelimit:"
-    assert module.LIMIT_TIMEOUT_SECONDS == 0.25
+    assert module.LIMIT_TIMEOUT_SECONDS == 1.0
     assert module.DEFAULT_BURST == 60
     assert type(module.DEFAULT_BURST) is int
     assert module.DEFAULT_PER_SECOND == 1.0
@@ -141,7 +141,7 @@ def test_the_redis_limiter_takes_the_client_then_keyword_only_burst_rate_and_tim
         assert parameters[name].kind is inspect.Parameter.KEYWORD_ONLY
         assert parameters[name].default is inspect.Parameter.empty
     assert parameters["timeout"].kind is inspect.Parameter.KEYWORD_ONLY
-    assert parameters["timeout"].default == ratelimit_module().LIMIT_TIMEOUT_SECONDS == 0.25
+    assert parameters["timeout"].default == ratelimit_module().LIMIT_TIMEOUT_SECONDS == 1.0
 
 
 # One call: EVALSHA with the bucket, the capacity and the rate
@@ -428,11 +428,11 @@ async def test_a_take_after_a_failed_take_works_again() -> None:
     assert await limiter.take(KEY_ID) == module.Decision(False, 2)
 
 
-# The budget: 0.25 s for one take, in fake time
+# The budget: 1 s for one take (D-106, amended), in fake time
 
 
 @pytest.mark.asyncio
-async def test_a_call_that_never_answers_is_a_timeout_after_the_default_quarter_second(
+async def test_a_call_that_never_answers_is_a_timeout_after_the_default_second(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     clock = virtual_loop_time(monkeypatch)
@@ -440,6 +440,9 @@ async def test_a_call_that_never_answers_is_a_timeout_after_the_default_quarter_
     fake = FakeRedis(hang)
     task = asyncio.ensure_future(make_limiter(fake).take(KEY_ID))
     await until(hang.reached.is_set, "the call to start waiting", task=task)
+    await pass_time(clock, 0.75)
+    assert not task.done()
+    assert fake.cancelled == 0
     await pass_time(clock, 0.25)
     await until(task.done, "the limiter's own limit to end the call")
     with pytest.raises(ratelimit_module().RateLimitUnavailable) as info:
@@ -456,9 +459,9 @@ async def test_the_limit_is_the_injected_timeout_and_not_a_tick_earlier(
     clock = virtual_loop_time(monkeypatch)
     hang = Hang()
     fake = FakeRedis(hang)
-    task = asyncio.ensure_future(make_limiter(fake, timeout=1.0).take(KEY_ID))
+    task = asyncio.ensure_future(make_limiter(fake, timeout=2.0).take(KEY_ID))
     await until(hang.reached.is_set, "the call to start waiting", task=task)
-    await pass_time(clock, 0.75)
+    await pass_time(clock, 1.75)
     assert not task.done()
     assert fake.cancelled == 0
     await pass_time(clock, 0.25)
@@ -473,12 +476,12 @@ async def test_the_limit_is_the_injected_timeout_and_not_a_tick_earlier(
 async def test_the_budget_is_one_for_the_whole_take_the_eval_included(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # The EVALSHA takes 0.75 s and reports NOSCRIPT; the EVAL then never answers. One budget of
-    # 1.0 s for the take ends it a quarter second later; a fresh budget per call would not.
+    # The EVALSHA takes 1.75 s and reports NOSCRIPT; the EVAL then never answers. One budget of
+    # 2.0 s for the take ends it a quarter second later; a fresh budget per call would not.
     clock = virtual_loop_time(monkeypatch)
     hang = Hang()
-    fake = FakeRedis(Slow(0.75, rexc.NoScriptError("NOSCRIPT")), hang, clock=clock)
-    task = asyncio.ensure_future(make_limiter(fake, timeout=1.0).take(KEY_ID))
+    fake = FakeRedis(Slow(1.75, rexc.NoScriptError("NOSCRIPT")), hang, clock=clock)
+    task = asyncio.ensure_future(make_limiter(fake, timeout=2.0).take(KEY_ID))
     await until(hang.reached.is_set, "the EVAL to start waiting", task=task)
     assert not task.done()
     await pass_time(clock, 0.25)
@@ -495,8 +498,8 @@ async def test_a_call_that_answers_inside_the_limit_is_an_answer(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     clock = virtual_loop_time(monkeypatch)
-    fake = FakeRedis(Slow(0.75, [1, 0]), clock=clock)
-    decision = await make_limiter(fake, timeout=1.0).take(KEY_ID)
+    fake = FakeRedis(Slow(1.75, [1, 0]), clock=clock)
+    decision = await make_limiter(fake, timeout=2.0).take(KEY_ID)
     assert decision == ratelimit_module().Decision(True, 0)
     assert fake.cancelled == 0
 
@@ -543,10 +546,10 @@ def test_redis_client_is_an_asyncio_redis_on_a_blocking_pool_of_fifty() -> None:
     pool = client.connection_pool
     assert type(pool) is redis.asyncio.BlockingConnectionPool
     assert pool.max_connections == 50
-    assert pool.timeout == 0.25
+    assert pool.timeout == 1.0
     kwargs = pool.connection_kwargs
-    assert kwargs["socket_timeout"] == 0.25
-    assert kwargs["socket_connect_timeout"] == 0.25
+    assert kwargs["socket_timeout"] == 1.0
+    assert kwargs["socket_connect_timeout"] == 1.0
     assert (kwargs["host"], kwargs["port"], kwargs["db"]) == ("example.invalid", 6380, 3)
 
 
@@ -615,7 +618,7 @@ def _refused_port() -> int:
     return port
 
 
-# Far above what a healthy fail-open costs (a quarter second), far below the 300 s test limit.
+# Far above what a healthy fail-open costs (one second), far below the 300 s test limit.
 BOUND = 20.0
 
 
@@ -647,7 +650,7 @@ async def test_the_real_client_against_a_server_that_never_answers_fails_open_wi
         started = time.monotonic()
         error = await take_error(limiter)
         elapsed = time.monotonic() - started
-        # Redis's own socket timeout is 0.25 s too, so it can win the race with the limiter's.
+        # Redis's own socket timeout is 1 s too, so it can win the race with the limiter's.
         assert error.reason in ("timeout", "store_error")
         assert error.error_type == "TimeoutError"
         assert elapsed < BOUND
