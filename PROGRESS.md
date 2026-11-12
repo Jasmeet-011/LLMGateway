@@ -61,7 +61,7 @@ Stretch (not required for done, D-031):
 
 ## Lessons
 
-Distilled from the mistakes logs. The full history is in [docs/archive/2026-11-sessions.md](docs/archive/2026-11-sessions.md) (to the end of M11) and [docs/archive/2026-11-m12-sessions.md](docs/archive/2026-11-m12-sessions.md) (M12).
+Distilled from the mistakes logs. The full history is in [docs/archive/2026-11-sessions.md](docs/archive/2026-11-sessions.md) (to the end of M11), [docs/archive/2026-11-m12-sessions.md](docs/archive/2026-11-m12-sessions.md) (M12) and [docs/archive/2026-11-m13-m14-sessions.md](docs/archive/2026-11-m13-m14-sessions.md) (M13, M14).
 
 1. Add up every count before recording it, never copy a subagent's totals unchecked, and keep the script behind any figure in a D-entry.
 2. Read the installed source for library behavior: redirects, `DecodingError`, read order, disconnects, line splitting. A default is not a guarantee, so pin it with a test.
@@ -80,6 +80,7 @@ Distilled from the mistakes logs. The full history is in [docs/archive/2026-11-s
 15. On Windows each asyncio loop opens a loopback socketpair, so parallel test runs exhaust the ephemeral ports. Keep mutation workers to 6 or fewer, or avoid TIME_WAIT. The loops are one per async test, not real servers (D-083).
 16. A guard's spec names every part of the input it checks: for a URL, the scheme and the parsed host, not "the host". A local-time bug needs a test under a non-UTC `TZ`, because CI is UTC (D-082).
 17. Code that only a real database can exercise still needs default-run tests: put a fake driver or pool behind the store and test the error mapping, SQL shape and results there, and keep the real database for the integration proof (M14: 16 `keystore.py` mutants).
+18. A leak check scans only what the gateway wrote. A probe that prints the planted value it later searches for fails for the wrong reason, and so does a signature pin nobody moved when the spec added a parameter (M15).
 
 ## Session Log
 
@@ -134,120 +135,21 @@ Newest sessions go here. When this file passes 50 KB, move the session log and t
 - **Spec sentences added by the builder** for behaviors the new tests pin: D-098 names the empty array and the order of a partial group's missing fields; D-099 says the limits are keyword-only, the store closes in a `finally` after the cancelled writer finishes, and the store's `aclose` waits for a pool being made.
 - The tester's shell refused `check.ps1` under its PowerShell execution policy; it ran the five steps by hand and did not bypass the policy. The builder then ran `.\scripts\check.ps1`: PASS, 5234 passed, 39 deselected in 327.08 s; ruff clean; 93 files formatted; mypy clean on 82 files. `uv run pytest -m integration`: 30 passed in 122.11 s.
 
-### 2026-11-11: Gemini usage live test, M14 Hashed API keys in Postgres
+**Review, round 1** (f1a43de..c5226ee). **PASS**, no BLOCKING items. The reviewer ran `check.ps1` itself (5234 passed, 39 deselected, PASS) and the integration tests (30 passed), checked the red commit touches only `tests/`, that `pyproject.toml`, `uv.lock` and `schema.py` are unchanged, that every replaced assertion is stricter, and each of the owner's nine M15 topics against the code and D-095 to D-100, and the schema change against D-099 column by column. Four SHOULD FIX items, all fixed:
+1. No M15 rows in the Agent Mistakes Log: four added.
+2. PROGRESS.md was 55,471 bytes, past its 50 KB rule: the M13 and M14 session logs and the five older mistakes rows moved unchanged to `docs/archive/2026-11-m13-m14-sessions.md` by a script that checked every count first; Lesson 18 added.
+3. D-099's measurement came from a script only in the scratchpad: it is now `scripts/measure_usage.py`, D-099 calls the numbers a design check and not a `docs/RESULTS.md` figure, and "2,200 rows" now says per round (6,600 per arm).
+4. README.md and FLOW.md said writing "never slows down" or "never delays" an answer, more than was measured (p95 and p99 were 0.09 to 0.2 ms higher with a recorder): both now say an answer never waits on the database and a failed write never fails it.
 
-**State check.** HEAD 7264831, clean, on `main`, level with origin after `git pull`, as the brief expected. `.\scripts\check.ps1` PASS: 3850 passed, 11 deselected in 88.26 s, matching the brief. `.claude/agents/tester.md` and `reviewer.md` both present.
-
-**Live test first** (c2bdf7a). `tests/test_live_gemini_usage.py`, written, never run: one stream on `gemini-3.5-flash-lite`, `max_tokens` 256, through the adapter over a transport that records the raw bytes; it prints every chunk's `usageMetadata` and checks that the counts are cumulative and that the adapter reports the final billed counts, against `countTokens`. Fewer than three text chunks fail it as inconclusive. Collected only under `-m live` (1 deselected by default); ruff and mypy clean. Noted on D-075. **M15 waits for the owner's run.**
-
-**Plan for M14.**
-1. Spec first: D-085 to D-094, notes on D-018, D-019, D-025 and D-045, FLOW.md sections 4, 7, 8, 9, 11 and 13, PLAN.md's settled line. Dependencies: asyncpg 0.32.0, alembic 1.20.0, sqlalchemy[asyncio] 2.1.4, under the unchanged `exclude-newer`.
-2. Tester, Mode 1: unit tests over a fake store for the key format, hashing, the authenticator and its cache, the middleware and the one 401, the 503, the request line and leaks, config, the CLI, and the startup path; default-run tests with real asyncpg against a closed port and a silent server; integration tests (D-094); setup-only changes so the existing tests carry a key. Red run before any `src/` change.
-3. Build: `auth.py`, `keystore.py`, `keys.py`, `migrations/`, `config.py`, `app.py`, `main.py`; `compose.yaml` with the `migrate` service; README.
-4. Prove the stack from a clean clone and the integration tests locally, then on CI.
-5. Tester, Mode 2; reviewer; push; CI green on `main`.
-
-**D-089 and the stop rule.** D-089 supersedes the order in D-018 and D-045's position for the alias check. CLAUDE.md makes contradicting a D-entry a stop condition. It was not treated as one, because PLAN.md lists this exact order question as an M14 issue to settle and D-045 says to revisit it in M14; DECISIONS.md's rule for reversing an entry is a new entry that supersedes it. The owner can overrule this.
-
-**Tests, Mode 1** (d4cd4be). New: `tests/auth_support.py`, `test_auth.py`, `test_auth_app.py`, `test_keystore.py` (real asyncpg against a refused port and a silent server, no Postgres), `test_keys_cli.py`, `test_migrations.py` (offline), `compose_support.py` (D-081's guard moved here) and `test_compose_stack_auth.py` (integration, D-094). Every existing test that builds an app or a child got a key and an authenticator as setup only; `git diff -U0` showed no removed `assert` line. `tests/conftest.py` sorts `test_zz_outage_*` last, so the outage test runs after every other integration test. **Red run, `src/` unchanged, from `--junitxml`:** 640 failed, 4 collection errors (the four new files that import `llmgateway.auth` at module level), 3312 passed, 23 deselected. The tester also built a throwaway implementation in its scratch folder to check its tests could pass; it never touched `src/`.
-
-**Build** (9d1251d). `auth.py`, `keystore.py`, `keys.py`, `migrations/`, `config.py`, `app.py`, `main.py`, `compose.yaml`, `.env.example`, README. Three test failures on the first run, each the code not matching the brief: `list --tenant=` passed `""` instead of `None` (the brief said `T or None`); the wrong-scheme and missing-host URL errors shared one message; and ruff's import order in four new test files, which it can only judge once `llmgateway.auth` exists (fixed by `ruff --fix`, no assertion touched). `.\scripts\check.ps1` PASS: 4374 passed, 23 deselected in 183.50 s; mypy clean on 64 files.
-
-**Compose from a clean clone** (Lesson 13). Docker Desktop's engine answered 500 for over an hour after it was started, until `docker desktop restart`. Then a fresh `git clone` at 9d1251d: `docker compose build --no-cache --pull`, `docker compose up --wait --wait-timeout 180`: `migrate` exited 0 (`migrations applied`), api, postgres and redis healthy. `LLMGATEWAY_BASE_URL=http://127.0.0.1:8000 uv run pytest -m integration`: 15 passed in 35.25 s, including the outage test (Postgres stopped, a never-used key gets 503 `auth_unavailable`; started again, the same key gets 200). In the image, `llmgateway/migrations/versions/` holds `0001_api_keys.py`, so the migrations ship in the wheel. The TCP healthcheck rests on the image's `docker-entrypoint.sh`, line 297: the first-run temporary server sets `listen_addresses=''` (D-078's note).
-
-**Mutation checks, Mode 2.** One mutant at a time, each reverted with `git checkout` and checked byte-identical, `git diff -- src/` empty at the end. Nine SQL mutants of `keystore.py` ran only against the live stack: copied into the api container with `docker cp`, the integration tests run (never the outage test), then the container recreated from the image. Totals checked by the builder: 238 = 203 + 23 + 12.
-
-| Area | Mutants | Caught at first | After a new test | Equivalent | Uncaught | Hung |
-| --- | --- | --- | --- | --- | --- | --- |
-| `bearer_key` | 11 | 9 | 0 | 2 | 0 | 0 |
-| `KEY_PATTERN` | 9 | 9 | 0 | 0 | 0 | 0 |
-| `Authenticator` | 40 | 37 | 1 | 2 | 0 | 0 |
-| `AuthMiddleware` | 28 | 26 | 1 | 1 | 0 | 0 |
-| Leaks (key, secret, hash at INFO and DEBUG) | 10 | 10 | 0 | 0 | 0 | 0 |
-| `app.py` (order, request line, lifespan) | 11 | 9 | 1 | 1 | 0 | 0 |
-| `keystore.py` | 24 | 7 | 16 | 1 | 0 | 0 |
-| `keys.py` CLI | 35 | 35 | 0 | 0 | 0 | 0 |
-| `config.py` | 23 | 19 | 2 | 2 | 0 | 0 |
-| `main.py` | 7 | 5 | 1 | 1 | 0 | 0 |
-| Migration DDL (offline) | 16 | 16 | 0 | 0 | 0 | 0 |
-| URL guard (M13's G group, now in `compose_support.py`) | 15 | 12 | 1 | 2 | 0 | 0 |
-| SQL on the live stack (integration only) | 9 | 9 | 0 | 0 | 0 | 0 |
-| **Total** | **238** | **203** | **23** | **12** | **0** | **0** |
-
-- **Survivors, fixed by new tests** (ac7dbc4): 16 `keystore.py` mutants that need a driver error, a row or a pool to see (driver-error tuple, the DSN in the cause chain, revoke mapping, list order, parameters, pool close, the `DBAPIError` family in `run_migrations`), now caught by `tests/test_keystore_pool.py` over a fake pool; C30 (an expired entry left in place keeps its old age); W26 (authenticating the lifespan scope); D07 (a router `aclose` that raises skipped the store's close); F06 and F08 (a non-numeric port); N05 (main ignoring the environment's cache time); U11 (the guard returning another local address).
-- **Equivalent:** B08 and C31 (the format check rejects the same keys), B11 (ASGI header names are lower-case), C12 (a 0 s entry expires at once), W28 (an extra state key), D08 (the order of the two closes is unspecified), S18 (an empty tenant cannot reach `list_keys`), F05, F23, U01 and U12 (blank or padded URLs fail or pass the same way), N07 (`SystemExit` with a message prints no traceback). F05, F23, N07, U01 and U12 rest on argument plus the targeted run, not the full suite.
-- The migration DDL mutants ran only through the offline renderer, not against a real database, because that would mean recreating the stack's volume; the integration test of the table's checks passes on the real one.
-
-After Mode 2, `.\scripts\check.ps1` PASS: 4549 passed, 26 deselected in 554.75 s (Docker Desktop and the stack were running), ruff clean, 76 files formatted, mypy clean on 65 files. `uv run pytest -m integration` against the stack: 18 passed in 246.70 s.
-
-**Review, round 1** (7264831..9e9ffa4). **PASS**, no BLOCKING items. The reviewer ran `check.ps1` itself (4549 passed, 26 deselected, PASS) and the integration tests (18 passed, outage included), checked all seven of the owner's topics against D-085 to D-094 and the code, and agreed D-089 was not a stop condition, asking that it be listed under "Needs owner". Four SHOULD FIX items, all fixed:
-1. The integration helpers built SQL from strings (`row_sql`, `insert_sql`, a `DELETE`), against CLAUDE.md even in tests. Now every value is a psql variable (`-v name=value`, `:'name'`) sent with the statement on standard input, with `ON_ERROR_STOP=1` so a failed statement still exits non-zero; no `S608` waiver is left. Recorded in D-094. Helpers and call sites only; no assertion changed.
-2. README.md and FLOW.md section 4 said a request is "never served" when Postgres is down; a cached row is served (D-091). Reworded.
-3. D-088's Risk now says that the cache makes "does this id exist" much easier to time (memory against a round trip), still only about ids.
-4. D-079 and D-092 said `migrate` runs the api's image, but two images were built (`llmgateway-api`, `llmgateway-migrate`; `docker images` confirmed it). Both services now name `image: llmgateway:local`. Also from its notes: D-088 quotes the exact `SELECT`; README says "`/healthz`" without a method; `compose.yaml` warns that `POSTGRES_PASSWORD` goes into the URL unescaped. Left as notes: a key-id collision or a failing migration reads as "database unavailable" in the CLI; a future WebSocket route would bypass auth (`AuthMiddleware` passes non-HTTP scopes); the body size cap stays open (D-089).
-
-After the fixes: `docker compose down -v`, then `docker compose up --build --wait`: `migrate` exited 0 and api, postgres and redis healthy, `api` and `migrate` both on `llmgateway:local`; `uv run pytest -m integration`: 18 passed in 58.31 s. `.\scripts\check.ps1` PASS: 4549 passed, 26 deselected in 211.55 s; ruff clean; 76 files formatted; mypy clean on 65 files.
-
-**Pushed and CI** (7264831..b2cb75e, run 43079247088 on b2cb75e, push to `main`): success, both jobs. `check.ps1` on ubuntu-24.04 with CPython 3.12.12: 4549 passed, 26 deselected in 55.91 s, `PASS`, job 18:36:03 to 18:37:18 UTC. Compose: the image built on CPython 3.12.15, `migrate` exited 0, the stack healthy, 18 integration tests passed in 47.05 s (the outage test last), the stack removed; job 18:36:04 to 18:37:34 UTC. M14 ticked.
-
-### 2026-11-11: owner's live run, D-071 approval, M13 Docker Compose and CI
-
-**State check.** The brief's expected HEAD was left as an unfilled placeholder (`[PASTE git log --oneline -1]`), so it could not be compared; HEAD was e915468, clean, on `main`, level with origin after `git pull`. `.\scripts\check.ps1` PASS: 3798 passed, 7 deselected in 45.12 s, matching the brief.
-
-**Owner's results, recorded first** (6c68587). The owner's live run, `uv run --env-file .env pytest -m live -v`: 7 passed, as reported. D-074 and D-075 each got a dated note. `alt=sse` is verified. **Gemini's streamed usage counts being cumulative is still unverified:** `test_real_gemini_stream_through_app_accepts_alt_sse` asserts only that each final count is above 0, which per-chunk counts would also pass. D-071 is approved on the owner's condition that a client that disconnects or stops reading mid-stream is neutral. That was already the code and already pinned through the app by four tests in `tests/test_stream_disconnect.py`. A mutation check by the main session confirmed they bite: `ServedStream.aclose` recording a failure for every abandoned stream failed 23 tests, and recording one only for `client_stalled` failed 10; `git diff -- src/` was empty afterwards. No fix was needed.
-
-**Plan for M13.**
-1. Spec first: D-078 to D-084, a settled note on D-066, FLOW.md section 6 and the module map, PLAN.md's settled line.
-2. Tester, Mode 1: tests for D-082 (log times, including a child with a non-UTC `TZ`), D-081's integration tests, and D-084's move of `tests/test_retries.py` off `GUARD_SECONDS`. Red run before any `src/` change.
-3. Build: `llmgateway/logtime.py`, the breaker and `main.py` on it; `Dockerfile`, `.dockerignore`, `compose.yaml`, `.github/workflows/ci.yml`, the marker in `pyproject.toml`; README.
-4. Prove `docker compose up --build --wait` and the integration tests locally, then on CI.
-5. Tester, Mode 2; reviewer; push; CI green on `main`.
-
-**Investigation: Windows TIME_WAIT** (D-083). A scratch pytest plugin counted per test file: 2,672 `socket.socketpair()` calls, exactly one per async test, which is each test's event loop self-pipe; 44 other TCP sockets, all in the real-uvicorn section of `tests/test_stream_disconnect.py`; 33 child processes in `tests/test_main.py` (16) and `tests/test_faults.py` (17). A bare script that creates and closes 200 event loops leaves 200 loopback TIME_WAIT sockets, for every loop type. So the buildup is the per-test loop, not real servers, and every other test already uses an in-process transport: there was nothing to switch. What remains, and why: the real-uvicorn tests (D-072 on a real server, Lesson 13), the startup children (real exit codes and a real server), and the per-test loops (isolation). A session-wide loop was measured as the alternative: 3798 passed with 1 socketpair, 39.17 s against 48.36 s. It is rejected in D-083 for isolation.
-
-**Investigation: the 5 s app import.** `python -X importtime -c "import llmgateway.main"`, today, awake: 963 ms cumulative under importtime; five plain runs took 763 to 779 ms against 51 to 56 ms for a bare `python -c pass`. The slow imports by self time: fastapi 187 ms (`fastapi.routing` to `fastapi.params` to `fastapi.openapi.models` and `fastapi.exceptions` is the longest chain), pydantic 131 ms, asyncio 51 ms, opentelemetry 50 ms (fastapi 0.143.1 imports `opentelemetry-api` in `fastapi.telemetry`), starlette 39 ms, httpx 33 ms plus its CLI (`httpx._main` pulls in click, rich and pygments when they are installed, 47 ms cumulative). The repo's own modules: 55 ms self. The 5,159 ms recorded in M12 came with a bare interpreter at 319 ms, six times today's, and a full suite at 258 s against 45 s today, on the same code. **So the evidence is consistent with the machine's state at the time, not the repo, and nothing is changed.** That is an inference, from the same code importing six times faster today with a bare interpreter six times faster too, not a direct measurement of the cause. What slowed the machine then is not known; Defender's real-time protection is on, but that is not shown to be the cause.
-
-**D-066 on Linux.** In the pinned Python image, a throwaway hanging test under `-o timeout=3` failed alone and the next test passed: `1 failed, 1 passed in 3.04s`. Recorded in D-066.
-
-**Tests, Mode 1** (4d0c61b). The tester wrote `tests/test_logtime.py` (33 tests, D-082, including two children under `TZ=XXX-05:30`), `tests/test_compose_stack.py` (4 integration tests, D-081) and `tests/test_integration_guard.py` (9 default-run tests that run the integration file in a child pytest with no URL, an empty one, five non-loopback hosts and two loopback controls, and assert every test fails, none skips, and no connection is attempted). It moved the `Z` expectations to `+00:00`: 22 lines in `tests/test_breaker.py`, 2 in `tests/test_fallback.py`, same strictness. It moved `tests/test_retries.py` onto fake time (D-084): nine `GUARD_SECONDS` sites, plus a tenth, `test_an_attempt_that_answers_in_time_is_not_timed_out`, which slept 5 ms of real time under a real 1 s limit. The builder kept the tenth, because D-084 says no real-time limit stays in the file. 179 passed before and after. **Red run, checked by the builder from `--junitxml`, `git diff -- src/` empty:** 126 failed, 3714 passed, 11 deselected. By file: `test_logtime` 33 failed; `test_breaker` 91 failed, 292 passed; `test_fallback` 2 failed, 444 passed; `test_integration_guard` 9 passed (the guard is test code); `test_retries` 179 passed. The 4 integration tests passed against the stack built from the code before any `src/` change, which they should, since they test the api's behavior and not log times.
-
-**Build** (35e1ee5). `logtime.py`, the breaker and `main.py` on it; `Dockerfile`, `.dockerignore`, `compose.yaml`, `.github/workflows/ci.yml`; README. `.\scripts\check.ps1` PASS: 3840 passed, 11 deselected in 60.35 s; 61 files formatted; mypy clean on 50 source files. The suite went from 45 s to 60 s, mostly from `tests/test_integration_guard.py`'s nine child pytest runs (about 14 s, the tester's measure). The container's lines now start `2026-11-11T14:04:31.203+00:00 INFO llmgateway.request ...`; before, `2026-11-11 13:51:27,050`.
-
-**`docker compose up` from a clean clone** (Lesson 13). A fresh `git clone`, checked out at 35e1ee5: `docker compose build --no-cache --pull`, then `docker compose up --wait`: all three healthy; `uv run pytest -m integration`: 4 passed; `docker compose down -v`. The image is 204 MB, runs Python 3.12.15 as uid 10001.
-
-**Mutation checks, Mode 2.** 60 mutants, run one at a time, each reverted with `git checkout`, and `git diff -- src/` empty after each and at the end: 54 caught at first, 3 caught after a new test, 3 equivalent, 0 uncaught, 0 hung. Results, harness and logs: the tester's scratch folder `m13-mutants/results.jsonl` (not in the repo).
-
-| Group | Mutants | Caught at first | After a new test | Equivalent | Uncaught | Hung |
-| --- | --- | --- | --- | --- | --- | --- |
-| D-082: `logtime.py`, `main.py`, breaker and router wall clock (L, M, B) | 35 | 33 | 0 | 2 | 0 | 0 |
-| D-081: the URL guard in `tests/test_compose_stack.py` (G) | 13 | 9 | 3 | 1 | 0 | 0 |
-| D-084: the attempt timeout in `router.py`, both paths (T) | 12 | 12 | 0 | 0 | 0 | 0 |
-
-- **Local time on a UTC host.** L01 (`fromtimestamp` without UTC) and L02 (`time.localtime`) failed 123 tests on this Eastern host. Rerun with the pytest process under `TZ=UTC0`, as a CI runner is, exactly the two `TZ=XXX-05:30` child tests failed. So B075's blind spot from M10 is closed.
-- **main.py's handler** (M01 to M06: plain `logging.Formatter`, swapped or missing fields) is caught only by the two child tests, as D-065 says it must be.
-- **Survivors, fixed by new tests in `tests/test_integration_guard.py`:** G04c (`endswith` on the host), G04e (`netloc.split(":")[0]`, which would accept `http://localhost:80@evil-host`) and G05 (no scheme check). The scheme rule was not in D-081's text; the builder added it to D-081.
-- **Equivalent:** L06b (`int` for `floor`, differs only for negative seconds), L07d (whole seconds from `int(seconds)`: no counterexample in about 900,000 floats near whole seconds; empirical, not proven), G02a (an empty URL still fails, at the host check, naming the variable).
-- **The streaming attempt timeout** (T01b to T06b) is not exercised by `tests/test_retries.py`, which tests `complete()` only; all six are caught by the stream test files.
-- The tester's first G02b was a bad mutant (an `and`/`or` slip left the check in place); it rewrote it, and the corrected form is caught.
-
-After Mode 2, `.\scripts\check.ps1` PASS: 3850 passed, 11 deselected in 123.07 s. That run is twice the 60 s of an hour earlier with only ten more child runs added. Measured, not explained: `tests/test_integration_guard.py` alone took 39.26 s (19 child pytest runs); `tests/test_faults.py` alone took 14.82 s, as at session start, but its startup tests took 4 to 5 s each inside the full run; `import llmgateway.main` took 820 to 922 ms; TIME_WAIT stood at 1,866 of 16,384 ephemeral ports. Docker Desktop was running for this run and not for the 45 s baseline.
-
-**Review, round 1** (e915468..88cfcdc). **PASS**, no BLOCKING items. The reviewer ran `check.ps1` itself: 3850 passed, 11 deselected in 71.90 s, all checks passed, 61 files formatted, mypy clean on 50 source files. It had no network, so it did not check D-079's digests, SHAs and dates against the registries; the builder read them from Docker Hub, ghcr.io and GitHub's API (above). Three SHOULD FIX items, all fixed: no Agent Mistakes Log rows for M13 (two added); the M12 evidence row contradicted itself on the live run; a stale comment in `tests/test_integration_guard.py` and the docstring of `tests/test_compose_stack.py` did not state D-081's scheme rule (comment and docstring only, no assertion touched). From its notes: the import conclusion above now says "consistent with", because it is an inference; D-080's "about ten times the expected job" had no CI baseline until the run below. Its NOTE 1 lists what the CI run must show for M13 to be ticked.
-
-**CI, first run** (a4a1bad, run 43045077236, push to `main`, not cancelled): success, both jobs.
-- `check.ps1` on ubuntu-24.04: uv 0.12.1, `Using CPython 3.12.12`, `platform linux`, `3850 passed, 11 deselected in 28.99s`, ruff clean, 61 files formatted, mypy clean on 50 files, `PASS`. Job time 46 s (15:06:58 to 15:07:44 UTC).
-- Compose: all three containers `Healthy`, `collected 3861 items / 3857 deselected / 4 selected`, `4 passed`, then the containers, the `pgdata` volume and the network removed. Job time 33 s.
-- **Suite runtime, CI next to local:** pytest 28.99 s on the Linux runner; on this Windows machine 45.12 s at session start, 60.35 s after the build, then 123.07 s, 71.90 s (the reviewer's run) and 131.90 s with the same 3850 tests. The Linux run is the first full-suite run on Linux, and it passed whole.
-- D-080's "about ten times the expected job" holds: 15 minutes against 46 s and 33 s.
+From its notes: D-095 and FLOW.md now say a committed stream cancelled from outside closes as `client_gone` (D-072), not `cancelled`; D-099's Risk says one row that breaks a check loses its whole batch; D-098 says Google's page as read listed no prompt-size tier, unverified, and the Gemini rows need the owner's eye; FLOW.md section 13 lists invalid TOML and an empty period array. Left as notes: the thinking live test is strict and could fail if a later chunk leaves `thoughtsTokenCount` out, which its printed table would show; `test_a_chunk_with_nothing_to_show_produces_no_event` keeps its name though one case now yields a `ProviderUsage`.
 
 ## Agent Mistakes Log
 
-Older rows are in [docs/archive/2026-11-sessions.md](docs/archive/2026-11-sessions.md) and [docs/archive/2026-11-m12-sessions.md](docs/archive/2026-11-m12-sessions.md).
+Older rows are in [docs/archive/2026-11-sessions.md](docs/archive/2026-11-sessions.md), [docs/archive/2026-11-m12-sessions.md](docs/archive/2026-11-m12-sessions.md) and [docs/archive/2026-11-m13-m14-sessions.md](docs/archive/2026-11-m13-m14-sessions.md).
 
 | Date | What went wrong | How it was caught | Fix |
 | --- | --- | --- | --- |
-| 2026-11-11 | M14: the builder's first edit script for the D-018, D-019, D-025 and D-045 notes was PowerShell that joined each string to a newline with `+` inside an array literal, where the comma binds tighter than `+`, so the pairs were not what was written. | The script's own all-or-nothing count check (0 matches), before anything was written. | Rewritten as a Python script with the same count check (Lesson 12). |
-| 2026-11-11 | M14: the builder's `keys.py` passed an empty `--tenant=` to the store as `""`, though its own brief to the tester said `T or None`; and `database_url` gave one message for a wrong scheme and a missing host. | Two Mode 1 tests on the first run of the build. | `args.tenant or None`; two messages (9d1251d). |
-| 2026-11-11 | M14: the build's `keystore.py` had 16 behaviors no Mode 1 test could see without a database (driver-error mapping per class, the DSN in the cause chain, revoke and list results, pool close), and the lifespan close order and a non-numeric port were unpinned. | Tester, Mode 2 (S, C30, W26, D07, F06, F08, N05, U11). | `tests/test_keystore_pool.py` with a fake pool, and seven more tests (ac7dbc4). |
-| 2026-11-11 | M13: the builder's D-081 spec named the host rule but not the URL scheme, and the Mode 1 guard tests let three mutants through: `endswith` on the host, `netloc.split(":")[0]` (which would accept `http://localhost:80@evil-host`), and no scheme check. | Tester, Mode 2 (G04c, G04e, G05). | Two new tests in `tests/test_integration_guard.py`, and the scheme and parsed-host rule added to D-081 (88cfcdc). |
-| 2026-11-11 | M13: the tester's first G02b mutant had an `and`/`or` precedence slip that left the empty-URL check in place, so it survived for the wrong reason and briefly read as a gap. | The tester, rereading the surviving mutant. | Rewritten as `if value.strip() and (...)`; the corrected mutant is caught, and the table records that form. |
+| 2026-11-11 | M15: the builder's price parser reported a partial long-price group at the period's location, naming no field, where the tests asked for a field. | A Mode 1 test in `tests/test_prices.py`, on the build's first run. | The message names the first missing field (620d7ad). |
+| 2026-11-11 | M15: the builder's `usagestore.py` built its `INSERT` with an f-string from the column list. No value went into it, but CLAUDE.md asks for SQL that is plainly parameterized. | ruff S608, on the build's first lint run. | A literal statement with `$1` to `$17` (620d7ad). |
+| 2026-11-11 | M15: two tester defects in Mode 1. The startup wiring probe printed the DSN its fake store received, so the DSN leak check failed on the probe's own output; and an M12 signature test still pinned `open_stream` without D-095's `meter`. Also 17 type-only mypy errors in the new tests, visible only once `src/` existed. | The builder's first run against the implementation, and mypy. | The tester fixed all three without changing what an assertion checks (bc3599b). |
+| 2026-11-11 | M15: Mode 1 left 25 behaviors unpinned, among them report-versus-close ordering with a blocking upstream close, `aclose` cancelled or racing pool creation, `check` stopping at the first alias, and two table checks on real Postgres; one mutant hung a drain test at teardown. | Tester, Mode 2 (688 mutants). | 31 default tests and 2 integration tests (f0c5b16). |
