@@ -9,7 +9,8 @@ its rule. Written from FLOW.md's configuration rows before the implementation ex
   which can hold a password. A good value is returned as it was given.
 - `LLMGATEWAY_RATE_LIMIT_BURST`: an integer from 1 to 1,000,000 written in decimal digits;
   unset means 60.
-- `LLMGATEWAY_RATE_LIMIT_PER_SECOND`: a finite number above 0 and at most 1,000,000; unset means 1.
+- `LLMGATEWAY_RATE_LIMIT_PER_SECOND`: a finite number from 0.001 to 1,000,000 (D-105, amended in
+  the M16 review: with a lower rate the script's expiry passes `PEXPIRE`'s range); unset means 1.
 - `LLMGATEWAY_MAX_BODY_BYTES`: an integer from 1,024 to 67,108,864 in decimal digits; unset means
   1,048,576.
 
@@ -18,8 +19,9 @@ names its variable and none contains the value that was given: a recognizable va
 each rejected input (Lesson 9).
 
 Not pinned, because no sentence says: non-ASCII decimal digits (Arabic-Indic and the like),
-exponent notation in the rate ("1e-3", which `float` reads) and surrounding spaces around the
-rate. A port that is not a number is pinned, as the same rule as `database_url` (D-091), after the
+surrounding spaces around the rate. Exponent notation in the rate is pinned only where the
+amended bound needs it ("1e-3" is the lowest rate, "1e-16" and "1e-300" are below it).
+A port that is not a number is pinned, as the same rule as `database_url` (D-091), after the
 mutation checks found it unpinned.
 """
 
@@ -147,6 +149,33 @@ def test_a_redis_url_with_a_port_that_is_not_a_port_is_an_error_that_never_shows
     assert MARKER not in message
 
 
+@pytest.mark.parametrize(
+    "query",
+    [
+        pytest.param("?", id="empty_query"),
+        pytest.param(f"?socket_timeout={MARKER}", id="socket_timeout"),
+        pytest.param(f"?max_connections=500&x={MARKER}", id="max_connections"),
+        pytest.param(f"?db=1&{MARKER}=1", id="db_option"),
+        pytest.param(f"?retry_on_timeout=true#{MARKER}", id="query_and_fragment"),
+    ],
+)
+@pytest.mark.parametrize("base", ["redis://redis:6379/0", "rediss://redis:6380/2", "redis://redis"])
+def test_a_redis_url_with_a_query_string_is_an_error_that_never_shows_the_value(
+    base: str, query: str
+) -> None:
+    # D-106, amended: redis-py's `from_url` would let an option override the client settings, and
+    # a bad option value crashes at import with a traceback. Anything after `?` is refused.
+    url = f"{base.replace('//', f'//:{MARKER}@', 1)}{query}"
+    message = message_of("redis_url", {REDIS: url})
+    assert REDIS in message
+    assert MARKER not in message
+    assert url not in message
+
+
+def test_the_database_number_stays_in_the_path_and_is_accepted() -> None:
+    assert config.redis_url({REDIS: "redis://redis:6379/3"}) == "redis://redis:6379/3"
+
+
 def test_the_redis_url_message_for_each_rule_is_not_the_same_text_as_the_value() -> None:
     # A password in the URL is a value the message must not echo under any rule.
     for url in (f"http://:{MARKER}@h/0", f"redis://:{MARKER}@/0", ""):
@@ -253,11 +282,15 @@ GOOD_RATES = [
     ("1.5", 1.5),
     ("1000000", 1_000_000.0),
     ("1000000.0", 1_000_000.0),
+    ("0.001000", 0.001),
+    ("0.0010000001", 0.0010000001),
+    ("1e-3", 0.001),
+    ("1E-3", 0.001),
 ]
 
 
 @pytest.mark.parametrize(("text", "value"), GOOD_RATES)
-def test_a_rate_above_zero_and_at_most_a_million_is_a_float(text: str, value: float) -> None:
+def test_a_rate_from_a_thousandth_to_a_million_is_a_float(text: str, value: float) -> None:
     result = config.rate_limit_per_second({RATE: text})
     assert result == value
     assert type(result) is float
@@ -284,6 +317,14 @@ BAD_RATES = [
     "NaN",
     "1e400",
     "1e-400",
+    # Below 0.001 (D-105, amended): the expiry the script computes would pass PEXPIRE's range.
+    "0.0009",
+    "0.00099999",
+    "0.0001",
+    "1e-4",
+    "1e-16",
+    "1e-300",
+    "5e-324",
     "abc",
     "1,5",
     "0x10",

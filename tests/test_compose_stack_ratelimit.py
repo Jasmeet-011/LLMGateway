@@ -334,6 +334,31 @@ def test_an_empty_bucket_with_a_ts_in_the_future_waits_exactly_the_time_to_one_t
         assert float(replies[2][0]) == 0.0, rate
 
 
+def test_the_longest_allowed_expiry_is_set_and_the_bucket_survives() -> None:
+    # D-105, amended: a burst of 1,000,000 at 0.001 per second is the largest time to full, 10^12
+    # ms. The expiry reaches PEXPIRE as plain digits (D-103), so the call succeeds, the refusal
+    # is returned, and the bucket is there with a TTL of about 10^12 ms (about 32 years).
+    base_url()
+    key = fresh_key()
+    try:
+        replies = session(
+            plant(key, 0, 0),
+            run_script(key, 1_000_000, 0.001),
+            hget(key, "tokens"),
+            pttl(key),
+            (f"EXISTS {key}", 1),
+        )
+    finally:
+        delete(key)
+    allowed, retry_after_ms = replies[1]
+    assert allowed == "0"
+    # ceil(1000 / 0.001) = 1,000,000 ms, give or take the milliseconds the commands took.
+    assert 990_000 <= int(retry_after_ms) <= 1_000_000, retry_after_ms
+    assert 0 <= float(replies[2][0]) < 1
+    assert 999_999_000_000 < int(replies[3][0]) <= 1_000_000_000_000, replies[3]
+    assert replies[4] == ["1"]
+
+
 def test_a_capacity_lowered_below_the_stored_tokens_caps_them_at_once() -> None:
     base_url()
     key = fresh_key()

@@ -159,6 +159,43 @@ def test_startup_with_a_bad_tuning_value_stops_cleanly_naming_the_variable(
     assert variable in result.stderr
 
 
+# Amended in the M16 review (D-105, D-106): a Redis URL with options, and a rate below 0.001
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        pytest.param("?socket_timeout=x", id="bad_option_value"),
+        pytest.param("?", id="empty_query"),
+        pytest.param("?max_connections=500", id="option_that_would_override_the_pool"),
+        pytest.param(f"?db=1&{MARKER}=1", id="planted_option"),
+    ],
+)
+def test_startup_with_a_redis_url_with_a_query_stops_cleanly_and_not_with_a_traceback(
+    query: str,
+) -> None:
+    env = _env(**{REDIS: f"redis://:{MARKER}@redis:6379/0{query}"})
+    result = _import_main(env)
+    _assert_stops_with(result, "redis_url", env)
+    assert REDIS in result.stderr
+
+
+@pytest.mark.parametrize("rate", ["0.0005", "0.0009", "1e-16", "1e-300"])
+def test_startup_with_a_rate_below_a_thousandth_stops_cleanly_naming_the_variable(
+    rate: str,
+) -> None:
+    env = _env(**{RATE: rate})
+    result = _import_main(env)
+    _assert_stops_with(result, "rate_limit_per_second", env)
+    assert RATE in result.stderr
+
+
+def test_a_rate_of_exactly_a_thousandth_still_starts() -> None:
+    result = _import_main(_env(**{RATE: "0.001"}))
+    assert result.returncode == 0, result.stderr
+    assert "Traceback" not in result.stderr
+
+
 # The order of startup errors (FLOW.md section 13)
 
 

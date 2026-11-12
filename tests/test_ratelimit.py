@@ -116,6 +116,16 @@ def test_the_script_keeps_the_bucket_in_a_hash_and_expires_it() -> None:
         assert command in script
 
 
+def test_the_pexpire_argument_is_formatted_as_whole_digits_by_the_script() -> None:
+    # D-103, amended in the M16 review: the expiry is passed as `string.format('%.0f', ...)`, so
+    # Redis gets plain integer digits and never a Lua number in exponent form.
+    script = lua_code(ratelimit_module().SCRIPT)
+    lines = [line for line in script.splitlines() if "PEXPIRE" in line]
+    assert len(lines) == 1
+    assert re.search(r"KEYS\[1\],\s*string\.format\(\s*'%\.0f'\s*,", lines[0]), lines[0]
+    assert "math.max(1, math.ceil(" in lines[0]
+
+
 def test_a_decision_is_a_frozen_dataclass_of_allowed_and_whole_seconds() -> None:
     decision_type: Any = ratelimit_module().Decision
     is_dataclass = dataclasses.is_dataclass(decision_type)
