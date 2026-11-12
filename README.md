@@ -29,7 +29,7 @@ Supporting pieces: Docker Compose (gateway, Postgres, Redis), pytest test suite,
 
 ## Run it
 
-PowerShell 7. The gateway reads the process environment; it does not load `.env` files (see `.env.example` for the variables). There is still no request body size limit (D-025), so keep it on `127.0.0.1`.
+PowerShell 7. The gateway reads the process environment; it does not load `.env` files (see `.env.example` for the variables).
 
 **API keys (D-086 to D-092).** Every request except one to `/healthz` needs `Authorization: Bearer <key>`, checked before the body is read. A key looks like `lgw_<16 hex>_<64 hex>`; Postgres stores only its SHA-256, and the full key is printed once, when it is made. A missing, malformed, unknown, wrong or revoked key gets the same 401 `invalid_api_key`. If a key's row is not in the cache and Postgres cannot answer within 2 s, the request gets 503 `auth_unavailable` and is not served. Each worker caches a found key's row for 10 s (`LLMGATEWAY_KEY_CACHE_SECONDS`, 0 to 60), so a revoked key stops working within that time. The request log line names the key's tenant and key id, never the key. `LLMGATEWAY_DATABASE_URL` is required: without it, startup stops. Keys are managed with `python -m llmgateway.keys`:
 
@@ -40,7 +40,9 @@ python -m llmgateway.keys list                     # ids, tenants, times; never 
 python -m llmgateway.keys revoke <key id>
 ```
 
-The simplest way to have Postgres is the Compose stack below. To run uvicorn on the host instead, point `LLMGATEWAY_DATABASE_URL` at a Postgres you run yourself, then `uv run python -m llmgateway.keys migrate` and `create`, and set `$key` to the printed key.
+**Body size and rate limits (D-103 to D-108).** After the key, and before the body is parsed, come two more checks. A body over 1 MiB (`LLMGATEWAY_MAX_BODY_BYTES`) gets 413 `request_too_large`; a declared `Content-Length` over the limit is refused before any of the body is read, and a chunked body is counted as it arrives. Then each request takes one token from its API key's bucket in Redis: by default a key may burst 60 requests and then average one per second (`LLMGATEWAY_RATE_LIMIT_BURST`, `LLMGATEWAY_RATE_LIMIT_PER_SECOND`). Every request counts, a malformed one too. A key with no token left gets 429 `rate_limited` with `Retry-After`, the seconds until its bucket refills one token; such a request reaches no provider and is not billed. The bucket is one Lua script that Redis runs atomically, reading Redis's own clock, so every worker and gateway instance shares one limit exactly. `LLMGATEWAY_REDIS_URL` is required. If Redis does not answer within 250 ms, the request is served without a limit and the gateway logs `ratelimit_unavailable`: unlike auth, the limiter fails open, because every request is still authenticated and billed, and a Redis outage should not take the gateway down with it.
+
+The simplest way to have Postgres and Redis is the Compose stack below. To run uvicorn on the host instead, point `LLMGATEWAY_DATABASE_URL` at a Postgres and `LLMGATEWAY_REDIS_URL` at a Redis you run yourself, then `uv run python -m llmgateway.keys migrate` and `create`, and set `$key` to the printed key.
 
 Clients send a model alias in `model`, never a provider model. A TOML config file maps each alias to an ordered list of (provider instance, provider model) pairs (D-010, D-044). `LLMGATEWAY_CONFIG` names the file. When it is unset, a built-in default with the mock provider only is used. An alias that is not configured gets 400 `unknown_model`. The response's `model` is the provider model that answered, `provider` is its provider type (D-045), and `provider_instance` is the config instance that served (D-063). A bad config stops startup with one `llmgateway: configuration error: ...` line. `LLMGATEWAY_PROVIDER` is no longer read; if it is still set, startup stops.
 
@@ -49,6 +51,7 @@ Mock provider (the default, no key needed). Terminal 1:
 ```powershell
 uv sync
 $env:LLMGATEWAY_DATABASE_URL = Read-Host "Postgres URL" -MaskInput
+$env:LLMGATEWAY_REDIS_URL = "redis://127.0.0.1:6379/0"
 uv run uvicorn llmgateway.main:app --host 127.0.0.1 --port 8000
 ```
 
@@ -122,7 +125,7 @@ $body = @{ model = "mock"; max_tokens = 32; messages = @(@{ role = "user"; conte
 Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/v1/chat -Headers @{ Authorization = "Bearer $key" } -ContentType "application/json" -Body $body
 ```
 
-The gateway is on `127.0.0.1:8000` only, with the built-in mock-only config and no provider keys. Redis is not used yet (M16). Neither Postgres's nor Redis's port is published. Postgres's password is a local development default unless `POSTGRES_PASSWORD` is set. `docker compose down -v` stops everything and removes the database volume. Every image is pinned by tag and digest (D-079).
+The gateway is on `127.0.0.1:8000` only, with the built-in mock-only config and no provider keys. Redis holds the rate limiter's buckets. Neither Postgres's nor Redis's port is published. Postgres's password is a local development default unless `POSTGRES_PASSWORD` is set. `docker compose down -v` stops everything and removes the database volume. Every image is pinned by tag and digest (D-079).
 
 ## Tests and CI
 
@@ -134,7 +137,7 @@ $env:LLMGATEWAY_BASE_URL = "http://127.0.0.1:8000"
 uv run pytest -m integration
 ```
 
-The integration tests make, revoke and read keys and usage rows through `docker compose exec`, so they need the `docker` CLI, and the last one stops and restarts Postgres to prove the 503 (D-094, D-100).
+The integration tests make, revoke and read keys and usage rows through `docker compose exec`, so they need the `docker` CLI, run the rate limit script in the Redis container and start a second gateway on `127.0.0.1:8001` with `docker compose run` (so that port must be free), and the last ones stop and restart Postgres to prove the 503 and Redis to prove the limiter fails open (D-094, D-109, D-100).
 
 GitHub Actions runs `check.ps1` on Linux, and builds and starts the Compose stack and runs the integration tests against it, on every push to `main` and every pull request (D-080, D-081). It uses no secrets, never runs the live tests, and every job has a 15-minute limit.
 

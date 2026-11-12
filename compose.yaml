@@ -22,11 +22,18 @@ services:
     # The built-in mock-only config, with no provider keys (D-044).
     environment:
       <<: *database-url
+      # The rate limiter's Redis (D-106). The bucket and body limits keep their defaults:
+      # a burst of 60 per key, 1 per second, 1 MiB (D-105, D-108).
+      LLMGATEWAY_REDIS_URL: redis://redis:6379/0
     ports:
       - "127.0.0.1:8000:8000"
     depends_on:
       migrate:
         condition: service_completed_successfully
+      # The gateway starts without Redis and fails open (D-106); this only orders a
+      # normal start, so the first requests are already limited.
+      redis:
+        condition: service_healthy
 
   # Runs the Alembic migrations once and exits; the api starts only if it succeeded.
   migrate:
@@ -44,8 +51,6 @@ services:
       postgres:
         condition: service_healthy
 
-  # Nothing connects to Redis yet. M16 adds `depends_on` with
-  # `condition: service_healthy` when the api first does. No port is published.
   postgres:
     image: postgres:18.4-alpine3.24@sha256:9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15
     environment:
@@ -65,6 +70,8 @@ services:
       timeout: 3s
       retries: 30
 
+  # The rate limiter's buckets (D-103). No port is published: the integration tests run
+  # the script with `docker compose exec redis redis-cli` (D-109).
   redis:
     image: redis:8.8.3-alpine3.23@sha256:cc9d0aecc235bda23e80287b5ef7c131cae443045b9a332d45932feb71a1e70e
     healthcheck:

@@ -13,6 +13,10 @@ Key design choices:
 - `AuthMiddleware` (`auth.py`) runs just inside the request-ID middleware, before
   FastAPI reads the body: every request but `/healthz` needs a valid key. The
   request line names the verified key's tenant and key id, never the key (D-092).
+- Then `BodyLimitMiddleware` (`bodylimit.py`, 413 `request_too_large`) and, when the app
+  has a `limiter`, `RateLimitMiddleware` (`ratelimit.py`, 429 `rate_limited`), both
+  before FastAPI parses the body, in that order (D-108). The body limit is always on;
+  `limiter=None` means no rate limit, which only tests use: `main` always passes one.
 - `model` must be a configured alias (D-045): otherwise 400 `unknown_model`, with
   the value not echoed and no provider called, for a stream too. The response's
   `model` is the provider model that served, `provider` is that
@@ -31,10 +35,11 @@ Key design choices:
   router makes into a usage record with this key's tenant and key id (D-095). Recording
   only queues the record; the database write happens on the recorder's own task, so it
   never adds to a response's latency or fails it. Without one, nothing is recorded.
-- The app owns its router, recorder and authenticator: on shutdown its lifespan calls
-  `router.aclose()`, which closes each adapter's HTTP client, then `recorder.aclose()`,
-  which drains the queue for a few seconds, then `authenticator.aclose()`, which closes
-  the key store's pool; each still runs if an earlier one raises.
+- The app owns its router, recorder, limiter and authenticator: on shutdown its lifespan
+  calls `router.aclose()`, which closes each adapter's HTTP client, then
+  `recorder.aclose()`, which drains the queue for a few seconds, then `limiter.aclose()`,
+  which closes the Redis pool, then `authenticator.aclose()`, which closes the key store's
+  pool; each still runs if an earlier one raises.
 - A small pure ASGI middleware, not `BaseHTTPMiddleware`, assigns the request ID,
   adds `x-request-id` to every response, writes one log line per request, and turns
   unexpected exceptions into the standard 500 body. It handles those itself
@@ -46,8 +51,6 @@ Key design choices:
   exceptions are logged by type name only, since their messages can contain
   request or provider content.
 - FastAPI's built-in OpenTelemetry instrumentation is turned off (D-026).
-- Known gap (D-025, D-089): no request body size limit, though only a key holder
-  can now send a body.
 """
 
 import logging
@@ -63,6 +66,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from llmgateway.auth import Authenticator, AuthMiddleware, Principal
+from llmgateway.bodylimit import DEFAULT_MAX_BODY_BYTES, BodyLimitMiddleware
 from llmgateway.config import DEFAULT_CONFIG, parse_config
 from llmgateway.errors import (
     GatewayError,
@@ -74,6 +78,7 @@ from llmgateway.errors import (
     validation_error_handler,
 )
 from llmgateway.providers.base import ProviderError
+from llmgateway.ratelimit import RateLimiter, RateLimitMiddleware
 from llmgateway.router import ClientDisconnected, Router, UnknownAlias, build_router
 from llmgateway.schema import ChatRequest, ChatResponse
 from llmgateway.streaming import open_event_stream
@@ -156,6 +161,8 @@ def create_app(
     *,
     authenticator: Authenticator,
     recorder: UsageRecorder | None = None,
+    limiter: RateLimiter | None = None,
+    max_body_bytes: int = DEFAULT_MAX_BODY_BYTES,
 ) -> FastAPI:
     gateway = router if router is not None else build_router(parse_config(DEFAULT_CONFIG), {})
 
@@ -170,7 +177,11 @@ def create_app(
                 if recorder is not None:
                     await recorder.aclose()
             finally:
-                await authenticator.aclose()
+                try:
+                    if limiter is not None:
+                        await limiter.aclose()
+                finally:
+                    await authenticator.aclose()
 
     app = FastAPI(
         title="LLMGateway",
@@ -178,7 +189,11 @@ def create_app(
         telemetry={"tracing": False, "metrics": False, "logs": False},
         lifespan=lifespan,
     )
-    # The last added is the outermost: the request ID is set before auth runs (D-089).
+    # The last added is the outermost, so a request meets: the request ID, auth (D-089),
+    # the body size limit, then the rate limiter, all before FastAPI parses the body (D-108).
+    if limiter is not None:
+        app.add_middleware(RateLimitMiddleware, limiter=limiter)
+    app.add_middleware(BodyLimitMiddleware, max_bytes=max_body_bytes)
     app.add_middleware(AuthMiddleware, authenticator=authenticator)
     app.add_middleware(RequestContextMiddleware, id_factory=id_factory or new_request_id)
     app.add_exception_handler(RequestValidationError, validation_error_handler)

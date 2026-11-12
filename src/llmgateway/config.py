@@ -29,6 +29,9 @@ Key design choices:
 - `database_url` and `key_cache_seconds` read the auth settings from the
   environment (D-090, D-091). The URL holds a password, so it is checked for
   shape only (a postgres scheme and a host) and never appears in a message.
+- `redis_url`, `rate_limit_burst`, `rate_limit_per_second` and `max_body_bytes` read the
+  limiter's and the body limit's settings the same way (D-105, D-106, D-108): the Redis URL
+  is required and never printed; the numbers have defaults and strict ranges.
 """
 
 import math
@@ -41,8 +44,10 @@ from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from llmgateway.bodylimit import DEFAULT_MAX_BODY_BYTES
 from llmgateway.providers.gemini import MODEL_ID_PATTERN
 from llmgateway.providers.mock import FailureType, FaultWindow
+from llmgateway.ratelimit import DEFAULT_BURST, DEFAULT_PER_SECOND
 
 CONFIG_ENV: Final = "LLMGATEWAY_CONFIG"
 RETIRED_PROVIDER_ENV: Final = "LLMGATEWAY_PROVIDER"
@@ -321,3 +326,72 @@ def key_cache_seconds(environ: Mapping[str, str]) -> float:
     if not 0 <= seconds <= MAX_KEY_CACHE_SECONDS:
         raise ConfigError(f"{KEY_CACHE_ENV} must be a number of seconds from 0 to 60")
     return seconds
+
+
+REDIS_URL_ENV: Final = "LLMGATEWAY_REDIS_URL"
+BURST_ENV: Final = "LLMGATEWAY_RATE_LIMIT_BURST"
+PER_SECOND_ENV: Final = "LLMGATEWAY_RATE_LIMIT_PER_SECOND"
+MAX_BODY_ENV: Final = "LLMGATEWAY_MAX_BODY_BYTES"
+MAX_BURST: Final = 1_000_000
+MAX_PER_SECOND: Final = 1_000_000.0
+MIN_MAX_BODY_BYTES: Final = 1_024
+MAX_MAX_BODY_BYTES: Final = 67_108_864
+_REDIS_SCHEMES: Final = ("redis", "rediss")
+
+
+def redis_url(environ: Mapping[str, str]) -> str:
+    # The limiter's Redis (D-106); like the database URL, it can hold a password.
+    value = environ.get(REDIS_URL_ENV, "")
+    if not value.strip():
+        raise ConfigError(f"{REDIS_URL_ENV} is not set")
+    try:
+        parts = urlsplit(value)
+        host = parts.hostname
+        # Raises for a port that is not a number in range.
+        parts.port  # noqa: B018
+    except ValueError:
+        raise ConfigError(f"{REDIS_URL_ENV} is not a valid URL") from None
+    if parts.scheme not in _REDIS_SCHEMES:
+        raise ConfigError(f"{REDIS_URL_ENV} must be a redis:// or rediss:// URL")
+    if not host:
+        raise ConfigError(f"{REDIS_URL_ENV} must name a host")
+    return value
+
+
+def _whole_number(environ: Mapping[str, str], name: str, default: int, low: int, high: int) -> int:
+    value = environ.get(name)
+    if value is None:
+        return default
+    # ASCII digits only: no sign, space, underscore or exponent. Leading zeros are dropped
+    # first, and a number past 19 digits is out of range before `int` could refuse it.
+    digits = value.lstrip("0") or "0"
+    if (
+        not (value.isascii() and value.isdigit())
+        or len(digits) > 19
+        or not low <= int(digits) <= high
+    ):
+        raise ConfigError(f"{name} must be a whole number from {low:,} to {high:,}")
+    return int(digits)
+
+
+def rate_limit_burst(environ: Mapping[str, str]) -> int:
+    return _whole_number(environ, BURST_ENV, DEFAULT_BURST, 1, MAX_BURST)
+
+
+def rate_limit_per_second(environ: Mapping[str, str]) -> float:
+    value = environ.get(PER_SECOND_ENV)
+    if value is None:
+        return DEFAULT_PER_SECOND
+    try:
+        rate = float(value)
+    except ValueError:
+        rate = math.nan
+    if not 0 < rate <= MAX_PER_SECOND:
+        raise ConfigError(f"{PER_SECOND_ENV} must be a number above 0 and at most 1,000,000")
+    return rate
+
+
+def max_body_bytes(environ: Mapping[str, str]) -> int:
+    return _whole_number(
+        environ, MAX_BODY_ENV, DEFAULT_MAX_BODY_BYTES, MIN_MAX_BODY_BYTES, MAX_MAX_BODY_BYTES
+    )

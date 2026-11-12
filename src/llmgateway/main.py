@@ -23,6 +23,11 @@ Key design choices:
   unreachable database does not, because both pools connect on first use; requests
   get 503 until Postgres answers, and usage writes fail and are logged.
   `LLMGATEWAY_KEY_CACHE_SECONDS` sets the key cache (D-090).
+- `LLMGATEWAY_REDIS_URL` is required too: the rate limiter's Redis (D-106). Like the
+  database, a missing or malformed URL stops startup and an unreachable Redis does not;
+  requests are then served without a rate limit until Redis answers.
+  `LLMGATEWAY_RATE_LIMIT_BURST` and `LLMGATEWAY_RATE_LIMIT_PER_SECOND` set every key's
+  bucket (D-105), and `LLMGATEWAY_MAX_BODY_BYTES` the body size limit (D-108).
 - Bad configuration stops the process at import, before uvicorn serves anything,
   with a `SystemExit` message and no traceback. The messages never echo the
   values that were set, so a key pasted into the wrong variable is not printed.
@@ -43,9 +48,14 @@ from llmgateway.config import (
     database_url,
     key_cache_seconds,
     load_config,
+    max_body_bytes,
+    rate_limit_burst,
+    rate_limit_per_second,
+    redis_url,
 )
 from llmgateway.logtime import UtcFormatter
 from llmgateway.prices import PriceTable, load_prices
+from llmgateway.ratelimit import RedisRateLimiter, redis_client
 from llmgateway.router import Router, build_router
 from llmgateway.usage import UsageRecorder
 
@@ -71,6 +81,16 @@ def recorder_from_env(environ: Mapping[str, str], prices: PriceTable) -> UsageRe
     return UsageRecorder(usagestore.PostgresUsageStore(database_url(environ)), prices)
 
 
+def limiter_from_env(environ: Mapping[str, str]) -> RedisRateLimiter:
+    # The URL first, then the bucket's settings, as D-108 orders them. No connection yet.
+    client = redis_client(redis_url(environ))
+    return RedisRateLimiter(
+        client,
+        burst=rate_limit_burst(environ),
+        per_second=rate_limit_per_second(environ),
+    )
+
+
 _logger = logging.getLogger("llmgateway")
 if not _logger.handlers:
     _handler = logging.StreamHandler()
@@ -86,7 +106,16 @@ try:
     _prices = checked_prices(_config)
     _authenticator = authenticator_from_env(os.environ)
     _recorder = recorder_from_env(os.environ, _prices)
+    # Then the limiter's Redis and the body limit (D-106, D-108).
+    _limiter = limiter_from_env(os.environ)
+    _max_body_bytes = max_body_bytes(os.environ)
 except ConfigError as exc:
     raise SystemExit(f"llmgateway: configuration error: {exc}") from None
 
-app = create_app(router=_router, authenticator=_authenticator, recorder=_recorder)
+app = create_app(
+    router=_router,
+    authenticator=_authenticator,
+    recorder=_recorder,
+    limiter=_limiter,
+    max_body_bytes=_max_body_bytes,
+)
