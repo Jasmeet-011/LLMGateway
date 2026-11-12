@@ -52,7 +52,7 @@ from stream_support import (
 )
 from usage_support import Answer, Meters, Report, UsageAdapter, attempt
 
-from llmgateway.providers.base import ProviderTimeout, ProviderUnavailable
+from llmgateway.providers.base import ProviderError, ProviderTimeout, ProviderUnavailable
 from llmgateway.router import ClientDisconnected, ServedStream
 from llmgateway.schema import ChatRequest, StreamDelta
 
@@ -83,13 +83,23 @@ def plain_request() -> ChatRequest:
     return ChatRequest.model_validate(chat_body())
 
 
-async def deliver(served: Any, count: int | None = None) -> list[str]:
-    """Reads up to `count` events (all when None), marking each delta delivered as the app would."""
+async def deliver(
+    served: Any, count: int | None = None, failures: list[ProviderError] | None = None
+) -> list[str]:
+    """Reads up to `count` events (all when None), marking each delta delivered as the app would.
+
+    A stream raises its failure once and then stops (D-069), and the app sends an error event for
+    it, so the read ends there too; the failure is appended to `failures` when one is given.
+    """
     texts: list[str] = []
     while count is None or len(texts) < count:
         try:
             event = await anext(served)
         except StopAsyncIteration:
+            break
+        except ProviderError as error:
+            if failures is not None:
+                failures.append(error)
             break
         if isinstance(event, StreamDelta):
             served.mark_delivered(event.text)
@@ -223,9 +233,11 @@ async def test_a_provider_failure_after_the_first_event_reports_the_total_delive
     meters = Meters()
     served = await open_stream(Gateway(adapter), meters)
     assert meters.calls == []
-    texts = await deliver(served)
+    raised: list[ProviderError] = []
+    texts = await deliver(served, failures=raised)
     assert texts == ["héllo", "😀 wörld"]
-    assert meters.calls == [cut(13, "failed", str(reason), status, usage=snapshot)]
+    assert raised == [error]
+    assert meters.calls == [cut(12, "failed", str(reason), status, usage=snapshot)]
     await served.aclose("client_gone")
     assert len(meters.calls) == 1
 
@@ -248,7 +260,9 @@ async def test_silence_after_the_first_event_is_stream_idle_with_the_total_deliv
     gateway.virtual_time(monkeypatch)
     meters = Meters()
     served = await open_stream(gateway, meters)
-    assert await deliver(served) == ["one", "two!"]
+    raised: list[ProviderError] = []
+    assert await deliver(served, failures=raised) == ["one", "two!"]
+    assert [(type(e), e.reason) for e in raised] == [(ProviderTimeout, "stream_idle")]
     assert meters.calls == [cut(7, "failed", "stream_idle")]
 
 
@@ -256,7 +270,9 @@ async def test_silence_after_the_first_event_is_stream_idle_with_the_total_deliv
 async def test_a_body_that_stops_with_no_end_is_truncated_with_the_total_delivered() -> None:
     meters = Meters()
     served = await open_stream(Gateway(UsageAdapter([Text("héllo"), Text("wörld")])), meters)
-    assert await deliver(served) == ["héllo", "wörld"]
+    raised: list[ProviderError] = []
+    assert await deliver(served, failures=raised) == ["héllo", "wörld"]
+    assert [(type(e), e.reason) for e in raised] == [(ProviderUnavailable, "stream_truncated")]
     assert meters.calls == [cut(10, "failed", "stream_truncated", None)]
 
 
@@ -304,7 +320,9 @@ async def test_a_mark_after_the_attempt_was_reported_adds_no_report_and_changes_
     adapter = UsageAdapter([Text("abc"), Fail(unavailable())])
     meters = Meters()
     served = await open_stream(Gateway(adapter), meters)
-    await deliver(served)
+    raised: list[ProviderError] = []
+    await deliver(served, failures=raised)
+    assert [(type(e), e.status) for e in raised] == [(ProviderUnavailable, 503)]
     (report,) = meters.calls
     assert report.delivered_chars == 3
     served.mark_delivered("a much longer text arriving too late")
@@ -472,7 +490,9 @@ async def test_a_fallback_that_streams_then_fails_reports_its_own_total_and_zero
     meters = Meters()
     served = await open_stream(Gateway(first, second), meters)
     assert served.route.provider == SECOND.instance
-    await deliver(served)
+    raised: list[ProviderError] = []
+    await deliver(served, failures=raised)
+    assert [(type(e), e.status) for e in raised] == [(ProviderUnavailable, 503)]
     assert [(a.provider_instance, a.outcome, a.delivered_chars) for a in meters.calls] == [
         ("primary-instance", "failed", 0),
         (SECOND.instance, "failed", 10),

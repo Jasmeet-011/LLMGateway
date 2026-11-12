@@ -76,6 +76,8 @@ Key design choices:
   `meter` exactly once, just after its breaker outcome, as `success`, `failed` or
   `abandoned`. A stream's `ProviderUsage` events never reach the client; the latest is
   kept, so a stream cut short reports the provider's last counts, marked partial (D-097).
+  A stream cut short also reports the characters the app marked as sent to the client
+  through `ServedStream.mark_delivered`, 0 if it stopped before its first event (D-101).
   A meter that raises is logged by class name and ignored: accounting never costs the
   client its answer.
 - The router owns its adapters: `aclose()` closes each one once, on app shutdown.
@@ -230,16 +232,22 @@ class _Report:
     attempt: int
 
     def success(self, usage: Usage) -> None:
-        self._send("success", None, None, usage)
+        self._send("success", None, None, usage, None)
 
-    def failed(self, error: ProviderError, usage: Usage | None) -> None:
-        self._send("failed", error.reason, error.status, usage)
+    # `delivered` is the characters sent to the client: None when not streaming (D-101).
+    def failed(self, error: ProviderError, usage: Usage | None, delivered: int | None) -> None:
+        self._send("failed", error.reason, error.status, usage, delivered)
 
-    def abandoned(self, reason: str, usage: Usage | None) -> None:
-        self._send("abandoned", reason, None, usage)
+    def abandoned(self, reason: str, usage: Usage | None, delivered: int | None) -> None:
+        self._send("abandoned", reason, None, usage, delivered)
 
     def _send(
-        self, outcome: Outcome, reason: str | None, status: int | None, usage: Usage | None
+        self,
+        outcome: Outcome,
+        reason: str | None,
+        status: int | None,
+        usage: Usage | None,
+        delivered: int | None,
     ) -> None:
         if self.meter is None:
             return
@@ -255,6 +263,7 @@ class _Report:
             # A stream that stopped early with counts: they are the last reported (D-095).
             partial=self.stream and outcome != "success" and usage is not None,
             usage=usage,
+            delivered_chars=delivered,
         )
         try:
             self.meter(report)
@@ -331,11 +340,16 @@ class ServedStream:
         self._idle_timeout = idle_timeout
         self._settled = False
         self._closed = False
+        self._delivered = 0
         if isinstance(opened.first, ProviderStreamEnd):
             self._settle_success(opened.first.usage)
 
     def __aiter__(self) -> "ServedStream":
         return self
+
+    def mark_delivered(self, text: str) -> None:
+        """Counts a delta's text once its frame was sent to the client (D-101)."""
+        self._delivered += len(text)
 
     async def __anext__(self) -> StreamDelta | ProviderStreamEnd:
         if self._pending is not None:
@@ -374,7 +388,7 @@ class ServedStream:
             failure = _no_end()
         self._settled = True
         _record(self._breaker, self._permit, failure)
-        self._report.failed(failure, self._seen.usage)
+        self._report.failed(failure, self._seen.usage, self._delivered)
         self._log_failure(failure)
         await self._close_upstream()
         # Outside any except block, so nothing new is chained onto it.
@@ -385,7 +399,7 @@ class ServedStream:
         if not self._settled:
             self._settled = True
             self._breaker.record_neutral(self._permit)
-            self._report.abandoned(reason, self._seen.usage)
+            self._report.abandoned(reason, self._seen.usage, self._delivered)
             # Fixed fields only, as in `Router._log_failure`.
             logger.info(
                 "stream_abandoned request_id=%s alias=%r provider=%s model=%r reason=%s",
@@ -406,7 +420,7 @@ class ServedStream:
         # A bug says nothing about the provider, and gets no router line (D-054, D-069).
         self._settled = True
         self._breaker.record_neutral(self._permit)
-        self._report.abandoned("internal_error", self._seen.usage)
+        self._report.abandoned("internal_error", self._seen.usage, self._delivered)
         await self._close_upstream()
 
     async def _close_upstream(self) -> None:
@@ -693,7 +707,7 @@ class Router:
             # is a bug and propagates unchanged.
             if not timeout.expired():
                 breaker.record_neutral(permit)
-                report.abandoned("internal_error", None)
+                report.abandoned("internal_error", None, None)
                 raise
             # Returned, not raised: `complete` raises it outside any except block, so
             # the TimeoutError is not chained onto it.
@@ -702,7 +716,7 @@ class Router:
             # A cancellation or a bug says nothing about the provider, but a probe
             # must still give back its slot (D-058), and the call may have billed.
             breaker.record_neutral(permit)
-            report.abandoned(_abandon_reason(exc), None)
+            report.abandoned(_abandon_reason(exc), None, None)
             raise
         else:
             breaker.record_success(permit)
@@ -710,7 +724,7 @@ class Router:
             return result
         _record(breaker, permit, failure)
         # A failed non-streaming call has no counts, a malformed 2xx included (D-097).
-        report.failed(failure, None)
+        report.failed(failure, None, None)
         return failure
 
     async def _open_attempt(
@@ -737,13 +751,13 @@ class Router:
             # As in `_attempt`: only our own timeout is ours to translate.
             if not timeout.expired():
                 breaker.record_neutral(permit)
-                report.abandoned("internal_error", seen.usage)
+                report.abandoned("internal_error", seen.usage, 0)
                 await _close(upstream)
                 raise
             failure = ProviderTimeout("router: attempt timed out", reason="attempt_timeout")
         except BaseException as exc:
             breaker.record_neutral(permit)
-            report.abandoned(_abandon_reason(exc), seen.usage)
+            report.abandoned(_abandon_reason(exc), seen.usage, 0)
             await _close(upstream)
             raise
         else:
@@ -751,7 +765,7 @@ class Router:
                 return _Opened(upstream, first, permit, seen, report)
             failure = _no_end()
         _record(breaker, permit, failure)
-        report.failed(failure, seen.usage)
+        report.failed(failure, seen.usage, 0)
         await _close(upstream)
         return failure
 

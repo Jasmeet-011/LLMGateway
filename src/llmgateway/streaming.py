@@ -29,6 +29,10 @@ Key design choices:
   name goes to the request line through `request.state`. A bug in `send` itself is
   the server's, not provider or prompt data, so it is re-raised once the stream is
   closed, as `reason=send_failed` and never as a client that left (D-072).
+- A delta counts as delivered when the body generator resumes past its frame, which
+  `StreamingResponse` does only after `send` of that frame returned; a send that was
+  cancelled, stalled or failed never resumes it. That count is what a stream cut short
+  records as delivered (D-101).
 - asyncio and not anyio: anyio is only a transitive dependency here (D-072).
 """
 
@@ -169,6 +173,8 @@ class EventStream(StreamingResponse):
                     yield _frame(self._end(event))
                 else:
                     yield _frame(event)
+                    # Resumed only after `send` of that frame returned: delivered (D-101).
+                    self._served.mark_delivered(event.text)
         except ProviderError as exc:
             _, code, message = provider_error_status(exc)
             failure = self._error(code, message)

@@ -47,17 +47,20 @@ _COLUMNS: Final = (
     "input_tokens",
     "output_tokens",
     "cost_nanousd",
+    "delivered_chars",
+    "estimated_output_tokens",
 )
 
 # One array per column: the whole batch is one statement, so it is atomic.
 INSERT: Final = (
     "INSERT INTO usage_records (recorded_at, request_id, tenant_id, key_id, alias, "
     "provider_instance, provider_type, model, stream, attempt, outcome, reason, "
-    "provider_status, partial, input_tokens, output_tokens, cost_nanousd) "
+    "provider_status, partial, input_tokens, output_tokens, cost_nanousd, "
+    "delivered_chars, estimated_output_tokens) "
     "SELECT * FROM unnest($1::timestamptz[], $2::text[], $3::text[], $4::text[], "
     "$5::text[], $6::text[], $7::text[], $8::text[], $9::boolean[], $10::integer[], "
     "$11::text[], $12::text[], $13::integer[], $14::boolean[], $15::bigint[], "
-    "$16::bigint[], $17::bigint[])"
+    "$16::bigint[], $17::bigint[], $18::bigint[], $19::bigint[])"
 )
 
 

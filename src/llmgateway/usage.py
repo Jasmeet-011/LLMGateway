@@ -22,6 +22,10 @@ Key design choices:
   once per batch, not once per record, so an outage cannot flood the log. Lines hold
   only counts, fixed reasons and class names, never a prompt, a key, the database URL or
   an exception message.
+- A stream cut short also records the characters it delivered and an estimated output
+  token count from them, in their own fields (D-101). They are estimates for an operator:
+  never added to the provider's counts and never priced, so the cost stays a lower bound
+  from what the provider reported.
 - `aclose` drains the queue for a few seconds at shutdown, then gives up and says how
   many records were lost. Records still queued when the process dies are lost too, so
   spend summed from the table is a lower bound whenever a drop or failure was logged.
@@ -59,9 +63,23 @@ class AttemptUsage:
     provider_status: int | None
     partial: bool
     usage: Usage | None
+    # Characters of delta text sent to the client: an int for every stream attempt that
+    # did not reach its end, else None (D-101).
+    delivered_chars: int | None
 
 
 Meter = Callable[[AttemptUsage], None]
+
+
+def estimate_output_tokens(provider_type: str, chars: int) -> int:
+    """An estimate, never a provider count: characters at a documented rate (D-101).
+
+    Claude 5.5's tokenizer gives about 30% more tokens than 3.5 characters each; Gemini and
+    the mock about 4 characters each. Integer arithmetic, rounded up.
+    """
+    if provider_type == "claude":
+        return -(-chars * 13 // 35)
+    return -(-chars // 4)
 
 
 @dataclass(frozen=True)
@@ -85,6 +103,9 @@ class UsageRecord:
     input_tokens: int | None
     output_tokens: int | None
     cost_nanousd: int | None
+    # Estimates for a stream cut short, never billed or added to the counts (D-101).
+    delivered_chars: int | None
+    estimated_output_tokens: int | None
 
 
 class UsageStoreUnavailable(Exception):
@@ -128,6 +149,7 @@ class UsageRecorder:
         def report(attempt: AttemptUsage) -> None:
             recorded_at = datetime.fromtimestamp(self._wall_clock(), UTC)
             usage = attempt.usage
+            delivered = attempt.delivered_chars
             cost = (
                 None
                 if usage is None
@@ -154,6 +176,12 @@ class UsageRecorder:
                     input_tokens=None if usage is None else usage.input_tokens,
                     output_tokens=None if usage is None else usage.output_tokens,
                     cost_nanousd=cost,
+                    delivered_chars=delivered,
+                    estimated_output_tokens=(
+                        None
+                        if delivered is None
+                        else estimate_output_tokens(attempt.provider_type, delivered)
+                    ),
                 )
             )
 
