@@ -35,10 +35,24 @@ the rest get 429 with `Retry-After`) and D-103 to D-109:
   `Expect: 100-continue` request, which is never told to send; a chunked body over the limit gets
   the same; bodies of exactly 1 MiB and one byte less reach validation (422); a bad key with an
   oversize `Content-Length` is 401;
-- LAST in the run, with Redis stopped, a request with a valid key gets 200 within a bound, the api's
-  log has a `ratelimit_unavailable` line for that request and no URL, and once Redis is started
-  again the limiter works again (a bucket appears for the key). The restore is in a `finally`.
-  `tests/conftest.py` moves this test to the end of the integration run.
+- the pre-warm (D-106, second amendment): the api's log has `ratelimit_warm opened=50 of=50` as the
+  first `ratelimit_warm` line, written when the container started with Redis up;
+- Redis PAUSED (`docker compose pause redis`, unpaused in a `finally`; `DEBUG SLEEP` is refused by
+  Redis 7's defaults): three requests one after another are each shed with 503 `rate_limit_timeout`
+  and `Retry-After: 1`, after waiting about the 1 s budget, each with one `ratelimit_shed` line
+  and no `ratelimit_unavailable` line; ten at once are all shed (none is served); the api's log
+  then has the `breaker_state_change` line with `provider=redis:ratelimit` and `to=open`; the next
+  request is 200 in under the budget with a `reason=circuit_open` line; after the unpause and the
+  cooldown a key that nothing used before gets a bucket (the probe went to Redis) and the breaker's
+  `to=closed` line is written. The stack is left as it was found, with the limiter's breaker closed;
+- LAST in the run, with Redis stopped, requests one at a time until the breaker's open line is in
+  the log (at most five: a store error for the first, then timeouts), each either 200 with a
+  `store_error` line or a shed 503, and then five more requests, each 200 in under the budget with
+  a `reason=circuit_open` line; once Redis is started again (in a `finally`) the limiter works again
+  past the cooldown (a bucket appears for a key that was not used meanwhile) and the breaker
+  closes. `tests/conftest.py` moves this test to the end of the integration run. The pause test is
+  not named `test_zz_outage_...` on purpose: `test_integration_guard.py` pins that exactly two tests
+  are, and the pause test does not break anything a later test needs once it has unpaused Redis.
 """
 
 import asyncio
@@ -708,87 +722,296 @@ def test_a_normal_request_still_works_after_the_limits_are_in_the_path() -> None
     delete(f"{BUCKET_PREFIX}{key_id_of(key)}")
 
 
-# Redis down: the limiter fails open (D-106). Last in the run: conftest.py moves it to the end.
+# The limiter's breaker, the shed and the pre-warm on the real stack (D-106, second amendment)
+#
+# The shed and the breaker are measured in the api container's log: one WARNING line per request
+# on `llmgateway.ratelimit`, and D-059's `breaker_state_change` line on `llmgateway.breaker` with
+# `provider=redis:ratelimit`. The cooldown is 5 s, so a test that wants requests to pass while the
+# breaker is open sends them within a few seconds of the line it saw; that is a time the tests
+# below keep short (one `docker compose logs` between the line and the requests).
+
+SHED_MESSAGE = "The rate limiter did not answer in time."
+# A request that waits for Redis waits the 1 s budget; one the open breaker passes does not. A
+# healthy request on this stack takes tens of milliseconds. Half way to the budget, with room for
+# a slow container host, is what separates the two: anything under 1 s proves no Redis wait.
+FAST_BOUND = 0.8
+# A shed request waits the 1 s budget (the timeout of redis-py and the take's own), so at least
+# 0.9 s, and at most a few seconds on a slow host.
+SHED_MIN = 0.9
+SHED_MAX = 8.0
+# How many requests with Redis down may it take for the breaker to open: a store error for the
+# first, then timeouts, five failures in all (D-106).
+MOST_TO_OPEN = 5
+COOLDOWN = 5.0
+
+BREAKER_LINE = (
+    r".* WARNING llmgateway\.breaker breaker_state_change ts=\S+ provider=redis:ratelimit "
+    r"from=\w+ to={to} reason=\w+\s*$"
+)
+LIMITER_LINE = (
+    r".* WARNING llmgateway\.ratelimit (ratelimit_unavailable|ratelimit_shed) "
+    r"request_id={request_id} reason=(\w+) error=(\w+)\s*$"
+)
+WARM_LINE = re.compile(r".* INFO llmgateway\.ratelimit ratelimit_warm opened=50 of=50\s*$")
+
+STORE_ERROR = ("ratelimit_unavailable", "store_error")
+SHED = ("ratelimit_shed", "timeout", "TimeoutError")
+CIRCUIT_OPEN = ("ratelimit_unavailable", "circuit_open", "CircuitOpen")
 
 
-def _ratelimit_lines(request_id: str) -> list[str]:
-    logs = compose("logs", "--no-color", "--no-log-prefix", "--tail", "300", "api")
+def _api_log(*, tail: int = 4000) -> str:
+    logs = compose("logs", "--no-color", "--no-log-prefix", "--tail", str(tail), "api")
     assert logs.returncode == 0, logs.stderr
-    pattern = re.compile(
-        r".* WARNING llmgateway\.ratelimit ratelimit_unavailable "
-        rf"request_id={re.escape(request_id)} reason=(store_error|timeout) error=\w+\s*$"
-    )
-    return [line for line in logs.stdout.splitlines() if pattern.fullmatch(line.rstrip())]
+    return logs.stdout
+
+
+def _breaker_lines(log: str, to: str) -> list[str]:
+    pattern = re.compile(BREAKER_LINE.format(to=to))
+    return [line for line in log.splitlines() if pattern.fullmatch(line.rstrip())]
+
+
+def _limiter_lines(log: str, request_id: str) -> list[tuple[str, ...]]:
+    """What the limiter wrote for this request: (line kind, reason, error type) per line."""
+    pattern = re.compile(LIMITER_LINE.format(request_id=re.escape(request_id)))
+    found: list[tuple[str, ...]] = []
+    for line in log.splitlines():
+        match = pattern.fullmatch(line.rstrip())
+        if match is not None:
+            found.append(match.groups())
+    return found
+
+
+def _timed_post(client: httpx.Client) -> tuple[httpx.Response, float]:
+    started = time.monotonic()
+    response = client.post("/v1/chat", json=BODY)
+    return response, time.monotonic() - started
+
+
+def _assert_shed(response: httpx.Response, elapsed: float) -> None:
+    assert response.status_code == 503, (response.status_code, response.text)
+    request_id = response.headers["x-request-id"]
+    assert request_id
+    assert response.json() == {
+        "error": {
+            "code": "rate_limit_timeout",
+            "message": SHED_MESSAGE,
+            "request_id": request_id,
+        }
+    }
+    assert response.headers["retry-after"] == "1"
+    assert SHED_MIN <= elapsed < SHED_MAX, elapsed
+
+
+def _wait_until_redis_answers() -> None:
+    deadline = time.monotonic() + RECOVERY_BOUND
+    while time.monotonic() < deadline:
+        ping = compose("exec", "-T", "redis", "redis-cli", "ping")
+        if ping.returncode == 0 and ping.stdout.strip() == "PONG":
+            return
+        time.sleep(1.0)
+    pytest.fail(f"Redis did not answer {RECOVERY_BOUND} s after it was started")
+
+
+def _limiter_works_again(key: str) -> tuple[str, int]:
+    """Requests until the key has a bucket in Redis; returns the last request's ID and the TTL.
+
+    The breaker is open for 5 s and passes requests without a bucket meanwhile, so this loops
+    until the probe has gone to Redis and closed it. With the defaults (burst 60, one token per
+    second) a bucket expires when it would be full, so one take leaves it for only a second,
+    less than `docker compose exec` takes (D-105). A round of back-to-back requests leaves it for
+    about as many seconds as there were requests, and the tokens are then read in the same
+    `redis-cli` session as the TTL. The key is one no earlier request of the test used, so a bucket
+    cannot be the leftover of a command Redis ran when it came back.
+    """
+    bucket = f"{BUCKET_PREFIX}{key_id_of(key)}"
+    deadline = time.monotonic() + RECOVERY_BOUND
+    round_size = 15
+    last_id = ""
+    try:
+        with gateway(key) as client:
+            while time.monotonic() < deadline:
+                for _ in range(round_size):
+                    response = client.post("/v1/chat", json=BODY)
+                    assert response.status_code == 200, response.text
+                    last_id = response.headers["x-request-id"]
+                ((exists,), (ttl,)) = session((f"EXISTS {bucket}", 1), (f"PTTL {bucket}", 1))
+                if exists == "1":
+                    return last_id, int(ttl)
+                time.sleep(1.0)
+    finally:
+        delete(bucket)
+    pytest.fail(f"no bucket for the key {RECOVERY_BOUND} s after Redis answered again")
+
+
+def test_the_api_warmed_its_pool_at_startup() -> None:
+    base_url()
+    logs = compose("logs", "--no-color", "--no-log-prefix", "api")
+    assert logs.returncode == 0, logs.stderr
+    lines = [line for line in logs.stdout.splitlines() if "ratelimit_warm" in line]
+    assert lines, "the api's log has no ratelimit_warm line: is the stack built from this code?"
+    # The first one is the one the container wrote when it started, with Redis up.
+    assert WARM_LINE.fullmatch(lines[0].rstrip()), lines[0]
+    for line in lines:
+        for text in ("redis://", "rediss://"):
+            assert text not in line
+
+
+def test_a_paused_redis_sheds_timed_out_takes_then_the_breaker_opens_and_requests_pass() -> None:
+    base_url()
+    url = base_url()
+    key = create_key("integration-ratelimit-paused")
+    recovery_key = create_key("integration-ratelimit-paused-recovery")
+    before = _api_log()
+    open_before = len(_breaker_lines(before, "open"))
+    closed_before = len(_breaker_lines(before, "closed"))
+    paused = False
+    unpause_code = -1
+    unpause_error = ""
+    shed_ids: list[str] = []
+    seen_open_at = 0.0
+    try:
+        pause = compose("pause", "redis")
+        assert pause.returncode == 0, pause.stderr
+        paused = True
+
+        # Three requests one after another: each waits the budget and is shed. The breaker needs
+        # five failures in a row, so it is still closed and each one really waited for Redis.
+        with gateway(key) as client:
+            for _ in range(3):
+                response, elapsed = _timed_post(client)
+                _assert_shed(response, elapsed)
+                shed_ids.append(response.headers["x-request-id"])
+
+        # Ten at once: every one is a take that was started before the breaker opened, so all
+        # ten are shed (none is let through), and the failures open the breaker.
+        responses = asyncio.run(_burst(url, key, 10))
+        assert [r.status_code for r in responses] == [503] * 10, [r.status_code for r in responses]
+        for response in responses:
+            assert response.json()["error"]["code"] == "rate_limit_timeout"
+            assert response.headers["retry-after"] == "1"
+            shed_ids.append(response.headers["x-request-id"])
+        assert len(set(shed_ids)) == 13
+
+        log = _api_log()
+        seen_open_at = time.monotonic()
+        assert len(_breaker_lines(log, "open")) > open_before, "no redis:ratelimit open line"
+        for request_id in shed_ids:
+            # One shed line each, and never a fail-open line: a timeout is not passed.
+            assert _limiter_lines(log, request_id) == [SHED], request_id
+
+        # The breaker is open: the next request is served at once, without waiting for Redis.
+        with gateway(key) as client:
+            response, elapsed = _timed_post(client)
+        assert response.status_code == 200, response.text
+        assert elapsed < FAST_BOUND, elapsed
+        passed_id = response.headers["x-request-id"]
+        deadline = time.monotonic() + OUTAGE_BOUND
+        lines = _limiter_lines(_api_log(), passed_id)
+        while not lines and time.monotonic() < deadline:
+            time.sleep(0.5)
+            lines = _limiter_lines(_api_log(), passed_id)
+        assert lines == [CIRCUIT_OPEN], lines
+    finally:
+        # Whatever happened above, Redis is thawed for whatever runs next.
+        if paused:
+            unpause = compose("unpause", "redis")
+            unpause_code, unpause_error = unpause.returncode, unpause.stderr
+    assert paused
+    assert unpause_code == 0, unpause_error
+    _wait_until_redis_answers()
+
+    # Past the cooldown, the limiter works again: the first take is the probe, it succeeds, the
+    # breaker closes, and a key that nothing used before has a bucket with time left to live.
+    time.sleep(max(0.0, seen_open_at + COOLDOWN + 1.0 - time.monotonic()))
+    last_id, ttl = _limiter_works_again(recovery_key)
+    assert ttl > 0
+    log = _api_log()
+    assert _limiter_lines(log, last_id) == []
+    assert len(_breaker_lines(log, "closed")) > closed_before, "the breaker never closed again"
+    delete(f"{BUCKET_PREFIX}{key_id_of(key)}")
+
+
+# Redis down: the limiter fails open once its breaker has seen it. Last in the run: conftest.py
+# moves it to the end.
 
 
 def test_zz_outage_a_valid_key_is_200_with_redis_stopped_and_the_limiter_recovers() -> None:
     base_url()
     key = create_key("integration-ratelimit-outage")
-    bucket = f"{BUCKET_PREFIX}{key_id_of(key)}"
+    recovery_key = create_key("integration-ratelimit-outage-recovery")
+    before = _api_log()
+    open_before = len(_breaker_lines(before, "open"))
+    closed_before = len(_breaker_lines(before, "closed"))
     stopped = False
-    request_id = ""
+    started_again = False
+    restart_error = ""
+    first_phase: list[tuple[str, int, float]] = []
+    passed: list[tuple[str, int, float]] = []
+    log = ""
     try:
         stop = compose("stop", "redis")
         assert stop.returncode == 0, stop.stderr
         stopped = True
         with gateway(key) as client:
-            started = time.monotonic()
-            down = client.post("/v1/chat", json=BODY)
-            elapsed = time.monotonic() - started
+            # One at a time until the breaker's open line is in the log. Redis stopped: the first
+            # take usually fails at once (a store error, served), the next ones time out (shed).
+            opened = False
+            for _ in range(MOST_TO_OPEN):
+                response, elapsed = _timed_post(client)
+                first_phase.append(
+                    (response.headers["x-request-id"], response.status_code, elapsed)
+                )
+                if len(_breaker_lines(_api_log(), "open")) > open_before:
+                    opened = True
+                    break
+            assert opened, f"the breaker did not open within {MOST_TO_OPEN} requests: {first_phase}"
+            # Open: five more requests, each served at once, within the cooldown.
+            for _ in range(5):
+                response, elapsed = _timed_post(client)
+                passed.append((response.headers["x-request-id"], response.status_code, elapsed))
             health = client.get("/healthz")
-        assert down.status_code == 200, down.text
-        assert down.json()["id"] == down.headers["x-request-id"]
-        assert elapsed < OUTAGE_BOUND, elapsed
         assert health.status_code == 200
-        request_id = down.headers["x-request-id"]
-        deadline = time.monotonic() + OUTAGE_BOUND
-        lines = _ratelimit_lines(request_id)
-        while not lines and time.monotonic() < deadline:
-            time.sleep(0.5)
-            lines = _ratelimit_lines(request_id)
-        assert len(lines) == 1, lines
-        for text in ("redis://", "rediss://", key, "Traceback"):
-            assert text not in lines[0]
+        log = _api_log()
     finally:
         # Whatever happened above, Redis is started again for whatever runs next.
         start = compose("start", "redis")
-        restored = start.returncode == 0
+        started_again = start.returncode == 0
+        restart_error = start.stderr
     assert stopped
-    assert restored, start.stderr
+    assert started_again, restart_error
 
-    deadline = time.monotonic() + RECOVERY_BOUND
-    healthy = False
-    while time.monotonic() < deadline:
-        ping = compose("exec", "-T", "redis", "redis-cli", "ping")
-        if ping.returncode == 0 and ping.stdout.strip() == "PONG":
-            healthy = True
-            break
-        time.sleep(1.0)
-    assert healthy, f"Redis did not answer {RECOVERY_BOUND} s after it was started"
+    # Each request before the open line is a served store error or a shed timeout, and its own
+    # line says which: the kind per request ID is what the failing assertion would print.
+    kinds: dict[str, str] = {}
+    for request_id, status, elapsed in first_phase:
+        lines = _limiter_lines(log, request_id)
+        if status == 200:
+            assert [line[:2] for line in lines] == [STORE_ERROR], (request_id, status, lines)
+            kinds[request_id] = "store_error"
+        else:
+            assert status == 503, (request_id, status, kinds)
+            assert lines == [SHED], (request_id, lines)
+            assert SHED_MIN <= elapsed < SHED_MAX, elapsed
+            kinds[request_id] = "shed"
+    assert 1 <= len(kinds) <= MOST_TO_OPEN, kinds
+    # With the breaker open every request passes, at once, with the circuit_open line.
+    for request_id, status, elapsed in passed:
+        assert status == 200, (request_id, status)
+        assert elapsed < FAST_BOUND, (request_id, elapsed)
+        assert _limiter_lines(log, request_id) == [CIRCUIT_OPEN], request_id
+    ours = [request_id for request_id, _, _ in (*first_phase, *passed)]
+    for line in log.splitlines():
+        if any(request_id in line for request_id in ours):
+            for text in ("redis://", "rediss://", key, "Traceback"):
+                assert text not in line, line
 
-    # The gateway's client finds Redis again: requests leave a bucket for the key. With the
-    # defaults (burst 60, one token per second) a bucket expires when it would be full, so one
-    # take leaves it for only a second, less than `docker compose exec` takes (D-105). A round of
-    # back-to-back requests leaves it for about as many seconds as there were requests, and the
-    # tokens are then read in the same `redis-cli` session as the TTL.
-    round_size = 15
-    found: list[str] = []
-    last_id = ""
-    with gateway(key) as client:
-        while time.monotonic() < deadline:
-            for _ in range(round_size):
-                response = client.post("/v1/chat", json=BODY)
-                assert response.status_code == 200
-                last_id = response.headers["x-request-id"]
-            ((exists,), (ttl,)) = session((f"EXISTS {bucket}", 1), (f"PTTL {bucket}", 1))
-            if exists == "1":
-                found = [exists, ttl]
-                break
-            time.sleep(1.0)
-    delete(bucket)
-    assert found, f"no bucket for the key {RECOVERY_BOUND} s after Redis was started"
-    # The bucket is the limiter's work: its time to full is many seconds, not the 1 s of a
-    # single take, and the last request was not served by failing open.
-    assert int(found[1]) > 0
-    assert _ratelimit_lines(last_id) == []
-    assert request_id
+    _wait_until_redis_answers()
+
+    # The gateway's client finds Redis again, past the cooldown: requests leave a bucket for a key
+    # that nothing used while Redis was down, and the last request was not passed by failing open.
+    last_id, ttl = _limiter_works_again(recovery_key)
+    assert ttl > 0
+    log = _api_log()
+    assert _limiter_lines(log, last_id) == []
+    assert len(_breaker_lines(log, "closed")) > closed_before, "the breaker never closed again"
+    delete(f"{BUCKET_PREFIX}{key_id_of(key)}")

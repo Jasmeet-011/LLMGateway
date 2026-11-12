@@ -11,19 +11,25 @@ classes. The script itself runs on a real Redis in `test_compose_stack_ratelimit
   reads Redis's own clock and no argument as time (D-104).
 - `take`: one `EVALSHA` on the SHA with one key and two string arguments; on `NoScriptError`
   exactly one `EVAL`; the reply parsed exactly (allowed, or a wait rounded up to whole seconds and
-  never below 1); every unusable reply is `bad_reply`; each way of failing is one
-  `RateLimitUnavailable` with D-106's reason and the exception's type name; one budget of
-  1 s for the whole call, with the pending call cancelled; nothing is ever retried; any other
-  exception, a bug, passes through unchanged.
-- `redis_client`: D-106's client, built without a connection.
-- Real drivers (Lesson 17): the real client against a closed port and against a server that
-  accepts and never answers fails open within a bound instead of hanging.
+  never below 1); every unusable reply is `bad_reply`; each way of failing at once is one
+  `RateLimitUnavailable` with D-106's reason and the exception's type name; a call that does not
+  answer within one budget of 1 s for the whole call, with the pending call cancelled, is a
+  `RateLimitTimeout` (D-106, amended before M17: a timeout sheds, it is no longer a reason of
+  `RateLimitUnavailable`); nothing is ever retried; any other exception, a bug, passes through
+  unchanged. The breaker, the last-success rule and the classification table are in
+  `test_ratelimit_breaker.py`, `warm` in `test_ratelimit_warm.py`.
+- `redis_client`: D-106's client, built without a connection, with a pool that waits without a
+  limit of its own (`timeout=None`: the take's budget bounds it).
+- Real drivers (Lesson 17): the real client against a server that accepts and closes (a store
+  error, at once), one that accepts and never answers (a timeout, within a bound) and a closed
+  port (either, by platform) instead of hanging.
 
 Time is the event loop's fake clock where a limit is involved (`virtual_loop_time`), so a limit
 fires on its exact fake second and a slow host cannot change a result.
 """
 
 import asyncio
+import contextlib
 import dataclasses
 import hashlib
 import importlib.resources
@@ -67,6 +73,13 @@ def lua_code(script: str) -> str:
 async def take_error(limiter: Any, key_id: str = KEY_ID) -> Any:
     """The `RateLimitUnavailable` a take raises; fails if it returns or raises anything else."""
     with pytest.raises(ratelimit_module().RateLimitUnavailable) as info:
+        await limiter.take(key_id)
+    return info.value
+
+
+async def timeout_error(limiter: Any, key_id: str = KEY_ID) -> Any:
+    """The `RateLimitTimeout` a take raises; fails if it returns or raises anything else."""
+    with pytest.raises(ratelimit_module().RateLimitTimeout) as info:
         await limiter.take(key_id)
     return info.value
 
@@ -145,22 +158,27 @@ def test_rate_limit_unavailable_is_an_exception_with_a_reason_and_an_error_type(
     assert (error.reason, error.error_type) == ("store_error", "ConnectionError")
 
 
-def test_the_limiter_protocol_and_the_redis_limiter_have_async_take_and_aclose() -> None:
+def test_the_limiter_protocol_and_the_redis_limiter_have_async_take_warm_and_aclose() -> None:
+    # `warm` joined the protocol with D-106's second amendment: the app's lifespan calls it.
     module = ratelimit_module()
-    for name in ("take", "aclose"):
-        assert inspect.iscoroutinefunction(getattr(module.RedisRateLimiter, name))
-        assert hasattr(module.RateLimiter, name)
+    for name in ("take", "warm", "aclose"):
+        assert inspect.iscoroutinefunction(getattr(module.RedisRateLimiter, name)), name
+        assert hasattr(module.RateLimiter, name), name
 
 
-def test_the_redis_limiter_takes_the_client_then_keyword_only_burst_rate_and_timeout() -> None:
+def test_the_redis_limiter_takes_the_client_then_keyword_only_settings_and_the_breaker() -> None:
     parameters = inspect.signature(ratelimit_module().RedisRateLimiter).parameters
-    assert list(parameters) == ["client", "burst", "per_second", "timeout"]
+    assert list(parameters) == ["client", "burst", "per_second", "timeout", "breaker", "clock"]
     assert parameters["client"].kind is inspect.Parameter.POSITIONAL_OR_KEYWORD
     for name in ("burst", "per_second"):
         assert parameters[name].kind is inspect.Parameter.KEYWORD_ONLY
         assert parameters[name].default is inspect.Parameter.empty
     assert parameters["timeout"].kind is inspect.Parameter.KEYWORD_ONLY
     assert parameters["timeout"].default == ratelimit_module().LIMIT_TIMEOUT_SECONDS == 1.0
+    assert parameters["breaker"].kind is inspect.Parameter.KEYWORD_ONLY
+    assert parameters["breaker"].default is None
+    assert parameters["clock"].kind is inspect.Parameter.KEYWORD_ONLY
+    assert parameters["clock"].default is time.monotonic
 
 
 # One call: EVALSHA with the bucket, the capacity and the rate
@@ -346,7 +364,6 @@ async def test_a_reply_that_is_not_a_pair_of_integers_is_bad_reply_with_its_type
 STORE_ERRORS = [
     pytest.param(rexc.ConnectionError("refused"), "ConnectionError", id="connection"),
     pytest.param(rexc.MaxConnectionsError("too many"), "MaxConnectionsError", id="max_connections"),
-    pytest.param(rexc.TimeoutError("socket timed out"), "TimeoutError", id="redis_own_timeout"),
     pytest.param(
         rexc.ResponseError("ERR Error running script"), "ResponseError", id="script_error"
     ),
@@ -429,6 +446,13 @@ LEAKY_STEPS = [
     pytest.param({MARKER: URL_MARKER}, id="bad_dict_reply"),
     pytest.param([1, 0], id="allowed"),
     pytest.param([0, 1500], id="refused"),
+    # D-106's second amendment: a timeout is its own exception, and its message is as secret.
+    pytest.param(
+        rexc.TimeoutError(f"Timeout reading from {URL_MARKER}: {MARKER}"), id="redis_timeout"
+    ),
+    pytest.param(
+        TimeoutError(f"timed out talking to {URL_MARKER}: {MARKER}"), id="builtin_timeout"
+    ),
 ]
 
 
@@ -439,11 +463,10 @@ async def test_a_take_writes_nothing_to_any_log_at_any_level_whatever_it_gets(
 ) -> None:
     # The limiter returns or raises; the middleware writes the one line (D-106). A line from
     # here at DEBUG, INFO or WARNING, with a reply, a message or the client in it, is a leak.
+    module = ratelimit_module()
     limiter = make_limiter(FakeRedis(step))
-    try:
+    with contextlib.suppress(module.RateLimitUnavailable, module.RateLimitTimeout):
         await limiter.take(KEY_ID)
-    except ratelimit_module().RateLimitUnavailable:
-        pass
     assert [r for r in all_logs.records if r.name.startswith("llmgateway")] == []
     assert MARKER not in everything_logged(all_logs)
 
@@ -452,8 +475,11 @@ async def test_a_take_writes_nothing_to_any_log_at_any_level_whatever_it_gets(
 async def test_a_take_that_times_out_writes_nothing_to_any_log(
     all_logs: pytest.LogCaptureFixture,
 ) -> None:
+    # Was `take_error` (a `RateLimitUnavailable("timeout")`); a timeout now raises the shed's
+    # own exception, so this takes `timeout_error` and still asserts the silence.
     limiter = make_limiter(FakeRedis(Hang()), timeout=0.05)
-    await take_error(limiter)
+    error = await timeout_error(limiter)
+    assert error.error_type == "TimeoutError"
     assert [r for r in all_logs.records if r.name.startswith("llmgateway")] == []
 
 
@@ -528,9 +554,9 @@ async def test_a_call_that_never_answers_is_a_timeout_after_the_default_second(
     assert fake.cancelled == 0
     await pass_time(clock, 0.25)
     await until(task.done, "the limiter's own limit to end the call")
-    with pytest.raises(ratelimit_module().RateLimitUnavailable) as info:
+    with pytest.raises(ratelimit_module().RateLimitTimeout) as info:
         task.result()
-    assert (info.value.reason, info.value.error_type) == ("timeout", "TimeoutError")
+    assert info.value.error_type == "TimeoutError"
     assert fake.cancelled == 1
     assert fake.names == ["evalsha"]
 
@@ -549,9 +575,9 @@ async def test_the_limit_is_the_injected_timeout_and_not_a_tick_earlier(
     assert fake.cancelled == 0
     await pass_time(clock, 0.25)
     await until(task.done, "the injected limit to end the call")
-    with pytest.raises(ratelimit_module().RateLimitUnavailable) as info:
+    with pytest.raises(ratelimit_module().RateLimitTimeout) as info:
         task.result()
-    assert (info.value.reason, info.value.error_type) == ("timeout", "TimeoutError")
+    assert info.value.error_type == "TimeoutError"
     assert fake.cancelled == 1
 
 
@@ -569,9 +595,9 @@ async def test_the_budget_is_one_for_the_whole_take_the_eval_included(
     assert not task.done()
     await pass_time(clock, 0.25)
     await until(task.done, "the one budget to end the take")
-    with pytest.raises(ratelimit_module().RateLimitUnavailable) as info:
+    with pytest.raises(ratelimit_module().RateLimitTimeout) as info:
         task.result()
-    assert (info.value.reason, info.value.error_type) == ("timeout", "TimeoutError")
+    assert info.value.error_type == "TimeoutError"
     assert fake.names == ["evalsha", "eval"]
     assert fake.cancelled == 1
 
@@ -605,9 +631,68 @@ async def test_a_timeout_leaves_the_limiter_usable() -> None:
     # test slower.
     fake = FakeRedis(Hang(), [1, 0])
     limiter = make_limiter(fake, timeout=0.05)
-    error = await take_error(limiter)
-    assert (error.reason, error.error_type) == ("timeout", "TimeoutError")
+    error = await timeout_error(limiter)
+    assert error.error_type == "TimeoutError"
     assert await limiter.take(KEY_ID) == ratelimit_module().Decision(True, 0)
+
+
+# A timeout that comes back at once is the same shed: redis-py's own, or the builtin's
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "raised",
+    [
+        pytest.param(rexc.TimeoutError("Timeout reading from socket"), id="redis_socket_timeout"),
+        pytest.param(rexc.TimeoutError("Timeout connecting to server"), id="redis_connect_timeout"),
+        # Since 3.11 this is also `asyncio.TimeoutError` and `socket.timeout`.
+        pytest.param(TimeoutError("timed out"), id="builtin_timeout_which_is_an_os_error"),
+    ],
+)
+async def test_a_timeout_the_client_itself_raises_is_a_rate_limit_timeout_and_not_a_store_error(
+    raised: BaseException,
+) -> None:
+    # `redis.exceptions.TimeoutError` is a `RedisError` and the builtin `TimeoutError` is an
+    # `OSError`: both are caught before the store errors (D-106, second amendment). This row was
+    # `redis_own_timeout` in the store errors, expecting `RateLimitUnavailable("store_error")`.
+    fake = FakeRedis(raised)
+    error = await timeout_error(make_limiter(fake))
+    assert error.error_type == "TimeoutError"
+    assert fake.names == ["evalsha"]
+
+
+@pytest.mark.asyncio
+async def test_a_timeout_in_the_eval_after_a_noscript_is_a_rate_limit_timeout_too() -> None:
+    fake = FakeRedis(rexc.NoScriptError("NOSCRIPT"), rexc.TimeoutError("Timeout reading"))
+    error = await timeout_error(make_limiter(fake))
+    assert error.error_type == "TimeoutError"
+    assert fake.names == ["evalsha", "eval"]
+
+
+@pytest.mark.asyncio
+async def test_the_timeout_error_is_not_a_rate_limit_unavailable_and_never_carries_a_message() -> (
+    None
+):
+    module = ratelimit_module()
+    secret = rexc.TimeoutError(f"Timeout reading from {URL_MARKER}: {MARKER}")
+    error = await timeout_error(make_limiter(FakeRedis(secret)))
+    is_unavailable = isinstance(error, module.RateLimitUnavailable)
+    assert not is_unavailable
+    is_exception = isinstance(error, Exception)
+    assert is_exception
+    for text in (str(error), repr(error), *map(str, error.args), error.error_type):
+        assert MARKER not in text
+        assert "redis://" not in text
+    # Not chained: `__cause__` would keep the exception with the message on it.
+    assert error.__cause__ is None
+    assert error.__suppress_context__ is True
+
+
+def test_rate_limit_timeout_is_an_exception_with_an_error_type() -> None:
+    error = ratelimit_module().RateLimitTimeout("SomeTimeout")
+    is_exception = isinstance(error, Exception)
+    assert is_exception
+    assert error.error_type == "SomeTimeout"
 
 
 # aclose
@@ -623,13 +708,17 @@ async def test_aclose_closes_the_client_and_its_connection_pool() -> None:
 # redis_client: D-106's client, built with no connection
 
 
-def test_redis_client_is_an_asyncio_redis_on_a_blocking_pool_of_fifty() -> None:
+def test_redis_client_is_a_blocking_pool_of_fifty_that_waits_without_a_limit_of_its_own() -> None:
     client = ratelimit_module().redis_client("redis://example.invalid:6380/3")
     assert isinstance(client, redis.asyncio.Redis)
     pool = client.connection_pool
     assert type(pool) is redis.asyncio.BlockingConnectionPool
     assert pool.max_connections == 50
-    assert pool.timeout == 1.0
+    assert ratelimit_module().MAX_CONNECTIONS == 50
+    # Was `pool.timeout == 1.0`. D-106's second amendment: `None` is "wait until a connection is
+    # free" in redis-py 8.1.0, so a full pool is bounded by the take's own budget and is a
+    # timeout (a shed), not a "No connection available" store error after a wait of its own.
+    assert pool.timeout is None
     kwargs = pool.connection_kwargs
     assert kwargs["socket_timeout"] == 1.0
     assert kwargs["socket_connect_timeout"] == 1.0
@@ -705,25 +794,55 @@ def _refused_port() -> int:
 BOUND = 20.0
 
 
+async def outcome_of(limiter: Any) -> tuple[str, str]:
+    """How a take of the real client ended: ("store_error", type), ("timeout", type), ..."""
+    module = ratelimit_module()
+    try:
+        await limiter.take(KEY_ID)
+    except module.RateLimitUnavailable as error:
+        return (error.reason, error.error_type)
+    except module.RateLimitTimeout as error:
+        return ("timeout", error.error_type)
+    return ("allowed", "")
+
+
 @pytest.mark.asyncio
-async def test_the_real_client_against_a_closed_port_fails_open_within_a_bound() -> None:
+async def test_the_real_client_against_a_closed_port_ends_by_the_platforms_rule() -> None:
+    # Was: `reason in ("store_error", "timeout")`, both served. Now the two are different
+    # answers (a store error is let through, a timeout is shed), and which one a closed port
+    # gives depends on the platform: Linux refuses at once (`ConnectionError`), Windows retries
+    # for over a second so the connect timeout wins (`redis.exceptions.TimeoutError`, measured
+    # here at 1.03 s). Each platform's answer is exact; nothing else is accepted.
     limiter = make_limiter(
         ratelimit_module().redis_client(f"redis://127.0.0.1:{_refused_port()}/0"), burst=5
     )
     started = time.monotonic()
-    error = await take_error(limiter)
+    outcome = await outcome_of(limiter)
     elapsed = time.monotonic() - started
-    # A refusal on Windows can take longer than the limit, so either reason is possible (D-106).
-    assert error.reason in ("store_error", "timeout")
-    assert error.error_type in ("ConnectionError", "TimeoutError")
+    assert outcome in {("store_error", "ConnectionError"), ("timeout", "TimeoutError")}
     assert elapsed < BOUND
     await limiter.aclose()
 
 
 @pytest.mark.asyncio
-async def test_the_real_client_against_a_server_that_never_answers_fails_open_within_a_bound() -> (
-    None
-):
+async def test_the_real_client_against_a_server_that_closes_at_once_is_a_store_error(
+    refusing_redis: int,
+) -> None:
+    # A listener that accepts and closes (the conftest's `refusing_redis`): redis-py raises
+    # `ConnectionError` in milliseconds on every platform, which is let through, not shed.
+    limiter = make_limiter(
+        ratelimit_module().redis_client(f"redis://:{MARKER}@127.0.0.1:{refusing_redis}/0")
+    )
+    started = time.monotonic()
+    outcome = await outcome_of(limiter)
+    elapsed = time.monotonic() - started
+    assert outcome == ("store_error", "ConnectionError")
+    assert elapsed < BOUND
+    await limiter.aclose()
+
+
+@pytest.mark.asyncio
+async def test_the_real_client_against_a_silent_server_is_a_timeout_after_the_budget() -> None:
     with closing(socket.socket()) as listener:
         listener.bind(("127.0.0.1", 0))
         # The kernel completes the handshake from the backlog; nothing ever reads or replies.
@@ -731,10 +850,11 @@ async def test_the_real_client_against_a_server_that_never_answers_fails_open_wi
         port = listener.getsockname()[1]
         limiter = make_limiter(ratelimit_module().redis_client(f"redis://127.0.0.1:{port}/0"))
         started = time.monotonic()
-        error = await take_error(limiter)
+        outcome = await outcome_of(limiter)
         elapsed = time.monotonic() - started
-        # Redis's own socket timeout is 1 s too, so it can win the race with the limiter's.
-        assert error.reason in ("timeout", "store_error")
-        assert error.error_type == "TimeoutError"
-        assert elapsed < BOUND
+        # Redis's own socket timeout is 1 s too, so it can win the race with the limiter's:
+        # either way it is a `RateLimitTimeout` now (it was `reason` timeout or store_error).
+        assert outcome == ("timeout", "TimeoutError")
+        # It waited the budget (not an instant answer) and then stopped.
+        assert 0.9 <= elapsed < BOUND
         await limiter.aclose()

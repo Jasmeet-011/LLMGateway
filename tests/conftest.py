@@ -20,12 +20,15 @@ stops Postgres in the Compose stack and must not run before another integration 
 
 M16 (D-106, D-108): `llmgateway.main` now requires `LLMGATEWAY_REDIS_URL`, and every request it
 serves calls the limiter. The autouse fixture `gateway_environment` gives each non-integration
-test an unreachable Redis URL (nothing listens on port 1; the client connects on first use, so
-importing `main` opens no connection) and removes the three tuning variables, so a developer's
-shell cannot change what a test sees. A served request then fails open, which is D-106's
-behavior and is what the existing startup tests already see. Tests of the new settings set or
-remove the variables themselves. Integration tests keep the real environment, because the
-Compose commands they run read it.
+test the URL of a Redis that refuses its clients (`refusing_redis`: a local listener that accepts
+and closes; the client connects on first use, so importing `main` opens no connection) and
+removes the three tuning variables, so a developer's shell cannot change what a test sees. A
+served request then fails open at once on a store error, which is D-106's behavior and is what
+the existing startup tests already see. A port with nothing behind it was used before the
+shed (D-106, amended before M17) and is not now: Windows takes over a second to refuse it, so
+the take times out and the request would be a 503 there and a 200 on Linux. Tests of the new
+settings set or remove the variables themselves. Integration tests keep the real environment,
+because the Compose commands they run read it.
 
 `CompleteOnly` and `all_logs` are shared helpers. `stream` joined the adapter protocol
 in M12 (D-067), so a fake written for `complete` inherits `CompleteOnly` to stay a
@@ -33,7 +36,9 @@ in M12 (D-067), so a fake written for `complete` inherits `CompleteOnly` to stay
 """
 
 import logging
-from collections.abc import AsyncIterator
+import socket
+import threading
+from collections.abc import AsyncIterator, Iterator
 from typing import Any
 
 import pytest
@@ -62,7 +67,6 @@ def all_logs(caplog: pytest.LogCaptureFixture) -> pytest.LogCaptureFixture:
     return caplog
 
 
-UNREACHABLE_REDIS_URL = "redis://127.0.0.1:1/0"
 RATE_LIMIT_VARIABLES = (
     "LLMGATEWAY_RATE_LIMIT_BURST",
     "LLMGATEWAY_RATE_LIMIT_PER_SECOND",
@@ -70,12 +74,46 @@ RATE_LIMIT_VARIABLES = (
 )
 
 
+@pytest.fixture(scope="session")
+def refusing_redis() -> Iterator[int]:
+    """The port of a listener that accepts every connection and closes it at once.
+
+    D-106 (amended before M17): a take that times out is shed with a 503, and one that fails
+    at once (a store error) is let through. Which of the two a refused connection is depends on
+    the platform: Linux refuses at once (`ConnectionError`), but Windows retries the connection
+    for about two seconds, so the 1 s connect timeout wins and the take times out (measured on
+    this machine: `redis.exceptions.TimeoutError` after 1.03 s). A port nothing listens on
+    would therefore make every request a test sends through `main.app` a 503 on Windows and a
+    200 on Linux. A listener that closes at once is a Redis that is up and refuses its
+    clients: redis-py raises `ConnectionError` in a few milliseconds on both platforms, which
+    is a store error, and a request is let through with a `ratelimit_unavailable` line, as these
+    tests always expected. Tests of the timeout behavior use their own fakes and sockets.
+    """
+    listener = socket.socket()
+    listener.bind(("127.0.0.1", 0))
+    listener.listen(128)
+    port: int = listener.getsockname()[1]
+
+    def serve() -> None:
+        while True:
+            try:
+                connection, _ = listener.accept()
+            except OSError:
+                return
+            connection.close()
+
+    threading.Thread(target=serve, daemon=True, name="refusing-redis").start()
+    yield port
+    listener.close()
+
+
 @pytest.fixture(autouse=True)
 def gateway_environment(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
-    """An unreachable Redis URL and no M16 tuning variables, for every test but integration."""
+    """A Redis that refuses its clients and no M16 tuning variables, except for integration."""
     if request.node.get_closest_marker("integration") is not None:
         return
-    monkeypatch.setenv("LLMGATEWAY_REDIS_URL", UNREACHABLE_REDIS_URL)
+    port = request.getfixturevalue("refusing_redis")
+    monkeypatch.setenv("LLMGATEWAY_REDIS_URL", f"redis://127.0.0.1:{port}/0")
     for name in RATE_LIMIT_VARIABLES:
         monkeypatch.delenv(name, raising=False)
 

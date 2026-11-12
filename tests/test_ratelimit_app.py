@@ -18,9 +18,11 @@ while its body is read.
 - the limiter is called once, with the principal's key id, for every kind of request that gets past
   auth and the size limit: a 404, a 405, a 422, an unknown model, a stream; never for `/healthz`,
   a 401, a 503 from auth or a 413;
-- Redis unavailable: the request is served as if allowed and exactly one WARNING is written on
-  `llmgateway.ratelimit`, with the exact text and nothing else; any other exception is the usual
-  500, not fail-open;
+- Redis unavailable (a store error, an unusable reply, or the limiter's open breaker): the request
+  is served as if allowed and exactly one WARNING is written on `llmgateway.ratelimit`, with the
+  exact text and nothing else; any other exception is the usual 500, not fail-open. A take that
+  timed out is not here: it is shed with a 503 (D-106, second amendment), in
+  `test_ratelimit_shed.py`;
 - the order of D-108, each pair in both directions where it can be told;
 - the lifespan closes the router, the recorder, the limiter, then the authenticator, each still
   closed if an earlier one raised; the disconnect watcher of D-072 still works behind the new
@@ -399,8 +401,10 @@ async def test_an_auth_outage_is_a_503_and_never_calls_the_limiter() -> None:
 
 # Redis cannot answer: the request is served as if allowed, with one WARNING (D-106)
 
+# D-106, second amendment: a timeout is no longer here (it sheds, see test_ratelimit_shed.py);
+# `circuit_open` is, the line of a request let through while the limiter's breaker is open.
 UNAVAILABLE = [
-    pytest.param("timeout", "TimeoutError", id="timeout"),
+    pytest.param("circuit_open", "CircuitOpen", id="circuit_open"),
     pytest.param("store_error", "ConnectionError", id="connection"),
     pytest.param("store_error", "OSError", id="os_error"),
     pytest.param("store_error", "ResponseError", id="script_error"),
@@ -428,8 +432,13 @@ async def test_an_unavailable_limiter_serves_the_request_with_one_exact_warning(
 
 
 @pytest.mark.asyncio
-async def test_an_unavailable_limiter_serves_a_stream_too() -> None:
-    rig = build(FakeLimiter(unavailable("timeout", "TimeoutError")))
+@pytest.mark.parametrize(
+    ("reason", "error_type"),
+    [("store_error", "ConnectionError"), ("circuit_open", "CircuitOpen")],
+)
+async def test_an_unavailable_limiter_serves_a_stream_too(reason: str, error_type: str) -> None:
+    # Was `unavailable("timeout", "TimeoutError")`: a timeout is shed now, not served.
+    rig = build(FakeLimiter(unavailable(reason, error_type)))
     called = await authed(rig, body=STREAM_BYTES)
     assert called.status == 200
     assert (called.header("content-type") or "").startswith("text/event-stream")
@@ -458,10 +467,11 @@ async def test_each_request_in_an_outage_writes_its_own_line_and_the_next_one_af
     all_logs: pytest.LogCaptureFixture,
 ) -> None:
     ids = itertools.count(1)
+    # Was two `timeout` lines; a timeout is shed now. A store error and then an open breaker.
     rig = build(
         FakeLimiter(
-            unavailable("timeout", "TimeoutError"),
-            unavailable("timeout", "TimeoutError"),
+            unavailable("store_error", "ConnectionError"),
+            unavailable("circuit_open", "CircuitOpen"),
             allow(),
         ),
         id_factory=lambda: f"gw_{next(ids)}",
@@ -469,8 +479,8 @@ async def test_each_request_in_an_outage_writes_its_own_line_and_the_next_one_af
     for _ in range(3):
         assert (await authed(rig)).status == 200
     assert [r.getMessage() for r in ratelimit_records(all_logs)] == [
-        "ratelimit_unavailable request_id=gw_1 reason=timeout error=TimeoutError",
-        "ratelimit_unavailable request_id=gw_2 reason=timeout error=TimeoutError",
+        "ratelimit_unavailable request_id=gw_1 reason=store_error error=ConnectionError",
+        "ratelimit_unavailable request_id=gw_2 reason=circuit_open error=CircuitOpen",
     ]
 
 
@@ -804,6 +814,12 @@ class Closer:
         self.name = name
         self.log = log
         self.error = error
+        self.warmed = 0
+
+    async def warm(self) -> None:
+        # The lifespan awaits `limiter.warm()` on startup (D-106, second amendment). It is counted
+        # here and not written to `log`, which holds the order of the shutdown.
+        self.warmed += 1
 
     async def aclose(self) -> None:
         self.log.append(self.name)

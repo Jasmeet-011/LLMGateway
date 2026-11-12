@@ -21,6 +21,19 @@ types.
 - `build`: `create_app` over a scripted adapter, a key store, a limiter and, if asked, a usage
   recorder over a fake store, with the pieces a test inspects kept on the returned `Rig`.
 - `request_lines`, `ratelimit_records`, `LATENCY`: what the logs say.
+
+Added for D-106's second amendment (the shed, the limiter's breaker, the pre-warm):
+
+- `Gate`: a `FakeRedis` step that waits until a test opens it, then plays what it holds.
+- `FakePool`, `FakeConnection` and `FakeWarmRedis`: the client's `connection_pool` and
+  `script_load` that `RedisRateLimiter.warm` calls. The pool records every `get_connection`,
+  how many were waiting at once, which connections are out, and every `release`. With
+  `hold_until=n` each acquire waits until `n` acquires have started, which only a warm that
+  opens its connections concurrently survives; the tests' own bound (`until`) turns a warm that
+  does not into a failure and not a hang.
+- `breaking`: a `RedisRateLimiter` over a fake client with its own `CircuitBreaker` on a fake
+  clock (the limiter's `clock` is the same fake, so "the clock value at a take's start and at each
+  success" is a number a test sets), and `breaker_lines` for D-059's lines.
 """
 
 import asyncio
@@ -34,13 +47,14 @@ from typing import TYPE_CHECKING, Any
 import pytest
 from auth_support import TEST_KEY, FakeKeyStore, make_authenticator
 from fastapi import FastAPI
-from stream_support import FakeClock, Gateway, chat_body, pass_time
+from stream_support import WALL_START, FakeClock, Gateway, chat_body, pass_time
 from usage_support import FakeUsageStore, UsageAdapter, make_recorder
 
 from llmgateway.app import create_app
+from llmgateway.breaker import CircuitBreaker
 
 if TYPE_CHECKING:
-    from llmgateway.ratelimit import Decision, RateLimitUnavailable
+    from llmgateway.ratelimit import Decision, RateLimitTimeout, RateLimitUnavailable
 
 REQUEST_ID = "gw_fixed"
 LATENCY = r"[0-9]+\.[0-9]"
@@ -78,6 +92,12 @@ def unavailable(reason: str, error_type: str) -> "RateLimitUnavailable":
     return error
 
 
+def shed(error_type: str = "TimeoutError") -> "RateLimitTimeout":
+    """What a take that timed out raises (D-106, amended before M17)."""
+    error: RateLimitTimeout = ratelimit_module().RateLimitTimeout(error_type)
+    return error
+
+
 # The client
 
 
@@ -85,6 +105,18 @@ def unavailable(reason: str, error_type: str) -> "RateLimitUnavailable":
 class Hang:
     """A call that never answers. `reached` is set when it starts waiting."""
 
+    reached: asyncio.Event = field(default_factory=asyncio.Event)
+
+
+@dataclass
+class Gate:
+    """A call that waits until `opened` is set, then plays `then` (a reply, an error or a step).
+
+    `reached` is set when it starts waiting.
+    """
+
+    then: Any
+    opened: asyncio.Event = field(default_factory=asyncio.Event)
     reached: asyncio.Event = field(default_factory=asyncio.Event)
 
 
@@ -129,6 +161,10 @@ class FakeRedis:
                 assert self.clock is not None, "Slow needs a clock"
                 await pass_time(self.clock, step.seconds)
                 step = step.then
+            if isinstance(step, Gate):
+                step.reached.set()
+                await step.opened.wait()
+                step = step.then
             if isinstance(step, Hang):
                 step.reached.set()
                 await asyncio.Event().wait()
@@ -154,9 +190,17 @@ class FakeLimiter:
         self.steps = steps
         self.keys: list[str] = []
         self.closed = 0
+        self.warmed = 0
+        # "warm" and "take" in the order they happened, for the lifespan's tests.
+        self.events: list[str] = []
+
+    async def warm(self) -> None:
+        self.events.append("warm")
+        self.warmed += 1
 
     async def take(self, key_id: str) -> "Decision":
         self.keys.append(key_id)
+        self.events.append("take")
         if not self.steps:
             return allow()
         step = self.steps[min(len(self.keys) - 1, len(self.steps) - 1)]
@@ -167,6 +211,147 @@ class FakeLimiter:
 
     async def aclose(self) -> None:
         self.closed += 1
+
+
+# The pool and the script cache that `warm` uses
+
+
+class FakeConnection:
+    """A connection the fake pool handed out, named by the order it was asked for."""
+
+    def __init__(self, index: int) -> None:
+        self.index = index
+
+    def __repr__(self) -> str:
+        return f"FakeConnection({self.index})"
+
+
+class FakePool:
+    """`client.connection_pool`: `get_connection()` and `release(connection)`, written down.
+
+    `plan(index)` says what the `index`th `get_connection` call does: `None` gives a
+    connection (after one loop turn), an exception is raised, a `Hang` never answers.
+    With `hold_until=n` every call first waits until `n` calls have started, so the pool only
+    hands out connections to a caller that asked for all of them at once.
+    """
+
+    def __init__(
+        self,
+        plan: Callable[[int], Any] | None = None,
+        *,
+        hold_until: int = 0,
+        events: list[str] | None = None,
+    ) -> None:
+        self.plan: Callable[[int], Any] = plan if plan is not None else (lambda index: None)
+        self.hold_until = hold_until
+        self.events: list[str] = events if events is not None else []
+        self.get_calls: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
+        self.pending = 0
+        self.peak_pending = 0
+        self.cancelled = 0
+        self.all_started = asyncio.Event()
+        self.outstanding: dict[int, FakeConnection] = {}
+        self.released: list[FakeConnection] = []
+        self.outstanding_at_first_release: int | None = None
+        self.release_mistakes: list[str] = []
+
+    async def get_connection(self, *args: Any, **kwargs: Any) -> FakeConnection:
+        index = len(self.get_calls)
+        self.get_calls.append((args, kwargs))
+        self.events.append("get")
+        step = self.plan(index)
+        self.pending += 1
+        self.peak_pending = max(self.peak_pending, self.pending)
+        if self.hold_until and len(self.get_calls) >= self.hold_until:
+            self.all_started.set()
+        try:
+            if self.hold_until:
+                await self.all_started.wait()
+            else:
+                await asyncio.sleep(0)
+            if isinstance(step, Hang):
+                step.reached.set()
+                await asyncio.Event().wait()
+            if isinstance(step, BaseException):
+                raise step
+        except asyncio.CancelledError:
+            self.cancelled += 1
+            raise
+        finally:
+            self.pending -= 1
+        connection = FakeConnection(index)
+        self.outstanding[index] = connection
+        return connection
+
+    async def release(self, connection: FakeConnection) -> None:
+        self.events.append("release")
+        if self.outstanding_at_first_release is None:
+            self.outstanding_at_first_release = len(self.outstanding)
+        if self.outstanding.get(connection.index) is not connection:
+            self.release_mistakes.append(f"{connection!r} is not out (released twice or foreign)")
+        else:
+            del self.outstanding[connection.index]
+        self.released.append(connection)
+
+
+class FakeWarmRedis(FakeRedis):
+    """A `FakeRedis` that also has `script_load` and a `connection_pool`, for `warm`.
+
+    `steps` are what the next `script_load` calls do, as for `FakeRedis`: a reply (the SHA), an
+    exception, `Hang`, `Slow` or `Gate`.
+    """
+
+    def __init__(self, pool: FakePool, *steps: Any, clock: FakeClock | None = None) -> None:
+        super().__init__(*steps, clock=clock)
+        self.connection_pool = pool
+        self.events = pool.events
+
+    @property
+    def loaded(self) -> list[str]:
+        return [str(args[0]) for name, args in self.calls if name == "script_load"]
+
+    async def script_load(self, script: str) -> Any:
+        self.events.append("script_load")
+        reply = await self._answer("script_load", (script,))
+        self.events.append("script_loaded")
+        return reply
+
+
+# A limiter with a breaker of its own
+
+
+@dataclass
+class Breaking:
+    """A `RedisRateLimiter` with a `CircuitBreaker` on a fake clock the test moves."""
+
+    limiter: Any
+    breaker: Any
+    clock: FakeClock
+    wall: FakeClock
+
+
+def breaking(client: Any, *, timeout: float = 1.0) -> Breaking:
+    """The limiter over `client` with a breaker named and set as D-106 says.
+
+    The breaker's clock and the limiter's `clock` are one `FakeClock`, so the cooldown is spent by
+    advancing it, and the value the limiter reads at a take's start and at each success is the
+    number the test set.
+    """
+    module = ratelimit_module()
+    clock = FakeClock()
+    wall = FakeClock(WALL_START)
+    breaker = CircuitBreaker(
+        module.BREAKER_NAME, module.BREAKER_POLICY, clock=clock, wall_clock=wall
+    )
+    limiter = module.RedisRateLimiter(
+        client, burst=60, per_second=1.0, timeout=timeout, breaker=breaker, clock=clock
+    )
+    return Breaking(limiter, breaker, clock, wall)
+
+
+def breaker_lines(caplog: pytest.LogCaptureFixture) -> list[str]:
+    """D-059's `breaker_state_change` lines, in order."""
+    return [r.getMessage() for r in caplog.records if r.name == "llmgateway.breaker"]
 
 
 # Driving ASGI

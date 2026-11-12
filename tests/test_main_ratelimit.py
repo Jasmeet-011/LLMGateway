@@ -24,8 +24,10 @@ mapping it is given and only that.
 """
 
 import importlib
+import inspect
 import json
 import os
+import re
 import socket
 import subprocess
 import sys
@@ -568,26 +570,183 @@ asyncio.run(probe())
 """
 
 
-def test_main_with_an_unreachable_redis_serves_every_request_as_if_allowed() -> None:
-    # No replacement of the client: the real one, against a port nothing listens on, fails open
-    # (D-106), and the request line and the WARNING are the only extra output.
+UNAVAILABLE_LINE = (
+    r".* WARNING llmgateway\.ratelimit ratelimit_unavailable request_id=gw_\S+ "
+    r"reason=store_error error=ConnectionError"
+)
+SHED_LINE = (
+    r".* WARNING llmgateway\.ratelimit ratelimit_shed request_id=gw_\S+ "
+    r"reason=timeout error=TimeoutError"
+)
+
+
+def _run_without_replacement(redis_url: str) -> tuple[list[int], list[str], str]:
+    """Two requests through `main.app` and the real client; (statuses, limiter lines, stderr)."""
     script = child_prelude() + PROBE_WITHOUT_REPLACEMENT
     # PROBE_WITHOUT_REPLACEMENT is the fixed script above, not outside input.
     result = subprocess.run(  # noqa: S603
         [sys.executable, "-c", script],
-        env={**_env(), "PROBE_AUTHORIZATION": AUTH_HEADERS["authorization"]},
+        env={**_env(**{REDIS: redis_url}), "PROBE_AUTHORIZATION": AUTH_HEADERS["authorization"]},
         capture_output=True,
         text=True,
         check=False,
     )
     assert result.returncode == 0, result.stderr
     statuses = json.loads(result.stdout.strip().splitlines()[-1])
+    lines = [line for line in result.stderr.splitlines() if "llmgateway.ratelimit" in line]
+    assert MARKER not in result.stderr + result.stdout
+    assert "Traceback" not in result.stderr
+    return statuses, lines, result.stderr
+
+
+def test_main_with_a_redis_that_refuses_at_once_serves_every_request_as_if_allowed(
+    refusing_redis: int,
+) -> None:
+    # No replacement of the client: the real one, against a listener that accepts and closes,
+    # gets a `ConnectionError` in milliseconds, a store error (D-106), so each request is let
+    # through with one `ratelimit_unavailable` line and nothing else. Was a port nothing listens
+    # on: Windows takes over a second to refuse it, which is a timeout and sheds (D-106, amended).
+    statuses, lines, stderr = _run_without_replacement(
+        f"redis://:{MARKER}@127.0.0.1:{refusing_redis}/0"
+    )
     assert statuses == [200, 200]
-    warnings = [line for line in result.stderr.splitlines() if "ratelimit_unavailable" in line]
-    assert len(warnings) == 2, result.stderr
-    for line in warnings:
-        assert " WARNING llmgateway.ratelimit ratelimit_unavailable request_id=gw_" in line
-        assert "reason=" in line
-        assert line.rsplit("error=", 1)[1].isidentifier()
+    assert len(lines) == 2, stderr
+    for line in lines:
+        assert re.fullmatch(UNAVAILABLE_LINE, line), line
+
+
+def test_main_with_a_closed_port_ends_each_request_by_the_platforms_rule_and_says_which() -> None:
+    # A port nothing listens on: Linux refuses at once (a store error, served, with the
+    # `ratelimit_unavailable` line); Windows takes over a second, so the connect times out and
+    # the request is shed (503, with the `ratelimit_shed` line). Each request is exactly one of
+    # the two, and its line says which; there is no third outcome.
+    statuses, lines, stderr = _run_without_replacement(UNREACHABLE_REDIS)
+    assert len(statuses) == 2
+    assert len(lines) == 2, stderr
+    for status, line in zip(statuses, lines, strict=True):
+        if status == 200:
+            assert re.fullmatch(UNAVAILABLE_LINE, line), line
+        else:
+            assert status == 503, statuses
+            assert re.fullmatch(SHED_LINE, line), line
+
+
+# The client `limiter_from_env` builds, and the warm the real lifespan runs (D-106, amended)
+
+
+@pytest.mark.asyncio
+async def test_limiter_from_env_builds_a_client_whose_pool_waits_without_a_limit_of_its_own(
+    main_module: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seen: list[Any] = []
+
+    async def evalsha(client: Any, *args: Any) -> Any:
+        seen.append(client)
+        return [1, 0]
+
+    monkeypatch.setattr(redis.asyncio.Redis, "evalsha", evalsha)
+    limiter = main_module.limiter_from_env({REDIS: "redis://cache.invalid:6390/4"})
+    await limiter.take("0123456789abcdef")
+    (client,) = seen
+    pool = client.connection_pool
+    assert type(pool) is redis.asyncio.BlockingConnectionPool
+    assert pool.max_connections == 50
+    # Was 1.0: `None` waits for a free connection, and the take's own budget bounds the wait.
+    assert pool.timeout is None
+    kwargs = pool.connection_kwargs
+    assert kwargs["socket_timeout"] == 1.0
+    assert kwargs["socket_connect_timeout"] == 1.0
+    assert kwargs["retry"].get_retries() == 0
+    assert client.get_retry().get_retries() == 0
+    await limiter.aclose()
+
+
+def test_limiter_from_env_returns_a_limiter_with_an_async_warm(main_module: ModuleType) -> None:
+    limiter = main_module.limiter_from_env({REDIS: "redis://cache.invalid:6390/4"})
+    assert inspect.iscoroutinefunction(limiter.warm)
+
+
+WARM_PRELUDE = """
+import asyncio as _asyncio
+
+import redis.asyncio as _redis
+
+_LOADS = []
+_GETS = []
+_RELEASED = []
+
+
+async def _script_load(self, script):
+    _LOADS.append(script)
+    return "0" * 40
+
+
+class _Connection:
+    pass
+
+
+async def _get_connection(self, *args, **kwargs):
+    _GETS.append([list(args), dict(kwargs)])
+    await _asyncio.sleep(0)
+    return _Connection()
+
+
+async def _release(self, connection):
+    _RELEASED.append(connection)
+
+
+_redis.Redis.script_load = _script_load
+_redis.BlockingConnectionPool.get_connection = _get_connection
+_redis.BlockingConnectionPool.release = _release
+"""
+
+WARM_PROBE = """
+import asyncio
+import json
+
+import llmgateway.main as main
+import llmgateway.ratelimit as ratelimit
+
+
+async def probe():
+    async with main.app.router.lifespan_context(main.app):
+        # After startup, before shutdown: warm has run and returned everything it got.
+        started = [len(_LOADS), len(_GETS), len(_RELEASED)]
+    print(json.dumps({
+        "started": started,
+        "script_is_the_limiters": _LOADS == [ratelimit.SCRIPT],
+        "get_args": _GETS[:1],
+        "released_distinct": len({id(c) for c in _RELEASED}),
+    }))
+
+
+asyncio.run(probe())
+"""
+
+
+def test_main_warms_the_real_limiter_through_the_real_lifespan_before_it_serves() -> None:
+    # `main.app`'s lifespan, in a child: the real `RedisRateLimiter` and the real pool class,
+    # with only the three calls that would touch a socket replaced. Startup ends with the script
+    # loaded once, fifty connections asked for with no argument, and all fifty returned.
+    script = child_prelude() + WARM_PRELUDE + WARM_PROBE
+    # The script is fixed text above, not outside input.
+    result = subprocess.run(  # noqa: S603
+        [sys.executable, "-c", script],
+        env=_env(),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    out = json.loads(result.stdout.strip().splitlines()[-1])
+    assert out == {
+        "started": [1, 50, 50],
+        "script_is_the_limiters": True,
+        "get_args": [[[], {}]],
+        "released_distinct": 50,
+    }
+    infos = [line for line in result.stderr.splitlines() if "ratelimit_warm" in line]
+    assert len(infos) == 1, result.stderr
+    assert infos[0].endswith(" INFO llmgateway.ratelimit ratelimit_warm opened=50 of=50"), infos[0]
     assert MARKER not in result.stderr + result.stdout
     assert "Traceback" not in result.stderr
