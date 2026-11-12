@@ -139,6 +139,8 @@ Usage (D-095, D-097): every adapter call the router makes is one usage record, r
 
 A meter that raises is caught: one `usage_report_failed request_id=%s error=<class>` line at ERROR on `llmgateway.router`, and the request goes on.
 
+**Streams cut short (D-101):** every stream attempt whose `outcome` is `failed` or `abandoned` also reports `delivered_chars`, the characters of `delta` text whose frame's `send` returned in that attempt (0 for an attempt that stopped before its first event), and its record gets `estimated_output_tokens`: `ceil(chars × 13 / 35)` for Claude, `ceil(chars / 4)` for Gemini and the mock. Both are null on every other row. They are estimates in their own columns: the counts above and the cost never include them.
+
 **Streaming rule:** a streaming request can only fall back **before the first byte is sent** to the client. After that, the client has already received part of one provider's answer, and switching providers would splice two different answers together. A failure mid-stream ends the stream with an error instead.
 
 ### Streams (D-067 to D-073)
@@ -281,7 +283,7 @@ src/llmgateway/
 ├── auth.py              key format, hash_key, Principal, Authenticator and its cache, AuthMiddleware
 ├── keystore.py          PostgresKeyStore over asyncpg: find, create, revoke, list; run_migrations
 ├── keys.py              the key CLI: python -m llmgateway.keys migrate | create | revoke | list
-├── migrations/          Alembic env.py, versions/0001_api_keys.py (D-093) and 0002_usage_records.py (D-099)
+├── migrations/          Alembic env.py, versions/0001_api_keys.py (D-093), 0002_usage_records.py (D-099), 0003_stream_estimates.py (D-101)
 ├── usage.py             AttemptUsage, UsageRecord, Meter, UsageRecorder: the queue and writer task (D-095, D-099)
 ├── usagestore.py        PostgresUsageStore over asyncpg: one batched INSERT per write (D-099)
 ├── prices.py            the price table: parse, startup check, cost in nano-dollars (D-096, D-098)
@@ -302,7 +304,7 @@ src/llmgateway/
 | Redis | Rate limit token buckets, updated by a Lua script using Redis server time (D-002) |
 | Redis | Cached responses, keyed by a hash of the normalized request, model, params, and caller (D-003) |
 | Process memory | Circuit breaker state, one per config instance in each worker, lost on restart (D-055) |
-| Postgres | The `usage_records` table: one row per adapter attempt, with tenant, key id, alias, instance, model, attempt, outcome, token counts and cost in nano-dollars (D-095, D-099). Created by migration 0002; written in batches by one writer task per worker |
+| Postgres | The `usage_records` table: one row per adapter attempt, with tenant, key id, alias, instance, model, attempt, outcome, token counts and cost in nano-dollars (D-095, D-099), and for a stream cut short the characters delivered and an estimated output token count (D-101). Created by migration 0002, extended by 0003; written in batches by one writer task per worker |
 | Process memory | Usage records waiting to be written, at most 10,000 per worker; lost if the process dies (D-099) |
 | The package | `prices.toml`: dated prices per model, each with its source and the day it was read (D-098) |
 | To be decided | Spend cap counters and coalescing state (stretch, D-031) |

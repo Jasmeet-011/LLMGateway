@@ -106,6 +106,7 @@ One line per entry, with what superseded it. A session reads this index plus eve
 - D-098 Prices: a dated table in the package, each price with its source, checked at startup
 - D-099 Writing records: a bounded queue and one writer task per worker, batched into `usage_records`; a failed write is logged and lost
 - D-100 M15 integration tests: usage rows read from the Compose stack's Postgres
+- D-101 Streams cut short: characters delivered and an estimated output token count, in their own columns, never in the counts or the cost
 
 ## Entry format
 
@@ -1203,6 +1204,7 @@ Sources: https://platform.claude.com/docs/en/build-with-claude/streaming, read 2
 - **Alternatives:** One row per request with summed counts (hides a failed attempt behind a later success); only attempts known to be billed (needs a billing rule the gateway cannot apply to timeouts); recording in the adapters (they would need the principal and the request ID, D-015); recording in the app from what the router returns (the app never sees failed retries).
 - **Risk:** Rows multiply under failures: up to 3 per entry, so 6 per request on two entries. A non-2xx failure is most likely not billed but is still a row, with null counts. Per-request spend needs `GROUP BY request_id`. A bug in the meter loses that attempt's row, with one ERROR line.
 - **Revisit when:** M17 adds cache hits (D-012), or a stretch spend cap needs a per-request total at write time.
+- **Extended by D-101:** `AttemptUsage` and `UsageRecord` gain `delivered_chars` and, on the record, `estimated_output_tokens`, set on every stream attempt that did not reach its end.
 
 ## D-096 Money is an integer number of nano-dollars
 
@@ -1230,6 +1232,7 @@ Sources: https://platform.claude.com/docs/en/build-with-claude/streaming, read 2
 - **Risk:** Claude reports its output count only near the end, so a Claude stream cut short records a much lower output count than may be billed; `partial` says so, and the gap is not measured. If Gemini's thinking counts turn out to be per chunk, thinking is under-recorded until the rule changes; the live test is there to show it. A billed malformed 2xx has no cost.
 - **Revisit when:** The owner runs the thinking live test, or a provider documents usage deltas.
 - **Settled by the owner's run of `tests/test_live_gemini_thinking_usage.py` (2026-11-11): PASSED, as reported by the owner.** On `gemini-3.6-flash` (raw call, `thinkingLevel` `LOW`, `maxOutputTokens` 512), `thoughtsTokenCount` was 246 on all three chunks, `candidatesTokenCount` went 3, 17, 17, and `promptTokenCount` was 20 on every chunk. The adapter's replay reported 20 in and 263 out (17 visible + 246 thinking), matching the last chunk. Thinking arrives complete before the text, so the latest-value rule holds for `thoughtsTokenCount` too: **verified**. Summing per chunk would have billed 738 thinking tokens instead of 246. The thinking part of this entry's Risk is closed.
+- **Claude's late output count:** D-101 adds, for every stream cut short, the characters delivered to the client and an estimated output token count, in their own columns; the counts here and the cost are unchanged.
 
 ## D-098 Prices: a dated table in the package, each price with its source, checked at startup
 
@@ -1313,6 +1316,7 @@ Sources: https://platform.claude.com/docs/en/build-with-claude/streaming, read 2
 - **Alternatives:** Insert before responding (adds latency, and fails or loses the row anyway when Postgres is down); FastAPI background tasks (one task and one round trip per request, no batching, and nothing for a stream's later attempts); a local append-only file replayed into Postgres (survives a crash, but a file format and a replayer to own); a Redis stream (Redis is M16's, and M15 allows no dependency); retrying with a unique key per attempt and `ON CONFLICT DO NOTHING` (exactly once, but more code than a lower bound needs now); asyncpg `executemany` (whether it is atomic is not settled here; one `unnest` statement is atomic by definition).
 - **Risk:** A crash loses up to 10,000 records per worker. A long outage drops every record past the cap. Because a batch is one statement, one row that breaks a table check (for example a provider count above 2⁶³, which `Usage` does not bound) loses its whole batch of up to 100 rows; it is logged as `usage_write_failed ... reason=store_error`. One writer per worker bounds throughput at about 100 records per round trip, unmeasured under load until M18. `recorded_at` is the gateway's clock.
 - **Revisit when:** A spend cap (stretch) needs records that cannot be lost, M18 shows the writer falling behind, or the gateway runs several workers whose loss must be bounded together.
+- **Amended by D-101:** migration 0003 adds `delivered_chars` and `estimated_output_tokens` to `usage_records`, and the `INSERT` writes 19 columns.
 
 ## D-100 M15 integration tests: usage rows read from the Compose stack's Postgres
 
@@ -1321,3 +1325,42 @@ Sources: https://platform.claude.com/docs/en/build-with-claude/streaming, read 2
 - **Alternatives:** Start the stack with `LLMGATEWAY_FAULTS` for failure rows (a second stack configuration in CI for one test); publish Postgres to read rows from pytest (D-094 rejected it).
 - **Risk:** The 5 s poll can be slow on a loaded CI runner. The failure rows prove the store and the table, not the router's path to them, which the unit tests prove.
 - **Revisit when:** The integration stack gets a fault configuration.
+- **Extended by D-101:** the failure-row script also writes `delivered_chars` and `estimated_output_tokens` (set on cut-stream rows, null on the others) and `psql` reads them back; `psql` inserts that break 0003's two checks (one of the pair null, or values on a success or non-streaming row) are rejected; and the catalog shows both column comments.
+
+## D-101 Streams cut short: characters delivered and an estimated output token count, in their own columns, never in the counts or the cost
+
+- **Decision:** Answers D-097's Risk that a Claude stream cut short records almost no output (Claude reports its output count near the end, in `message_delta`), at the owner's request (2026-11-11). **A database schema change.**
+  - **Which rows.** Every stream attempt that did not reach its end, that is every row with `stream` true and `outcome` `failed` or `abandoned`, gets two more values: `delivered_chars` and `estimated_output_tokens`. That is every `partial` row (D-095), and also a stream cut short before the provider reported any usage, whose counts are null. Every other row (non-streaming, and stream successes, whose counts are complete) has both null.
+  - **`delivered_chars`:** the number of characters (Python `len`, Unicode code points) of the `delta` text the gateway delivered to the client in that attempt. A delta counts as delivered once the server's `send` of its frame has returned; one whose `send` was cancelled, timed out (`client_stalled`) or raised does not count. That is what the gateway handed to the server, not proof the client read it, which no server can know. Before a stream's first event nothing has been sent (D-068), so an attempt that failed or was abandoned while opening has `delivered_chars` 0.
+  - **How it is counted:** `ServedStream.mark_delivered(text: str) -> None` adds `len(text)` to the stream's total. `EventStream` calls it for each `delta` just after its frame's `yield` in the generator that feeds the response resumes, which Starlette's `StreamingResponse` does only after `send` of that frame returned; the `end` and `error` frames are not text and add nothing. The router passes the total to the meter as `AttemptUsage.delivered_chars: int | None`: None for non-streaming attempts and for stream successes, an `int` for every stream attempt that failed or was abandoned, before or after its first event. It is part of the same single report per attempt as D-095, so the total is the one at the moment that attempt is reported.
+  - **`estimated_output_tokens`:** computed by the meter in `usage.py` from `delivered_chars` and the attempt's provider type, with integer arithmetic, rounding up: Claude `ceil(chars * 13 / 35)`, that is 3.5 characters per token with 30% more tokens; Gemini and the mock `ceil(chars / 4)`. 0 characters gives 0. `UsageRecord` gains `delivered_chars` and `estimated_output_tokens`, both `int | None`, null together.
+  - **Never mixed in.** `input_tokens`, `output_tokens` and `partial` keep D-097's meaning: what the provider reported. `cost_nanousd` stays computed from those reported counts only (D-096), so for a partial row it is a lower bound, as before. The estimate is not priced anywhere, and nothing in the gateway adds it to a count.
+  - **Marked as an estimate:** the column's name says so, and migration 0003 puts a `COMMENT ON COLUMN` on both columns saying what they are and that neither is billed. The batched `INSERT` (D-099) grows to 19 columns, the two new ones last, `$18::bigint[]` and `$19::bigint[]`.
+  - **Migration 0003** (`0003_stream_estimates.py`, revision `0003`, parent `0002`), adding to `usage_records`:
+
+    ```sql
+    ALTER TABLE usage_records
+        ADD COLUMN delivered_chars         bigint CHECK (delivered_chars >= 0),
+        ADD COLUMN estimated_output_tokens bigint CHECK (estimated_output_tokens >= 0),
+        ADD CONSTRAINT usage_records_estimate_pair
+            CHECK ((delivered_chars IS NULL) = (estimated_output_tokens IS NULL)),
+        ADD CONSTRAINT usage_records_estimate_only_cut_streams
+            CHECK (delivered_chars IS NULL OR (stream AND outcome <> 'success'));
+    COMMENT ON COLUMN usage_records.delivered_chars IS
+        'Characters of delta text sent to the client by a stream attempt that did not reach its end (D-101). Not billed.';
+    COMMENT ON COLUMN usage_records.estimated_output_tokens IS
+        'ESTIMATE, not a provider count: delivered_chars converted at a fixed characters-per-token rate (D-101). Never billed or added to output_tokens.';
+    ```
+
+    Rows written before 0003 keep both null, which reads as "not measured". No check forces the values onto newer cut-stream rows, because it would fail on the old rows; the code always sets them. The downgrade drops both columns (which drops their checks and comments).
+- **The estimation method and its error.**
+  - **Rates, from the providers' own docs (read 2026-11-11):** Google: "For Gemini models, a token is equivalent to about 4 characters" (https://ai.google.dev/gemini-api/docs/tokens, which answers 301 to https://aistudio.google.com/docs/tokens). Anthropic's glossary (https://platform.claude.com/docs/en/about-claude/glossary): "Claude 4.7 and later models ... use a newer tokenizer that produces approximately 30 percent more tokens for the same text than earlier models, on which a token represents approximately 3.5 English characters." Both configured Claude models are 5.5, so 3.5 / 1.3, about 2.7 characters per token. The mock's counts are words (D-016), so its estimate is only the generic rate and means nothing; it costs 0 anyway.
+  - **Error, as far as it is known:** both rates are the providers' rules of thumb for English prose, with no stated error. Not measured here: the gateway has no tokenizer, and measuring needs real calls. Known directions:
+    - **It leaves out output the client never saw.** Thinking: Gemini's thinking is billed as output and is never text (D-049). In the owner's run 246 thinking tokens went with a 17-token answer, so on that request an estimate from the visible text would have been about 6% of the billed output. Text the provider generated but the gateway had not yet delivered (in flight, buffered, or after the client left) is missing too. So as a guide to what was billed the estimate leans **low**.
+    - **The rate varies with the text:** code, numbers, whitespace-heavy text and most non-English text have fewer characters per token than English prose (CJK text is often about one token per character or more), so the estimate can be several times too low there; long common English words can make it somewhat high.
+    - Rounding up adds at most one token per attempt.
+  - **A live test measures the rate** for the two cheap models: `tests/test_live_estimate_rate.py`, marked `live`, one non-streaming request per provider (`claude-haiku-5-5` and `gemini-3.5-flash-lite`, `max_tokens` 256, a prompt asking for one English paragraph of about 100 words), printing the content's characters, the reported output tokens, the estimate and the relative error, and failing if the estimate is more than 50% off the reported count for either. Only the owner runs it; until then the error above is unmeasured. Gemini's reported count includes any thinking (D-041), which at `MINIMAL` on `gemini-3.5-flash-lite` was none in the owner's run (D-075).
+- **Why:** A Claude stream cut short after a long answer is billed for that answer, but its row shows only `message_start`'s output count, often 1. The text the gateway delivered is a fact the gateway knows exactly, and a floor on the visible output. Keeping it and the estimate in their own columns lets an operator see how much the reported counts understate a cut stream, without ever presenting a guess as a provider count or billing it. Counting at `send` rather than at the router's `yield` is the closest the gateway can get to "delivered": a delta the router handed out but the server never sent did not reach the client.
+- **Alternatives:** Put the estimate into `output_tokens` when it is larger (mixes a guess into a provider count, and the cost would then be partly invented); price the estimate in a second cost column (an invented cost next to a real one is easy to sum by mistake); count tokens with a real tokenizer (a new dependency per provider, Claude's tokenizer is not public, and the token counting API is a network call per stream); count at the router's `yield` (counts a delta whose send failed); only `partial` rows, the owner's wording (a cut stream with no reported usage at all, such as a Gemini stream that dies before its first `usageMetadata`, would then have no signal; every partial row is still covered); store the delivered text (it is response content, which is never stored or logged).
+- **Risk:** The estimate leans low, above, and a reader may still sum it as if it were billed; the comments and this entry say not to. A delta sent to a socket the client had already closed counts as delivered. A provider that changes its tokenizer changes the rate without notice. The live test's 50% band is a sanity check, not a measured bound.
+- **Revisit when:** The owner runs the rate live test, a provider documents a different rate, or a spend cap (stretch) needs a bound on unreported output.

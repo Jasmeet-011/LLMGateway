@@ -97,6 +97,11 @@ Newest sessions go here. When this file passes 50 KB, move the session log and t
 - The cost note, on D-049 and in a new README.md Known limitations section. **One correction:** the owner's note says the 246 thinking tokens were spent at `MINIMAL`, but the test's raw request sends `thinkingLevel` `LOW` (line 130), not the adapter's `MINIMAL`. Both places record `LOW` as the measured level and say `MINIMAL` on this model is unmeasured; this is listed for the owner.
 - The owner verified the four Gemini rows in `prices.toml` against Google's pricing page on 2026-11-11: all match. The brief says to record it in D-096; the rows and the open item are in D-098, so the note is on D-098, with a pointer line on D-096.
 
+**Plan, the partial-stream estimate (before M16, test-first).**
+1. Spec: D-101 (columns, method, error, migration 0003), notes on D-095, D-097, D-099, D-100; FLOW.md sections 5, 8, 9. The rates are the providers' own documented rules of thumb, read 2026-11-11; the error is stated and unmeasured, with a live test for the owner.
+2. Tester, Mode 1: router reports of `delivered_chars` on every stream path (failed or abandoned before and after the first event, a send that fails, stalls or is cancelled, success and non-streaming None), the meter's estimate per provider type, the store's 19 columns, migration 0003 offline, integration rows and checks, the live rate test. Red run before any `src/` change.
+3. Build, Mode 2, review, push, CI. Then M16.
+
 ### 2026-11-11: owner's results, M15 Token and cost accounting
 
 **State check.** HEAD f1a43de, clean, on `main`, level with origin after `git pull`, as the brief expected. `.\scripts\check.ps1` PASS: 4549 passed, 26 deselected in 180.80 s, matching the brief. `.claude/agents/tester.md` and `reviewer.md` both present.
