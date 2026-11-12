@@ -28,7 +28,9 @@ import asyncio
 import json
 import logging
 import re
+import socket
 from collections.abc import Mapping
+from contextlib import closing
 from typing import Any
 
 import httpx
@@ -504,7 +506,13 @@ async def test_with_no_limiter_the_lifespan_starts_and_stops_and_awaits_nothing(
 async def test_a_real_server_binds_no_socket_and_serves_nothing_until_warm_has_returned() -> None:
     limiter = SlowWarm()
     rig = build(limiter)
-    config = uvicorn.Config(rig.app, host="127.0.0.1", port=0, log_config=None, lifespan="on")
+    # A port chosen beforehand, so a real connection can be tried while `warm` runs. (Port 0
+    # would leave no address to try: uvicorn 0.54.0 assigns `Server.servers` only inside
+    # `startup()`, after the lifespan's startup, so the attribute does not exist before then.)
+    with closing(socket.socket()) as probe:
+        probe.bind(("127.0.0.1", 0))
+        port: int = probe.getsockname()[1]
+    config = uvicorn.Config(rig.app, host="127.0.0.1", port=port, log_config=None, lifespan="on")
     server = uvicorn.Server(config)
     task = asyncio.ensure_future(server.serve())
     try:
@@ -513,11 +521,14 @@ async def test_a_real_server_binds_no_socket_and_serves_nothing_until_warm_has_r
             await asyncio.sleep(0)
         # uvicorn binds its sockets only after the lifespan's startup has completed.
         assert not server.started
-        assert server.servers == []
+        assert getattr(server, "servers", []) == []
         assert limiter.events == ["warm_started"]
+        # And on the wire: nothing accepts a connection on the port while `warm` runs.
+        with pytest.raises((OSError, TimeoutError)):
+            _, writer = await asyncio.wait_for(asyncio.open_connection("127.0.0.1", port), 1.0)
+            writer.close()
         limiter.release.set()
         await until(lambda: server.started, "the server to start after warm", task=task)
-        port: int = server.servers[0].sockets[0].getsockname()[1]
         async with httpx.AsyncClient(
             base_url=f"http://127.0.0.1:{port}", timeout=60.0, headers=AUTH_HEADERS
         ) as client:
@@ -525,8 +536,11 @@ async def test_a_real_server_binds_no_socket_and_serves_nothing_until_warm_has_r
         assert response.status_code == 200
         assert limiter.events == ["warm_started", "warm", "take"]
     finally:
+        # Released first: a failure above must not leave the server waiting in startup for a
+        # `warm` nobody will let go (that would be a 300 s timeout and not a failure).
+        limiter.release.set()
+        # No `force_exit`: it skips the lifespan's shutdown, which closes the limiter.
         server.should_exit = True
-        server.force_exit = True
         await task
     assert limiter.warmed == 1
     assert limiter.closed == 1
