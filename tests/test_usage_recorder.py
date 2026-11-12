@@ -980,3 +980,88 @@ async def test_no_line_for_what_a_shutdown_drops_holds_request_data(
     await until(closing.done, "aclose to return")
     assert usage_messages(all_logs) == ["usage_dropped count=3 reason=shutdown"]
     assert_lines_are_fixed(all_logs)
+
+
+# Added by the M15 mutation checks: gaps a mutant got through
+
+
+class SlowUnwindStore(FakeUsageStore):
+    """A store whose hung write takes a few event loop turns to finish unwinding a cancel."""
+
+    async def write(self, records: Any) -> None:
+        try:
+            await super().write(records)
+        except asyncio.CancelledError:
+            for _ in range(5):
+                await asyncio.sleep(0)
+            self.log.append("unwound")
+            raise
+
+
+@pytest.mark.asyncio
+async def test_aclose_waits_for_the_cancelled_writer_to_finish_before_it_closes_the_store(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    clock = virtual_loop_time(monkeypatch)
+    store = SlowUnwindStore()
+    store.hang()
+    recorder, _ = make_recorder(store, write_timeout=60.0)
+    recorder.record(make_record(1))
+    await until(lambda: len(store.attempted) == 1, "the write to start")
+    closing = asyncio.ensure_future(recorder.aclose())
+    await pass_time(clock, 5.5)
+    await until(closing.done, "aclose to return")
+    await closing
+    assert store.log == ["write", "unwound", "close"]
+
+
+@pytest.mark.asyncio
+async def test_a_cancelled_aclose_still_closes_the_store(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    clock = virtual_loop_time(monkeypatch)
+    store = FakeUsageStore()
+    store.hang()
+    recorder, _ = make_recorder(store, write_timeout=60.0)
+    recorder.record(make_record(1))
+    await until(lambda: len(store.attempted) == 1, "the write to start")
+    closing = asyncio.ensure_future(recorder.aclose())
+    await pass_time(clock, 1.0)
+    assert not closing.done()
+    closing.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await closing
+    assert store.closed == 1
+    store.release()
+
+
+@pytest.mark.asyncio
+async def test_a_write_cancelled_at_the_drain_limit_ends_the_writer_task_for_good(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The cancel must reach the writer and end it: a writer that swallowed it would loop on and
+    # `aclose` would never return. Whatever happens, the test ends every task it started.
+    clock = virtual_loop_time(monkeypatch)
+    store = FakeUsageStore()
+    store.hang()
+    recorder, _ = make_recorder(store, write_timeout=60.0)
+    recorder.record(make_record(1))
+    await until(lambda: len(store.attempted) == 1, "the write to start")
+    closing = asyncio.ensure_future(recorder.aclose())
+    try:
+        await pass_time(clock, 5.5)
+        await until(closing.done, "aclose to return")
+        await closing
+        assert store.cancelled == 1
+        others = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
+        assert [t for t in others if not t.done()] == []
+    finally:
+        for task in asyncio.all_tasks():
+            if task is not asyncio.current_task():
+                task.cancel()
+
+
+def test_the_recorders_limits_are_keyword_only() -> None:
+    # D-099 gives `UsageRecorder(store, prices, *, max_queue=..., ...)`.
+    with pytest.raises(TypeError):
+        usage_module().UsageRecorder(FakeUsageStore(), make_prices(), 5)

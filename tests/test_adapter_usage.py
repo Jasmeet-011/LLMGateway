@@ -830,3 +830,20 @@ async def test_a_mock_stream_that_is_closed_early_has_no_counts_to_report() -> N
     first = await anext(generator)
     await generator.aclose()
     assert isinstance(first, StreamDelta)
+
+
+# Added by the M15 mutation checks: a gap a mutant got through
+
+
+@pytest.mark.asyncio
+async def test_claude_a_message_delta_with_usage_but_no_message_start_reports_nothing_yet() -> None:
+    # No input count has been seen, so there is nothing to report; the stream goes on, and
+    # the stop fails because the stream never said everything.
+    events, error = await claude_events(
+        claude_message_delta(None, {"output_tokens": 5}),
+        claude_text("still here"),
+        CLAUDE_STOP,
+    )
+    assert events == [delta("still here")]
+    assert isinstance(error, ProviderUnavailable)
+    assert error.reason == "malformed_body"

@@ -224,3 +224,13 @@ def test_downgrade_drops_nothing_else() -> None:
     sql = _flat(_render("downgrade")).upper()
     assert sql.count("DROP") == 1
     assert "API_KEYS" not in sql
+
+
+# Added by the M15 mutation checks: a gap a mutant got through
+
+
+def test_downgrade_does_not_cascade_to_anything_that_depends_on_the_table() -> None:
+    # "Touches nothing else": CASCADE would drop views and constraints of other objects.
+    sql = _flat(_render("downgrade")).upper()
+    assert "CASCADE" not in sql
+    assert re.fullmatch(r"DROP TABLE USAGE_RECORDS;?", sql), sql

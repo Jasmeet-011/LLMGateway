@@ -495,3 +495,90 @@ def test_a_real_server_records_a_request_and_drains_the_queue_when_it_shuts_down
     )
     assert out["closed"] == 1
     assert DB_MARKER not in result.stderr + result.stdout
+
+
+# Added by the M15 mutation checks: what the wiring does with the price table and the store module
+
+PRICE_WIRING_PROBE = """
+import asyncio
+import json
+import os
+from datetime import date
+
+import llmgateway.main as main
+import llmgateway.usagestore as _usagestore
+from llmgateway.auth import Principal
+from llmgateway.config import load_config
+from llmgateway.schema import Usage
+from llmgateway.usage import AttemptUsage
+
+_SECOND_DSNS = []
+_SECOND_ROWS = []
+
+
+class _SecondStore:
+    def __init__(self, dsn, **kwargs):
+        _SECOND_DSNS.append(dsn)
+
+    async def write(self, records):
+        _SECOND_ROWS.extend(records)
+
+    async def aclose(self):
+        pass
+
+
+def _attempt():
+    return AttemptUsage(
+        provider_instance="claude",
+        provider_type="claude",
+        model="claude-haiku-5-5",
+        stream=False,
+        attempt=1,
+        outcome="success",
+        reason=None,
+        provider_status=None,
+        partial=False,
+        usage=Usage(input_tokens=1000, output_tokens=100),
+    )
+
+
+async def probe():
+    principal = Principal(key_id="0123456789abcdef", tenant_id="probe-tenant")
+    out = {}
+    # The recorder main built when it was imported prices a Claude attempt with the real table.
+    main._recorder.meter(request_id="gw_probe", principal=principal, alias="a")(_attempt())
+    await main._recorder.aclose()
+    out["wired_cost"] = _ROWS[-1].cost_nanousd
+    # `checked_prices` hands back the real table, not an empty one.
+    table = main.checked_prices(load_config(os.environ))
+    out["checked_cost"] = table.cost_nanousd(
+        "claude", "claude-haiku-5-5", Usage(input_tokens=1000, output_tokens=100), date(2030, 1, 1)
+    )
+    # `recorder_from_env` looks the store class up when called and uses the prices it is given.
+    _usagestore.PostgresUsageStore = _SecondStore
+    url = "postgresql://someone:secret@example.invalid/other"
+    recorder = main.recorder_from_env({"LLMGATEWAY_DATABASE_URL": url}, table)
+    recorder.meter(request_id="gw_probe2", principal=principal, alias="a")(_attempt())
+    await recorder.aclose()
+    out["second_store_got_the_url"] = _SECOND_DSNS == [url]
+    out["second_cost"] = _SECOND_ROWS[-1].cost_nanousd if _SECOND_ROWS else None
+    print(json.dumps(out))
+
+
+asyncio.run(probe())
+"""
+
+HAIKU_NANO = 1000 * 100 + 100 * 500
+
+
+def test_the_wired_recorder_uses_the_checked_prices_and_the_store_is_looked_up_at_call() -> None:
+    result = _run(child_prelude() + USAGE_PRELUDE + PRICE_WIRING_PROBE, _env())
+    assert result.returncode == 0, result.stderr
+    assert "Traceback" not in result.stderr
+    out = json.loads(result.stdout.strip().splitlines()[-1])
+    assert out == {
+        "wired_cost": HAIKU_NANO,
+        "checked_cost": HAIKU_NANO,
+        "second_store_got_the_url": True,
+        "second_cost": HAIKU_NANO,
+    }

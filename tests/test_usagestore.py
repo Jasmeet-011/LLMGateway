@@ -480,3 +480,48 @@ async def test_an_empty_batch_never_connects_even_to_a_port_that_would_refuse() 
         await store.write([])
     finally:
         await store.aclose()
+
+
+# Added by the M15 mutation checks: gaps a mutant got through
+
+
+@pytest.mark.asyncio
+async def test_stream_and_partial_are_separate_parameters_even_when_they_differ(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    only_stream = make_record(1, outcome="failed", stream=True, partial=False)
+    only_partial = make_record(2, outcome="failed", stream=False, partial=True)
+    neither = make_record(3, outcome="success", stream=False, partial=False)
+    pool = FakePool()
+    store, _ = store_over(monkeypatch, pool)
+    await store.write([only_stream, only_partial, neither])
+    ((_, args),) = pool.calls
+    named = dict(zip(COLUMNS, args, strict=True))
+    assert named["stream"] == [True, False, False]
+    assert named["partial"] == [False, True, False]
+
+
+@pytest.mark.asyncio
+async def test_aclose_while_the_pool_is_being_made_waits_for_it_and_closes_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pool = FakePool()
+    gate = asyncio.Event()
+    started = asyncio.Event()
+
+    async def slow_create(*args: Any, **kwargs: Any) -> FakePool:
+        started.set()
+        await gate.wait()
+        return pool
+
+    monkeypatch.setattr(asyncpg, "create_pool", slow_create)
+    store = usagestore_module().PostgresUsageStore(DSN)
+    writing = asyncio.ensure_future(store.write([make_record(1)]))
+    await started.wait()
+    closing = asyncio.ensure_future(store.aclose())
+    for _ in range(5):
+        await asyncio.sleep(0)
+    assert not closing.done()
+    gate.set()
+    await asyncio.gather(writing, closing)
+    assert pool.closed == 1

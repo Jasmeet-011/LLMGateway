@@ -945,3 +945,64 @@ def test_a_model_the_table_lacks_stops_the_check_on_the_real_table() -> None:
         packaged().check(config, date(2026, 11, 11))
     assert str(info.value) == "aliases.a[0].model: no price in effect for this model in prices.toml"
     assert "sonnet" not in str(info.value)
+
+
+# Added by the M15 mutation checks: gaps a mutant got through
+
+
+@pytest.mark.parametrize(
+    ("present", "first_missing"),
+    [
+        pytest.param(["long_prompt_over"], "long_input", id="threshold_only"),
+        pytest.param(["long_input"], "long_prompt_over", id="long_input_only"),
+        pytest.param(["long_output"], "long_prompt_over", id="long_output_only"),
+        pytest.param(["long_prompt_over", "long_input"], "long_output", id="no_long_output"),
+        pytest.param(["long_prompt_over", "long_output"], "long_input", id="no_long_input"),
+        pytest.param(["long_input", "long_output"], "long_prompt_over", id="no_threshold"),
+    ],
+)
+def test_a_partial_long_prompt_group_is_rejected_at_the_first_missing_field_in_d_098s_order(
+    present: list[str], first_missing: str
+) -> None:
+    # D-098 lists the three as long_prompt_over, long_input, long_output.
+    fields = {k: v for k, v in long_fields().items() if k in present}
+    assert_rejected_at(haiku(period(**fields)), f"claude.{HAIKU}[0].{first_missing}")
+
+
+def test_a_model_with_an_empty_array_of_periods_is_rejected_at_its_location() -> None:
+    assert_rejected_at(f'[claude]\n"{HAIKU}" = []\n', f"claude.{HAIKU}")
+
+
+def test_a_toml_error_never_repeats_a_name_the_file_used() -> None:
+    # tomllib's own messages can name a duplicated key or table; ours must not repeat it.
+    marker = "price-file-planted-table-marker"
+    message = parse_error(f"[{marker}]\n[{marker}]\n")
+    assert message == "prices.toml: the file is not valid TOML"
+
+
+def test_a_toml_error_carries_no_chained_cause_or_context() -> None:
+    with pytest.raises(ConfigError) as info:
+        parse("this is not toml")
+    assert info.value.__cause__ is None
+    assert info.value.__suppress_context__ is True
+
+
+def test_check_covers_every_alias_not_only_the_first() -> None:
+    config = config_of(
+        f'one = [{{ provider = "claude", model = "{HAIKU}" }}]\n'
+        'two = [{ provider = "gemini", model = "unpriced-b" }]\n'
+    )
+    assert check_error(config, DAY) == (
+        "aliases.two[0].model: no price in effect for this model in prices.toml"
+    )
+
+
+def test_check_covers_every_entry_of_the_last_alias() -> None:
+    config = config_of(
+        f'one = [{{ provider = "claude", model = "{HAIKU}" }}]\n'
+        f'two = [{{ provider = "claude", model = "{HAIKU}" }}, '
+        '{ provider = "gemini", model = "unpriced-b" }]\n'
+    )
+    assert check_error(config, DAY) == (
+        "aliases.two[1].model: no price in effect for this model in prices.toml"
+    )

@@ -624,3 +624,67 @@ def test_psql_inserts_that_break_each_check_are_rejected_and_the_boundaries_are_
         assert remaining == [str(1 + len(ACCEPTED))]
     finally:
         psql(DELETE_BY_KEY, key_id=key_id)
+
+
+# Added by the M15 mutation checks: what a DDL mutant got through on the real database. Each case
+# below was accepted by a mutated copy of migration 0002 and rejected by the real one.
+
+# `reason` as given, so '' reaches the column as an empty string and not as NULL.
+INSERT_USAGE_RAW_REASON = INSERT_USAGE.replace("NULLIF(:'reason', '')", ":'reason'")
+
+# Two columns left out of the statement: NOT NULL with no default must refuse a row without them.
+INSERT_WITHOUT_PARTIAL = (
+    "INSERT INTO usage_records (recorded_at, request_id, tenant_id, key_id, alias, "
+    "provider_instance, provider_type, model, stream, attempt, outcome, reason, "
+    "provider_status, input_tokens, output_tokens, cost_nanousd) VALUES ("
+    ":'recorded_at', :'request_id', :'tenant_id', :'key_id', :'alias', :'provider_instance', "
+    ":'provider_type', :'model', :'stream', :'attempt', :'outcome', NULLIF(:'reason', ''), "
+    "NULLIF(:'provider_status', '')::integer, NULLIF(:'input_tokens', '')::bigint, "
+    "NULLIF(:'output_tokens', '')::bigint, NULLIF(:'cost_nanousd', '')::bigint)"
+)
+INSERT_WITHOUT_STREAM = (
+    "INSERT INTO usage_records (recorded_at, request_id, tenant_id, key_id, alias, "
+    "provider_instance, provider_type, model, attempt, outcome, reason, "
+    "provider_status, partial, input_tokens, output_tokens, cost_nanousd) VALUES ("
+    ":'recorded_at', :'request_id', :'tenant_id', :'key_id', :'alias', :'provider_instance', "
+    ":'provider_type', :'model', :'attempt', :'outcome', NULLIF(:'reason', ''), "
+    "NULLIF(:'provider_status', '')::integer, :'partial', NULLIF(:'input_tokens', '')::bigint, "
+    "NULLIF(:'output_tokens', '')::bigint, NULLIF(:'cost_nanousd', '')::bigint)"
+)
+
+
+def test_psql_rejects_a_tenant_that_starts_with_a_dot_or_an_underscore_or_an_empty_reason() -> None:
+    base_url()
+    key_id = secrets.token_hex(8)
+    request_id = f"gw_checks_extra_{secrets.token_hex(6)}"
+    cases: dict[str, tuple[str, dict[str, str]]] = {
+        "tenant_starting_with_an_underscore": (INSERT_USAGE, {"tenant_id": "_a"}),
+        "tenant_starting_with_a_dot": (INSERT_USAGE, {"tenant_id": ".a"}),
+        "an_empty_reason_that_is_not_null": (INSERT_USAGE_RAW_REASON, {**FAILED, "reason": ""}),
+    }
+    try:
+        for name, (statement, overrides) in cases.items():
+            values = {**valid_values(key_id, request_id), **overrides}
+            result = psql(statement, **values)
+            assert result.returncode != 0, name
+            assert "violates check constraint" in result.stderr, (name, result.stderr)
+        assert lines(psql(COUNT_BY_KEY, key_id=key_id)) == ["0"]
+    finally:
+        psql(DELETE_BY_KEY, key_id=key_id)
+
+
+def test_psql_rejects_a_row_that_leaves_out_stream_or_partial_there_is_no_default() -> None:
+    base_url()
+    key_id = secrets.token_hex(8)
+    request_id = f"gw_checks_default_{secrets.token_hex(6)}"
+    try:
+        for name, statement in (
+            ("partial", INSERT_WITHOUT_PARTIAL),
+            ("stream", INSERT_WITHOUT_STREAM),
+        ):
+            result = psql(statement, **valid_values(key_id, request_id))
+            assert result.returncode != 0, name
+            assert "not-null constraint" in result.stderr, (name, result.stderr)
+        assert lines(psql(COUNT_BY_KEY, key_id=key_id)) == ["0"]
+    finally:
+        psql(DELETE_BY_KEY, key_id=key_id)
