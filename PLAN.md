@@ -106,6 +106,7 @@ Worked in order. Status and evidence are in [PROGRESS.md](PROGRESS.md); this fil
 - **Proof:** a concurrency test against real Redis: fire N+50 requests with the clock frozen or the refill at zero, and exactly N pass; rejected requests get 429 with `Retry-After`.
 - **Dependencies allowed:** redis (asyncio client).
 - **Open issues to settle:** whether cache hits count against the limit (FLOW.md section 11); bucket size and refill configuration; behavior when Redis is down (fail open or closed).
+- **Settled:** D-102 (redis 8.1.0), D-103 (the Lua script, against `MULTI`/`WATCH` and fixed-window `INCR`), D-104 (Redis's clock), D-105 (one token per request, per key, by environment; cache hits count; expiry), D-106 (fail open after 250 ms, unlike auth), D-107 (429 `rate_limited`, `Retry-After`, not billed, breaker-neutral), D-108 (the order auth, body size, limiter; 413 `request_too_large`), D-109 (integration tests). Added by the owner for M16: each of these with the alternative rejected, and an integration test on real Redis that shows exactly the allowed number pass under concurrency.
 
 ### M17 Tenant-scoped response cache
 

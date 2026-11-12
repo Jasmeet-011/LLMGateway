@@ -23,14 +23,14 @@ One line per entry, with what superseded it. A session reads this index plus eve
 - D-015 Non-streaming adapter interface first
 - D-016 Mock provider design
 - D-017 pytest-asyncio for async tests
-- D-018 Order of checks per request (the first steps superseded by D-089: auth runs first)
-- D-019 HTTP status mapping (the `stream=true` 501 superseded by D-073; key rejections settled by D-089 and D-091)
+- D-018 Order of checks per request (the first steps superseded by D-089: auth runs first; then by D-108: body size and the rate limit before validation)
+- D-019 HTTP status mapping (the `stream=true` 501 superseded by D-073; key rejections settled by D-089 and D-091; the rate limit by D-107)
 - D-020 Response ID format and `x-request-id`
 - D-021 Cache-hit header name
 - D-022 First endpoints (the `stream=true` 501 superseded by D-073)
 - D-023 Error body
 - D-024 App factory
-- D-025 Known gaps of the first endpoint (the auth gap closed by D-089; the body size limit is still open)
+- D-025 Known gaps of the first endpoint (the auth gap closed by D-089; the body size limit closed by D-108)
 - D-026 Request logging
 - D-027 Temporary: model echoed, one provider (superseded in part by D-036, then by D-044 and D-045)
 - D-028 Web dependencies
@@ -94,7 +94,7 @@ One line per entry, with what superseded it. A session reads this index plus eve
 - D-086 Key format: `lgw_<key id>_<secret>`, shown once, never stored; what the logs may hold
 - D-087 Key hash: SHA-256 of the whole key, no pepper, not bcrypt or argon2
 - D-088 Lookup by key id, then a constant-time compare, with a dummy compare when the id is unknown
-- D-089 Auth runs first, before the body is read; one 401 for every bad key (supersedes the order in D-018 and D-045)
+- D-089 Auth runs first, before the body is read; one 401 for every bad key (supersedes the order in D-018 and D-045; its order after auth superseded by D-108)
 - D-090 A per-process cache of found keys, 10 s by default; revocation takes effect within that
 - D-091 Postgres down or slow: 2 s per lookup, then 503 `auth_unavailable`; the database URL is required at startup
 - D-092 Keys are made with a CLI; each request carries a `Principal` (key id, tenant) forward
@@ -107,6 +107,14 @@ One line per entry, with what superseded it. A session reads this index plus eve
 - D-099 Writing records: a bounded queue and one writer task per worker, batched into `usage_records`; a failed write is logged and lost
 - D-100 M15 integration tests: usage rows read from the Compose stack's Postgres
 - D-101 Streams cut short: characters delivered and an estimated output token count, in their own columns, never in the counts or the cost
+- D-102 Redis client: redis-py 8.1.0's asyncio client, without hiredis
+- D-103 The token bucket is one Lua script: one atomic read-modify-write per request
+- D-104 The bucket reads Redis's clock, inside the script
+- D-105 What is limited: requests, one token each, per API key; configured by environment; idle buckets expire when they would be full
+- D-106 Redis down or slow: the limiter fails open after 250 ms; unlike auth, which fails closed
+- D-107 A limited request gets 429 `rate_limited` with `Retry-After` from the bucket's refill; it reaches no provider, is not billed and is neutral for the breaker
+- D-108 Order: auth, then the body size limit, then the rate limiter, all before the body is parsed; the body limit is 413 `request_too_large` (supersedes the order in D-089)
+- D-109 M16 integration tests: the script on the real Redis, exactness through a second gateway, and the outage
 
 ## Entry format
 
@@ -137,6 +145,7 @@ One line per entry, with what superseded it. A session reads this index plus eve
 - **Alternatives:** Read-then-write from Python (race condition); `MULTI`/`WATCH` optimistic transactions (retries under contention, more complex); in-process limiter (not shared across instances).
 - **Risk:** Lua logic is harder to test and debug; a bug blocks or admits all traffic. Mitigation: test against real Redis, not a fake.
 - **Revisit when:** Redis is replaced, the gateway moves to Redis Cluster with keys that would span slots, or the limiter needs a different algorithm.
+- **Implemented by D-103 to D-109** (M16): the script, its clock, what it limits, Redis down, the 429, the order and the tests.
 
 ## D-003 Cache only deterministic non-streaming requests; key includes tenant ID
 
@@ -270,6 +279,7 @@ One line per entry, with what superseded it. A session reads this index plus eve
 - **Revisit when:** The spend cap step starts.
 - **Amended by D-045:** the alias check (400 `unknown_model`) runs between body validation and the API key check.
 - **Superseded in part by D-089:** the API key is now checked first, before the body is read; then body validation, then the alias check, then the rest of this order unchanged.
+- **Superseded in part by D-108:** after the key come the body size limit and the rate limit, both before body validation; then validation, the alias check and the rest unchanged. Cache hits count against the rate limit (D-105), which settles this entry's open question.
 
 ## D-019 HTTP status mapping
 
@@ -281,6 +291,7 @@ One line per entry, with what superseded it. A session reads this index plus eve
 - **Extended by D-058:** `ProviderCircuitOpen` maps to 503 `provider_circuit_open`, with a `Retry-After` header while the breaker is open.
 - **Extended by D-062:** a client that disconnected before a retry or fallback attempt gets status 499 `client_disconnected`, in the log only. **D-060** decides which provider errors reach the client once fallback exists.
 - **Settled by D-089 and D-091:** every bad or missing key gets 401 `invalid_api_key`; a key that cannot be checked because Postgres is down or slow gets 503 `auth_unavailable`.
+- **Settled by D-107 and D-108:** a key over its rate limit gets 429 `rate_limited` with `Retry-After`; a body over the size limit gets 413 `request_too_large`.
 
 ## D-020 Response ID format and `x-request-id`
 
@@ -331,6 +342,7 @@ One line per entry, with what superseded it. A session reads this index plus eve
 - **Risk:** Anyone who binds to `0.0.0.0` exposes an unauthenticated endpoint that spends provider money once real adapters exist, and accepts bodies of any size.
 - **Revisit when:** The auth step, and before any non-local deployment.
 - **Partly closed by D-089:** auth exists, and a rejected request's body is never read. The body size limit is still open.
+- **Closed by D-108:** a body size limit on the bytes received, `Content-Length` checked first and a counted read for chunked bodies, 413 `request_too_large`.
 
 ## D-026 Request logging
 
@@ -1027,6 +1039,7 @@ Sources: https://platform.claude.com/docs/en/build-with-claude/streaming, read 2
 - **Alternatives:** Integration tests in the default run, skipped without the stack (a laptop without Docker skips them, and so could CI); GitHub `services:` for Postgres and Redis with the api run by pytest (D-080); `testcontainers` (a new dependency, and M13 allows none).
 - **Risk:** Until M14 and M16 there is nothing to test in Postgres or Redis beyond their healthchecks, so "integration tests against service containers" is, for now, tests against the api's container. The tests trust whatever answers on the address; another local service on port 8000 would make them fail, not pass.
 - **Revisit when:** M14 or M16 adds the first test that talks to Postgres or Redis.
+- **Extended by D-109:** M16's tests run the rate limit script in the Redis container and start a second gateway on `127.0.0.1:8001` with `docker compose run`; the guard applies to that address too.
 
 ## D-082 Every log timestamp is UTC with an explicit `+00:00` offset
 
@@ -1112,6 +1125,7 @@ Sources: https://platform.claude.com/docs/en/build-with-claude/streaming, read 2
 - **Alternatives:** PLAN.md's suggestion, a format check in middleware and the lookup after body validation (a made-up but well-formed key would still get the body parsed and the aliases probed); auth as a FastAPI dependency (FastAPI reads and validates the body before it runs dependencies, so the order would not change); different codes for missing and invalid keys (tells a scanner which keys exist); `create_app` with auth off by default (an app without auth would be one forgotten argument away).
 - **Risk:** Every request to an unknown route now costs a lookup; FastAPI's `/docs` and `/openapi.json` need a key too. With no body size limit, a key holder can still send a huge body. A key holder can still probe alias names, which are not secret.
 - **Revisit when:** A body size limit is designed (before any non-local deployment, D-025), or a route needs to be public besides `/healthz`.
+- **Superseded in part by D-108 (the owner's order, 2026-11-11):** after auth come the body size limit and the rate limit, then body validation and the alias check.
 - **Confirmed by the owner (2026-11-11):** auth runs before the body is read, superseding the order in D-018 and D-045. This settles the question left for the owner in the M14 session log, whether superseding D-018 should have been a stop. The body size limit is now in M16's scope (PLAN.md).
 
 ## D-090 A per-process cache of found keys, 10 s by default; revocation takes effect within that
@@ -1364,3 +1378,128 @@ Sources: https://platform.claude.com/docs/en/build-with-claude/streaming, read 2
 - **Alternatives:** Put the estimate into `output_tokens` when it is larger (mixes a guess into a provider count, and the cost would then be partly invented); price the estimate in a second cost column (an invented cost next to a real one is easy to sum by mistake); count tokens with a real tokenizer (a new dependency per provider, Claude's tokenizer is not public, and the token counting API is a network call per stream); count at the router's `yield` (counts a delta whose send failed); only `partial` rows, the owner's wording (a cut stream with no reported usage at all, such as a Gemini stream that dies before its first `usageMetadata`, would then have no signal; every partial row is still covered); store the delivered text (it is response content, which is never stored or logged).
 - **Risk:** The estimate leans low, above, and a reader may still sum it as if it were billed; the comments and this entry say not to. A delta sent to a socket the client had already closed counts as delivered. A provider that changes its tokenizer changes the rate without notice. The live test's 50% band is a sanity check, not a measured bound.
 - **Revisit when:** The owner runs the rate live test, a provider documents a different rate, or a spend cap (stretch) needs a bound on unreported output.
+
+## D-102 Redis client: redis-py 8.1.0's asyncio client, without hiredis
+
+- **Decision:** Settles PLAN.md M16's dependency, "redis (asyncio client)". Runtime dependency `redis==8.1.0`, pinned exactly, uploaded 2026-07-30, inside the existing `exclude-newer` of 2026-10-15 (D-029), which does not move. On Python 3.12 it brings in nothing else: its only unconditional requirement, `async-timeout`, applies below Python 3.11.3. The gateway uses `redis.asyncio.Redis` only. No extras: not `hiredis` (a compiled parser), not the others.
+- **Why:** redis-py is Redis's own Python client, and its asyncio API is the one PLAN.md names. 8.1.0 is the newest stable release inside the age floor (8.2.0b1 is a beta from 2026-11-04). The limiter sends one short script call per request and reads a two-integer reply, so a C parser would save nothing measurable.
+- **Alternatives:** `hiredis` extra (faster parsing of large replies the limiter never reads, and a compiled wheel per platform); `coredis` (a second client with a smaller community, not what PLAN.md names); `aioredis` (merged into redis-py in 4.2 and no longer maintained); RESP over raw asyncio sockets (a protocol to own, for one command).
+- **Risk:** redis-py's asyncio client has had cancellation bugs in the past (connections left mid-reply after a cancelled command, fixed in 4.5.x). The limiter's timeout cancels commands (D-106), so the integration tests run the real client against real Redis, and the outage test checks the gateway recovers when Redis returns.
+- **Revisit when:** A redis-py release fixes something the limiter hits, or the cache (M17) needs features this version lacks.
+
+## D-103 The token bucket is one Lua script: one atomic read-modify-write per request
+
+- **Decision:** Implements D-002. `src/llmgateway/ratelimit.lua`, shipped in the package like `prices.toml` and read with `importlib.resources` at startup, is the whole bucket algorithm. It takes one key, the bucket, and two arguments, the capacity in tokens and the refill rate in tokens per second, and returns `{allowed, retry_after_ms}`:
+
+  ```lua
+  local capacity = tonumber(ARGV[1])
+  local rate = tonumber(ARGV[2])
+  local clock = redis.call('TIME')
+  local now = tonumber(clock[1]) * 1000000 + tonumber(clock[2])
+  local state = redis.call('HMGET', KEYS[1], 'tokens', 'ts')
+  local tokens = tonumber(state[1])
+  local ts = tonumber(state[2])
+  if tokens == nil or ts == nil then
+    tokens = capacity
+    ts = now
+  elseif now > ts then
+    tokens = tokens + (now - ts) * rate / 1000000
+    ts = now
+  end
+  tokens = math.min(capacity, tokens)
+  local allowed = 0
+  local retry_after_ms = 0
+  if tokens >= 1 then
+    tokens = tokens - 1
+    allowed = 1
+  else
+    retry_after_ms = math.ceil((1 - tokens) * 1000 / rate)
+  end
+  redis.call('HSET', KEYS[1], 'tokens', tokens, 'ts', ts)
+  redis.call('PEXPIRE', KEYS[1], math.max(1, math.ceil((capacity - tokens) * 1000 / rate)))
+  return {allowed, retry_after_ms}
+  ```
+
+  - The bucket is a hash with `tokens` (a fraction is allowed) and `ts`, Redis server time in microseconds when it was last refilled. A missing or unreadable bucket starts full.
+  - Refill is continuous: `rate` tokens per second of elapsed server time, capped at `capacity`. The cap is applied on every call, so a capacity lowered by a config change takes effect at once.
+  - A request costs exactly one token. A refused request takes nothing, and its `retry_after_ms` is the time until the bucket holds one token, rounded up to the millisecond.
+  - The Python side, `RedisRateLimiter.take(key_id)` in `llmgateway/ratelimit.py`, calls the script with `EVALSHA` on the SHA-1 of its text, and on a `NoScriptError` (a Redis restarted or flushed since the last call) once with `EVAL`, which also caches it. Its arguments are the bucket key, `str(capacity)` and `repr(rate)`. A reply that is not a list of two integers, the first 0 or 1, is `RateLimitUnavailable("bad_reply")` (D-106).
+- **Why:** Check and update must be one step, or two requests that read the same bucket at the same moment both take its last token. Redis runs a script to completion with nothing else in between, so the read, the refill, the take and the write cannot interleave across requests, workers or gateway instances, and it costs one round trip. The token bucket allows a burst up to `capacity` and holds the average at `rate`, with no edge where a client can double up.
+- **Alternatives:**
+  - `MULTI`/`WATCH`: optimistic. Two requests that read the same bucket both try to commit, one is aborted and must retry the read, so under exactly the contention a limiter exists for, a hot key costs several round trips per request and needs a retry loop with its own bound and failure mode.
+  - Fixed-window `INCR` plus `EXPIRE` per window: atomic and simple, but at a window's edge a client can send a full window's worth at the end of one and again at the start of the next, twice the limit in a moment; and `INCR` then `EXPIRE` are two commands, so a crash between them leaves a key that never expires unless they are wrapped in a script anyway.
+  - Read in Python, compute, write back: the race above.
+  - A sliding log in a sorted set: exact, but memory per request, not per key.
+- **Risk:** A bug in the script admits or refuses everything; it is tested on real Redis (D-109). The arithmetic is in Lua doubles: the time in microseconds, about 1.8 × 10¹⁵, is exact below 2⁵³, and integer token counts stay exact. A script error (`ResponseError`) fails open, with a log line (D-106).
+- **Revisit when:** The gateway moves to Redis Cluster (one key per script already fits a slot), or limits need a cost other than one per request (D-105).
+
+## D-104 The bucket reads Redis's clock, inside the script
+
+- **Decision:** The script takes the time from `redis.call('TIME')`, the Redis server's clock, never from the caller. If that time is earlier than the bucket's `ts`, as after a failover to a server whose clock is behind, there is no refill and `ts` is kept, so time going backwards can never add tokens.
+- **Why:** Several gateway workers and instances share one bucket. If each passed its own clock, a host whose clock runs 2 s ahead would refill every bucket it touches 2 tokens early at a rate of 1 per second, and one behind would see negative time; the limit would depend on which instance served the request. Redis is the one place every caller already agrees on. Since Redis 5, scripts are replicated by their effects, so a script may read `TIME` before writing (Redis 7 removed the old verbatim mode); the stack runs Redis 8.8, and the integration tests run the script there.
+- **Alternatives:** The gateway's clock as an argument (skew between instances, above; it does make the script deterministic and testable with a fake clock, which is why it is common); NTP discipline on every host (narrows skew but does not remove it, and is outside the repo's control).
+- **Risk:** Tests cannot freeze Redis's clock. The integration tests plant a bucket's `ts` relative to `TIME` and allow for the milliseconds a test takes (D-109). A Redis whose clock jumps forward refills buckets early, once.
+- **Revisit when:** The limiter must be tested under a frozen clock, or Redis runs as several masters.
+
+## D-105 What is limited: requests, one token each, per API key; configured by environment; idle buckets expire when they would be full
+
+- **Decision:** Settles PLAN.md M16's "bucket size and refill configuration" and FLOW.md section 11's "whether cache hits count".
+  - **Requests, not LLM tokens.** Every request that reaches the limiter costs one token, whatever its size, stream or not, valid or not: a 404, a 422, an `unknown_model` and, once M17 exists, a cache hit all count, because the limiter runs before any of them (D-108).
+  - **Per API key**, by `principal.key_id` (D-092): the bucket is `llmgateway:ratelimit:<key id>`. Each key of a tenant has its own bucket.
+  - **One setting for every key**, from the environment: `LLMGATEWAY_RATE_LIMIT_BURST`, the capacity, an integer from 1 to 1,000,000 written in decimal digits, default 60; `LLMGATEWAY_RATE_LIMIT_PER_SECOND`, the refill, a finite number above 0 and at most 1,000,000, default 1. So by default a key may burst 60 requests and average one per second. A value out of range stops startup, naming the variable and never the value (D-044).
+  - **Idle buckets expire** with `PEXPIRE` set on every call to the time the bucket needs to refill to full (at least 1 ms). A bucket that expires would have been full, and a missing bucket starts full, so expiry changes nothing a client can see and Redis holds one small hash only per key active in the last `capacity / rate` seconds (60 s by default).
+- **Why:** The limiter's job is to protect the gateway and its providers from one key's flood, before anything expensive. Counting requests needs nothing from the body, so it can run before the body is parsed (D-108). Counting LLM tokens would need the body; `max_tokens` does not bound billed output (D-049), and the real count is known only after the call, so a token budget is a spend cap with a reservation, which is stretch (D-031). Per key matches PLAN.md, and a key is the unit an operator revokes; keys are made only by an operator (D-092), so a tenant cannot multiply its limit by itself. Cache hits count because the order puts the limiter first: a hit is cheap but still a request, and counting it keeps one rule.
+- **Alternatives:** LLM tokens as the cost (above); both, a request bucket and a token bucket (two keys or two scripts, and the token half is the stretch spend cap); per tenant (one key's loop starves a tenant's other keys); per-key limits in `api_keys` (a schema change and a CLI flag for something no deployment needs yet); limits in the TOML config (the config lists what to call, D-044; limits are a deployment setting like the key cache); no expiry (one hash per key forever).
+- **Risk:** A large prompt and a tiny one cost the same; cost control per token is the stretch spend cap. One setting for all keys cannot give a batch client more than an interactive one.
+- **Revisit when:** Keys need different limits, or a spend cap (stretch) is built.
+
+## D-106 Redis down or slow: the limiter fails open after 250 ms; unlike auth, which fails closed
+
+- **Decision:** Settles PLAN.md M16's "behavior when Redis is down".
+  - **The client:** `Redis(connection_pool=BlockingConnectionPool.from_url(url, max_connections=50, timeout=0.25, socket_timeout=0.25, socket_connect_timeout=0.25, retry=Retry(NoBackoff(), 0)))`, closed with `aclose(close_connection_pool=True)`. Read in redis-py 8.1.0's source: the plain `Redis()` constructor defaults to retries with exponential backoff, and the default asyncio pool raises `MaxConnectionsError` at once past 100 connections in use. So retries are set to none, one attempt per request, and the pool is a blocking one of 50 whose wait counts against the timeout below, so a burst waits briefly instead of failing open. A cancelled command closes its connection (redis-py disconnects on any `BaseException` while sending or reading), so a timeout cannot leave a half-read reply on a pooled connection.
+  - Each `take` runs under `asyncio.timeout(0.25)`, and the client's own connect and socket timeouts are 0.25 s too. A timeout is `RateLimitUnavailable("timeout")`; a `redis.exceptions.RedisError` (connection refused or lost, a script error, a full pool) or an `OSError` is `RateLimitUnavailable("store_error")`; an unusable reply is `RateLimitUnavailable("bad_reply")`. Any other exception is a bug and gets the usual 500 (D-019).
+  - On `RateLimitUnavailable` the request **goes on as if it were allowed**, and one WARNING line goes to `llmgateway.ratelimit`: `ratelimit_unavailable request_id=<id> reason=<timeout|store_error|bad_reply> error=<exception type name>`. Never the Redis URL, a key or an exception message.
+  - **Startup:** `LLMGATEWAY_REDIS_URL` is required. Unset or blank, not parseable by `urlsplit`, a scheme other than `redis` or `rediss`, or no host stops startup with `llmgateway: configuration error: <message>` naming the variable, never the value. It is read after the database settings. The client connects on first use, so the gateway starts while Redis is down and uses it as soon as it answers. Compose sets it to the `redis` service (D-078), and the api now waits for Redis to be healthy.
+- **Why it differs from auth (D-091):** auth decides whether a caller may spend at all; failing open there would give anyone free provider calls. The limiter only shapes how fast a caller that auth has already verified may go. With Redis down, every request is still authenticated, still recorded and still billed to its tenant; what is lost is the rate cap, for the outage's length. Failing closed would turn a Redis outage into a full outage of a gateway whose database and providers are fine, and Redis would become a second single point of failure for no security gain. 250 ms is far above a healthy local round trip and bounds what a hung Redis adds to each request.
+- **Alternatives:** Fail closed with 503 (above); fall back to an in-process bucket per worker while Redis is down (a looser limit, N workers times the rate, and a second implementation to test); a longer timeout such as auth's 2 s (adds up to 2 s to every request during an outage).
+- **Risk:** During an outage a verified key is unlimited; spend caps, which would bound the cost, are stretch. A hung Redis adds up to 250 ms per request. The line is written once per request, so an outage under load writes one line per request, as auth's does.
+- **Revisit when:** A spend cap exists, Redis moves off the local network, or an outage is measured.
+
+## D-107 A limited request gets 429 `rate_limited` with `Retry-After` from the bucket's refill; it reaches no provider, is not billed and is neutral for the breaker
+
+- **Decision:** Settles the rate-limit status D-019 left open; 429 was reserved for this (D-019).
+  - A refused `take` gets **429**, code `rate_limited`, message "The API key is over its rate limit.", and `Retry-After: <seconds>`, which is the script's `retry_after_ms` rounded up to whole seconds and never below 1. With a refill of 1 per second that is 1.
+  - The request stops in the middleware: no body validation, no alias check, no router, no adapter call, so **no usage record** (D-095: nothing is recorded for a request refused before the router) and **no breaker outcome**, neither failure nor neutral, because no attempt was made (D-056). The request line says `status=429` with the key's tenant and key id, which is what measurement 5 counts.
+- **Why:** 429 with `Retry-After` is what RFC 6585 and every HTTP client library understand as "slow down, and when". Computing it from the bucket gives the earliest time a retry can succeed, not a guess. A request turned away before any call cannot have cost anything, so recording it would put rows with no attempt into a table of attempts.
+- **Alternatives:** 503 (D-019 keeps 503 for the provider and the gateway's own unavailability, so a client could not tell "you are too fast" from "we are down"); `Retry-After` fixed at 1 (wrong for slow refills); `RateLimit` and `RateLimit-Policy` headers from the IETF draft (not final, and nothing reads them yet).
+- **Risk:** Retry-After is a minimum for one token; a client that comes back with several requests at once is refused again for all but one.
+- **Revisit when:** The IETF `RateLimit` header fields are published, or measurement 5 shows clients need the remaining count.
+
+## D-108 Order: auth, then the body size limit, then the rate limiter, all before the body is parsed; the body limit is 413 `request_too_large`
+
+- **Decision:** Ordered by the owner (2026-11-11 brief). Supersedes the order in D-089, which put body validation right after auth, and closes D-025's second gap and FLOW.md section 11's body size question.
+  - **The order** for every request but `/healthz`, as pure ASGI middleware from the outside in: the request ID (D-020), auth (D-089), **the body size limit**, **the rate limiter**, then FastAPI: body validation (422), the alias check (400 `unknown_model`), and the rest of D-018. `/healthz` skips all three.
+  - **The body size limit**, `BodyLimitMiddleware` in `llmgateway/bodylimit.py`, `LLMGATEWAY_MAX_BODY_BYTES`, an integer from 1,024 to 67,108,864 written in decimal digits, default 1,048,576 (1 MiB):
+    - When the request has exactly one `Content-Length` header made only of decimal digits and its value is over the limit, the request is refused at once: no `receive` call, so no body byte is read, and an `Expect: 100-continue` client is never told to send it.
+    - Otherwise, a missing header (a chunked body), a smaller value, or a header that is not one plain number, the middleware reads the body itself, counting bytes, and refuses as soon as the count passes the limit, without reading further. The limit is on the bytes received, whatever any header says.
+    - Refused: **413**, code `request_too_large`, message "The request body is too large.", with `Connection: close`, so the server closes the connection and never reads the unsent rest of the body as a next request (uvicorn's h11 protocol, the only one installed, closes after a response that says so).
+    - A client that disconnects while its body is read gets the 499 `client_disconnected` nobody reads (D-062), so the request line says what happened.
+    - A body within the limit is handed on whole: the app's first `receive` gets it as one `http.request` with `more_body` false, and later calls go to the server's own `receive`, so the stream's disconnect watcher (D-072) works as before.
+  - `create_app(..., max_body_bytes: int = 1_048_576, limiter: RateLimiter | None = None)`. The body limit cannot be turned off. `limiter=None` means no rate limit (tests); `main.py` always builds a `RedisRateLimiter`, and a test pins that.
+- **Why:** Each step is cheaper than the next and protects it. Auth first, so an unknown caller cannot make the gateway read anything (D-089). The body limit next, so a key holder cannot make the gateway buffer or parse an unbounded body, and before the limiter, so an oversized request costs no Redis call and no token. The limiter before parsing, so a key flooding with bodies the gateway would reject (malformed JSON, unknown aliases) is limited too, and the limiter never depends on the body (D-105). Checking `Content-Length` first refuses the common case without reading a byte, and the counted read covers what the header cannot, a chunked body or a lying header (D-025's point). Reading the whole body before the limiter is what makes the order hold for chunked bodies; FastAPI reads the whole body anyway to parse it, so the buffer costs nothing extra. 1 MiB is about 250,000 tokens of English text, above the long-prompt tier of Haiku 5.5 (100,000 tokens) and below what a single worker should hold per request.
+- **Alternatives:** The limiter after validation, as D-018 had it (malformed requests would not cost a token, so they could be sent without limit; and the limiter would wait on parsing); the body limit after the limiter (an oversized request would cost a Redis call and a token); `Content-Length` only (misses chunked bodies, D-025); uvicorn's or a proxy's limit (uvicorn has no body size setting; a proxy is outside the repo); a streaming parse with no buffer (no JSON parser here takes a stream).
+- **Risk:** A request is held in memory up to the limit before the limiter runs, so a limited key can still make the gateway read 1 MiB per request; auth bounds who can. A large legitimate prompt over 1 MiB needs the setting raised.
+- **Revisit when:** Prompts routinely pass 1 MiB, or the gateway runs behind a proxy that limits bodies itself.
+
+## D-109 M16 integration tests: the script on the real Redis, exactness through a second gateway, and the outage
+
+- **Decision:** Extends D-081, D-094 and D-100. Redis's port stays unpublished (D-078).
+  - **The script itself**, read from the working tree's `src/llmgateway/ratelimit.lua`, so a change to it is tested without rebuilding the image, is run with `docker compose exec -T redis redis-cli EVAL <script> 1 <key> <capacity> <rate>`, on keys under a prefix made fresh per test. Cases: a fresh bucket allows and leaves `capacity - 1` tokens and a TTL equal to the refill time; an empty bucket refuses with `retry_after_ms` equal to `ceil(1000 / rate)` give or take the milliseconds the test took; a bucket planted with an old `ts` refills by the elapsed time, and never past capacity; a bucket planted with a `ts` in the future gets no refill and keeps its `ts`; a capacity lower than the stored tokens caps them.
+  - **Exactly N under concurrency**, PLAN.md's proof: a second gateway from the same image, started by the test with `docker compose run -d --no-deps --name <unique> -p 127.0.0.1:8001:8000 -e LLMGATEWAY_RATE_LIMIT_BURST=20 -e LLMGATEWAY_RATE_LIMIT_PER_SECOND=0.001 api`, so one token refills every 1,000 s and none during the test. With a fresh key, 70 concurrent `POST /v1/chat` requests: exactly 20 get 200 and exactly 50 get 429 `rate_limited` with an integer `Retry-After` of at least 1. Then `usage_records` holds exactly 20 rows for that key: refused requests are not billed. The container is removed in a `finally`. The guard of D-081 applies to its address, `127.0.0.1:8001`.
+  - **The 413 on the real image:** a `Content-Length` over the default limit gets 413 `request_too_large` with no body sent and the connection closed; a chunked body over the limit gets the same; a body just under the limit reaches validation.
+  - **The outage, last:** with Redis stopped (`docker compose stop redis`), a request with a valid key gets 200, and the api's log (`docker compose logs api`) has a `ratelimit_unavailable` line; Redis is started again in a `finally` and the test waits for it to be healthy.
+  - Unit tests run the limiter against a fake client, which pins the `EVALSHA`, the `NoScriptError` path, the arguments, the reply parsing, the timeout and the error mapping; the middleware against a fake limiter; and the body limit against an ASGI harness and a real uvicorn on a real socket (Lesson 13).
+- **Why:** The script is the part that must be atomic, and only a real Redis runs it; `redis-cli` in the Redis container needs no published port and no new tool. Exactness needs a refill too slow to matter during the test, and a second gateway with its own settings gives that without making the stack everyone uses nearly unusable; it is also the real image, the real middleware order and the real Postgres. The outage is the fail-open claim, shown where it lives.
+- **Alternatives:** Publish Redis on `127.0.0.1` and run the script from pytest (a second path to Redis that nothing else uses; D-094's reasoning); set the stack's own refill near zero (every other integration test and every developer would hit 429s); prove exactness only at the script level (proves the script, not that the gateway uses it once per request).
+- **Risk:** `docker compose run` needs port 8001 free on the host. Timing allowances in the script tests can be too tight on a very slow runner; they are milliseconds against seconds of margin. The outage test must restore Redis, or later tests fail.
+- **Revisit when:** The stack runs somewhere `docker compose exec` and `run` cannot reach.

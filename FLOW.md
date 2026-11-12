@@ -32,7 +32,7 @@ Usage records live in Postgres (D-099). Where spend caps and coalescing state li
 
 ## 4. Order of checks per request
 
-Decided in D-018, with the API key moved first by D-089. A missing or bad key is rejected with 401 `invalid_api_key`, and a key that cannot be checked with 503 `auth_unavailable` (D-091), before the body is read. Body validation rejects with 422 (D-019), and a `model` that is not a configured alias with 400 `unknown_model` (D-045). Which checks exist today is in [PROGRESS.md](PROGRESS.md).
+Decided in D-018, with the API key moved first by D-089, and the body size limit and the rate limit placed next by D-108. A missing or bad key is rejected with 401 `invalid_api_key`, and a key that cannot be checked with 503 `auth_unavailable` (D-091), before the body is read. A body over the size limit is rejected with 413 `request_too_large`, and a key over its rate limit with 429 `rate_limited`, both before the body is parsed (D-107, D-108). Body validation rejects with 422 (D-019), and a `model` that is not a configured alias with 400 `unknown_model` (D-045). Which checks exist today is in [PROGRESS.md](PROGRESS.md).
 
 ```mermaid
 flowchart TD
@@ -41,13 +41,15 @@ flowchart TD
     HZ -->|no| C{API key valid}
     C -->|no| R2[Reject with 401 invalid_api_key]
     C -->|cannot check| R5[Reject with 503 auth_unavailable]
-    C -->|yes| B{Body valid}
+    C -->|yes| BS{Body within the size limit}
+    BS -->|no| R6[Reject with 413 request_too_large]
+    BS -->|yes| D{Within rate limit, or Redis cannot answer}
+    D -->|no| R3[Reject with 429 rate_limited and Retry-After]
+    D -->|yes| B{Body valid}
     B -->|no| R1[Reject with 422]
     B -->|yes| AL{Model is a configured alias}
     AL -->|no| R0[Reject with 400 unknown_model]
-    AL -->|yes| D{Within rate limit}
-    D -->|no| R3[Reject, status to be decided]
-    D -->|yes| K{Cacheable, deterministic and non streaming}
+    AL -->|yes| K{Cacheable, deterministic and non streaming}
     K -->|yes| E{Cache hit}
     E -->|yes| H[Record usage, cache_hit flag, billed zero]
     E -->|no| F{Identical request in flight, stretch}
@@ -69,15 +71,16 @@ flowchart TD
 Why each check sits where it does:
 
 1. **API key first, before the body is read (D-089).** Every request except `/healthz` must carry exactly one `Authorization: Bearer <key>` header with a well-formed key (D-086). The gateway reads the row for the key's id from Postgres, or from its per-process cache of found rows (D-090), compares SHA-256 digests in constant time (D-087, D-088), and refuses a revoked key. A missing, malformed, unknown, wrong or revoked key gets the same 401 `invalid_api_key` with `WWW-Authenticate: Bearer`. If the row is not cached and Postgres does not answer within 2 s or fails, the request gets 503 `auth_unavailable` and is not served; a row still in the cache is used as usual (D-091). Checking first means an unauthenticated caller cannot make the gateway parse a body or probe alias names. Every later check is per key or tenant (rate limit, cache key, spend cap), and the verified key travels on as `request.state.principal`, its key id and tenant (D-092).
-2. **Validate the body next.** It needs no database or Redis call. Rejected with 422 (D-019). Then the `model` must exactly match a configured alias (D-045), another check that needs nothing but the config. An unknown alias gets 400 `unknown_model`, for a stream too, before any provider call.
-3. **Rate limit before any expensive work.** A caller over its limit should be turned away before the gateway does a cache lookup or calls a provider. Whether cache hits also count against the limit is an open question (section 11). PLAN.md measurement 5 expects 429 for this case, and D-019 reserves 429 for the gateway's own rate limiter.
-4. **Cache lookup before calling anyone.** Only cacheable requests are looked up; the rest go straight to the spend cap. A hit made no upstream call, so it is returned at once and billed zero (D-012). The cache key includes the caller, so one tenant never sees another tenant's response (D-003).
-5. **Coalescing after a cache miss (stretch, D-031).** If an identical request is already on its way to a provider, this one waits for that result instead of making a second upstream call. PLAN.md measurement 6 targets exactly one upstream call for N identical requests. The coalescing key is the cache key, including the caller, so tenants never share an in-flight result. Only cacheable requests coalesce.
-6. **Spend cap just before spending (stretch, D-031).** This is the last point where the gateway can refuse before money is spent. Placing it after the cache and coalescing means free answers are never blocked by the cap. The rejection status is to be decided. Checking the cap before the call and recording usage after it is not atomic: concurrent requests can all pass the check before any of them records its cost. How the cap stays atomic across a provider call (for example, reserving the worst-case cost before the call and settling the real cost after) is not decided.
-7. **Router.** Applies timeouts, retries, the circuit breaker, and fallback (section 5).
-8. **Record usage, per attempt (D-095 to D-099).** Real token counts are only known once the provider answers, so the router reports every adapter attempt as it ends: retries, fallback attempts, failures and streams cut short included (section 5). The app adds the key's tenant and key id, the alias, the time and the cost in integer nano-dollars from the dated price table, and puts the record on a bounded in-process queue. A writer task inserts records into `usage_records` in batches, off the response's path, so an answer never waits on the database and a failed write never fails it; a failed write is logged and its rows are lost.
-9. **Store in cache only if deterministic and non-streaming** (D-003). Sampled output should not be replayed as if it were the only answer.
-10. **Respond with the gateway request ID** (D-011), so logs, metrics, and accounting share one key.
+2. **Body size next, before the body is parsed (D-108).** One `Content-Length` header over `LLMGATEWAY_MAX_BODY_BYTES` (default 1 MiB) is refused at once, without reading a byte; otherwise, a chunked body included, the gateway reads the body itself, counting bytes, and refuses as soon as it passes the limit. The refusal is 413 `request_too_large` with `Connection: close`. A body within the limit is handed on whole. So a key holder cannot make the gateway buffer or parse an unbounded body, and an oversized request costs no Redis call and no token.
+3. **Rate limit before any parsing or expensive work (D-103 to D-107).** Each request takes one token from its key's bucket in Redis, through one Lua script that reads Redis's own clock, so the check and the update are one atomic step shared by every worker and instance. Every request that gets this far counts: a malformed body, an unknown alias and a cache hit too. A key over its limit gets 429 `rate_limited` with `Retry-After`, the seconds until its bucket holds a token; nothing after this point runs, so it reaches no provider, is not recorded and is neutral for the breaker. If Redis does not answer within 250 ms or fails, the request is allowed, with one `ratelimit_unavailable` line: the limiter fails open, unlike auth (D-106).
+4. **Validate the body next.** It needs no database or Redis call. Rejected with 422 (D-019). Then the `model` must exactly match a configured alias (D-045), another check that needs nothing but the config. An unknown alias gets 400 `unknown_model`, for a stream too, before any provider call.
+5. **Cache lookup before calling anyone.** Only cacheable requests are looked up; the rest go straight to the spend cap. A hit made no upstream call, so it is returned at once and billed zero (D-012). The cache key includes the caller, so one tenant never sees another tenant's response (D-003).
+6. **Coalescing after a cache miss (stretch, D-031).** If an identical request is already on its way to a provider, this one waits for that result instead of making a second upstream call. PLAN.md measurement 6 targets exactly one upstream call for N identical requests. The coalescing key is the cache key, including the caller, so tenants never share an in-flight result. Only cacheable requests coalesce.
+7. **Spend cap just before spending (stretch, D-031).** This is the last point where the gateway can refuse before money is spent. Placing it after the cache and coalescing means free answers are never blocked by the cap. The rejection status is to be decided. Checking the cap before the call and recording usage after it is not atomic: concurrent requests can all pass the check before any of them records its cost. How the cap stays atomic across a provider call (for example, reserving the worst-case cost before the call and settling the real cost after) is not decided.
+8. **Router.** Applies timeouts, retries, the circuit breaker, and fallback (section 5).
+9. **Record usage, per attempt (D-095 to D-099).** Real token counts are only known once the provider answers, so the router reports every adapter attempt as it ends: retries, fallback attempts, failures and streams cut short included (section 5). The app adds the key's tenant and key id, the alias, the time and the cost in integer nano-dollars from the dated price table, and puts the record on a bounded in-process queue. A writer task inserts records into `usage_records` in batches, off the response's path, so an answer never waits on the database and a failed write never fails it; a failed write is logged and its rows are lost.
+10. **Store in cache only if deterministic and non-streaming** (D-003). Sampled output should not be replayed as if it were the only answer.
+11. **Respond with the gateway request ID** (D-011), so logs, metrics, and accounting share one key.
 
 ## 5. Router flow
 
@@ -238,9 +241,10 @@ sequenceDiagram
     C->>G: POST chat request with API key
     G->>P: Look up the key's id, unless its row is cached
     P-->>G: Row found, digests equal, not revoked
-    G->>G: Validate body
-    G->>R: Take a rate limit token
+    G->>G: Read the body, within the size limit
+    G->>R: Take a rate limit token (Lua script, Redis time)
     R-->>G: Allowed
+    G->>G: Validate body
     G->>R: Cache lookup
     R-->>G: Miss
     G->>G: No identical request in flight
@@ -288,7 +292,9 @@ src/llmgateway/
 ├── usagestore.py        PostgresUsageStore over asyncpg: one batched INSERT per write (D-099)
 ├── prices.py            the price table: parse, startup check, cost in nano-dollars (D-096, D-098)
 ├── prices.toml          dated prices per model, each with its source (D-098)
-├── ratelimit            Redis Lua token bucket
+├── bodylimit.py         BodyLimitMiddleware: Content-Length, then a counted read; 413 (D-108)
+├── ratelimit.py         RedisRateLimiter, RateLimitMiddleware: one script call per request; 429 (D-103 to D-107)
+├── ratelimit.lua        the token bucket script, run atomically by Redis (D-103)
 ├── cache                cache key and storage
 ├── coalescing           stretch (D-031)
 ├── spend                stretch (D-031): spend caps
@@ -301,7 +307,7 @@ src/llmgateway/
 | --- | --- |
 | Postgres | The `api_keys` table: key id, tenant, SHA-256 of the key, created and revoked times (D-093). Created by Alembic migrations, read with asyncpg (D-085) |
 | Process memory | Found key rows, per worker, for `LLMGATEWAY_KEY_CACHE_SECONDS` (default 10 s); misses are not cached (D-090) |
-| Redis | Rate limit token buckets, updated by a Lua script using Redis server time (D-002) |
+| Redis | Rate limit token buckets, one hash per API key at `llmgateway:ratelimit:<key id>` with `tokens` and `ts`, updated only by the Lua script using Redis server time, expiring when they would be full (D-103 to D-105) |
 | Redis | Cached responses, keyed by a hash of the normalized request, model, params, and caller (D-003) |
 | Process memory | Circuit breaker state, one per config instance in each worker, lost on restart (D-055) |
 | Postgres | The `usage_records` table: one row per adapter attempt, with tenant, key id, alias, instance, model, attempt, outcome, token counts and cost in nano-dollars (D-095, D-099), and for a stream cut short the characters delivered and an estimated output token count (D-101). Created by migration 0002, extended by 0003; written in batches by one writer task per worker |
@@ -315,7 +321,7 @@ src/llmgateway/
 ## 10. Glossary
 
 - **Adapter:** a small translator for one provider. It turns the gateway's unified request into that provider's API call, and the provider's answer or error back into the gateway's types. Everything else in the gateway only sees the unified types.
-- **Token bucket:** a rate limiting method. Each key has a bucket that refills at a steady rate up to a maximum. Each request takes a token; with no tokens left, the request is turned away. It allows short bursts but caps the average rate.
+- **Token bucket:** a rate limiting method. Each key has a bucket that refills at a steady rate up to a maximum. Each request takes a token; with no tokens left, the request is turned away. It allows short bursts but caps the average rate. Here every API key has its own bucket, every request costs one token, and by default a key may burst 60 requests and average one per second (D-105).
 - **Why Lua:** the rate limiter must read and update a bucket in one step, or two requests at the same moment could both see the last token. Redis runs a Lua script as a single uninterrupted step, so that cannot happen. Using Redis's own clock means every gateway instance agrees on the time (D-002).
 - **Cache key, and why it includes the caller:** the cache key is a fingerprint of the request: its normalized content, model, parameters, and the caller's key or tenant ID. Equal requests get the same fingerprint (that is why `stop=[]` is normalized to `None`, D-013). The caller is included so one customer can never receive a response cached for another (D-003).
 - **Coalescing (stretch, D-031):** when several identical requests arrive at the same time, only the first goes to the provider. The others wait and share its answer. This saves money and protects the provider during bursts.
@@ -332,12 +338,10 @@ src/llmgateway/
 
 Listed, not answered.
 
-- Whether cache hits count against rate limits.
 - The status code returned when a spend cap rejects a request (stretch, D-031).
 - Retry counts, timeouts and breaker thresholds are chosen (D-050, D-051, D-057) but not yet measured.
 - How coalesced requests are billed (stretch, D-031).
 - How spend caps stay atomic across a provider call (stretch, D-031).
-- A request body size limit (D-025). Since D-089 only a key holder can send a body.
 
 ## 12. Keeping this file honest
 
@@ -434,6 +438,10 @@ The first candidate's non-thought text is streamed; thought parts produce no eve
 | --- | --- | --- |
 | Any request but `/healthz` with no `Authorization` header, more than one, a scheme other than `Bearer` (any case), a key that does not fully match `lgw_[0-9a-f]{16}_[0-9a-f]{64}`, an unknown key id, a wrong secret, or a revoked key. The same body and headers in every case, with `WWW-Authenticate: Bearer`; the body is never read (D-089) | 401 | `invalid_api_key` |
 | The key's row cannot be read: no answer within 2 s, or a connection or driver error, and no cached row (D-091). No `Retry-After`; one `auth_unavailable` WARNING line | 503 | `auth_unavailable` |
+| The body is over `LLMGATEWAY_MAX_BODY_BYTES`: one `Content-Length` made only of digits over it (no body byte read), or more bytes received than it, a chunked body included; with `Connection: close` (D-108) | 413 | `request_too_large` |
+| The client disconnected while its body was read (D-108); nobody reads this response | 499 | `client_disconnected` |
+| The key's bucket holds less than one token (D-103, D-107). `Retry-After` is the bucket's time to one token, rounded up to whole seconds and at least 1. No provider call, no usage record, no breaker outcome | 429 | `rate_limited` |
+| Redis does not answer within 250 ms, fails, or gives an unusable reply (D-106): not an error. The request is served as if allowed, with one `ratelimit_unavailable` WARNING line | as served | as served |
 | Body fails validation, or is not valid JSON (`details` holds `loc` and `msg` only); a body that is not valid UTF-8 gets 400 `http_error` instead (row below) | 422 | `validation_error` |
 | `model` is not a configured alias (exact, case-sensitive match; the value is not echoed; no provider is called; for a stream too, D-045) | 400 | `unknown_model` |
 | Unknown route | 404 | `not_found` |
@@ -473,5 +481,8 @@ These never reach a client: the process exits at import with `llmgateway: config
 | After a valid provider config: a Claude or Gemini entry whose model has no price in effect on today's UTC date (D-098). The message names the entry's location, `aliases.<alias>[<index>].model`, not the model | Stops |
 | After a valid provider config: `LLMGATEWAY_DATABASE_URL` unset or blank, not parseable by `urlsplit`, with a scheme other than `postgresql` or `postgres`, or with no host (D-091). The message names the variable, never the value | Stops |
 | `LLMGATEWAY_KEY_CACHE_SECONDS` set but not a finite number from 0 to 60 (D-090); unset means 10 | Stops |
+| After the database settings: `LLMGATEWAY_REDIS_URL` unset or blank, not parseable by `urlsplit`, with a scheme other than `redis` or `rediss`, or with no host (D-106). The message names the variable, never the value | Stops |
+| `LLMGATEWAY_RATE_LIMIT_BURST` set but not an integer from 1 to 1,000,000 in decimal digits; `LLMGATEWAY_RATE_LIMIT_PER_SECOND` set but not a finite number above 0 and at most 1,000,000; `LLMGATEWAY_MAX_BODY_BYTES` set but not an integer from 1,024 to 67,108,864 in decimal digits (D-105, D-108). Unset means 60, 1 and 1,048,576 | Stops |
+| Redis down or unreachable at startup | Starts; the client connects on first use, and requests are served without a rate limit until Redis answers (D-106) |
 | Postgres down or unreachable at startup | Starts; the pool connects on the first lookup, and lookups get 503 `auth_unavailable` until Postgres answers (D-091) |
 | Valid config | One adapter per instance; mock settings are passed to that instance's `MockProvider` |
