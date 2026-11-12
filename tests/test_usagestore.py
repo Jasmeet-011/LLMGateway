@@ -6,10 +6,12 @@ what needs no database (Lesson 17):
 - With `asyncpg.create_pool` replaced by a fake: the pool is made on first use only, with
   `min_size=0` and `max_size=2` (its own small pool, so a slow insert never takes the key
   lookups' connections); an empty batch makes no call at all; a batch is exactly one `execute`
-  of D-099's statement with seventeen parameters that are lists, one per column, in the record
-  order; driver errors (`OSError`, `asyncpg.PostgresError`, `asyncpg.InterfaceError`) are
-  `UsageStoreUnavailable` carrying the type name only, never the driver's message or the DSN,
-  and nothing else is caught; `aclose` closes the pool; `repr` never holds the DSN.
+  of D-099's statement as D-101 widened it, with nineteen parameters that are lists, one per
+  column, in the record order (`delivered_chars` and `estimated_output_tokens` last, as
+  `$18::bigint[]` and `$19::bigint[]`); driver errors (`OSError`, `asyncpg.PostgresError`,
+  `asyncpg.InterfaceError`) are `UsageStoreUnavailable` carrying the type name only, never the
+  driver's message or the DSN, and nothing else is caught; `aclose` closes the pool; `repr` never
+  holds the DSN.
 - With real asyncpg against a port nothing listens on: a refused connection is
   `UsageStoreUnavailable("ConnectionRefusedError")` and nothing leaks.
 
@@ -35,10 +37,12 @@ GUARD = 60.0
 SQL = (
     "INSERT INTO usage_records (recorded_at, request_id, tenant_id, key_id, alias, "
     "provider_instance, provider_type, model, stream, attempt, outcome, reason, "
-    "provider_status, partial, input_tokens, output_tokens, cost_nanousd) "
+    "provider_status, partial, input_tokens, output_tokens, cost_nanousd, delivered_chars, "
+    "estimated_output_tokens) "
     "SELECT * FROM unnest($1::timestamptz[], $2::text[], $3::text[], $4::text[], $5::text[], "
     "$6::text[], $7::text[], $8::text[], $9::boolean[], $10::integer[], $11::text[], "
-    "$12::text[], $13::integer[], $14::boolean[], $15::bigint[], $16::bigint[], $17::bigint[])"
+    "$12::text[], $13::integer[], $14::boolean[], $15::bigint[], $16::bigint[], $17::bigint[], "
+    "$18::bigint[], $19::bigint[])"
 )
 
 COLUMNS = [
@@ -59,6 +63,8 @@ COLUMNS = [
     "input_tokens",
     "output_tokens",
     "cost_nanousd",
+    "delivered_chars",
+    "estimated_output_tokens",
 ]
 
 DRIVER_ERRORS: list[Any] = [
@@ -156,7 +162,7 @@ async def test_a_batch_is_one_execute_of_d_099s_unnest_statement(
     await store.write([make_record(1), make_record(2)])
     ((sql, args),) = pool.calls
     assert flat(sql) == SQL
-    assert len(args) == 17
+    assert len(args) == 19
 
 
 @pytest.mark.asyncio
@@ -188,16 +194,29 @@ async def test_the_parameters_are_one_list_per_column_in_the_record_order(
         cost=99,
         provider_type="claude",
         model="claude-haiku-5-5",
+        delivered_chars=120,
+        estimated_output_tokens=45,
     )
     third = make_record(
         3, outcome="failed", reason="http_status", provider_status=503, counts=None, cost=None
     )
+    # A cut stream with no reported counts still has its two values (D-101): 0 and 0 here.
+    fourth = make_record(
+        4,
+        outcome="abandoned",
+        stream=True,
+        reason="cancelled",
+        counts=None,
+        cost=None,
+        delivered_chars=0,
+        estimated_output_tokens=0,
+    )
     pool = FakePool()
     store, _ = store_over(monkeypatch, pool)
-    await store.write([first, second, third])
+    await store.write([first, second, third, fourth])
     ((_, args),) = pool.calls
-    records = [first, second, third]
-    assert [type(arg) for arg in args] == [list] * 17
+    records = [first, second, third, fourth]
+    assert [type(arg) for arg in args] == [list] * 19
     for index, name in enumerate(COLUMNS):
         assert args[index] == [getattr(r, name) for r in records], name
 
@@ -223,6 +242,43 @@ async def test_each_parameter_keeps_its_python_type_and_nulls(
     assert named["stream"] == [False]
     assert named["partial"] == [False]
     assert named["attempt"] == [1]
+    assert named["delivered_chars"] == [None]
+    assert named["estimated_output_tokens"] == [None]
+
+
+@pytest.mark.asyncio
+async def test_the_two_estimate_parameters_are_the_last_two_and_keep_zero_apart_from_null(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # 0 is a measured "nothing delivered"; None is "not a cut stream" (D-101): a parameter built
+    # with `or None` would turn the first into the second.
+    cut_at_zero = make_record(
+        1,
+        outcome="failed",
+        stream=True,
+        counts=None,
+        cost=None,
+        delivered_chars=0,
+        estimated_output_tokens=0,
+    )
+    cut_later = make_record(
+        2,
+        outcome="abandoned",
+        stream=True,
+        reason="client_gone",
+        counts=None,
+        cost=None,
+        delivered_chars=9,
+        estimated_output_tokens=4,
+    )
+    plain = make_record(3)
+    pool = FakePool()
+    store, _ = store_over(monkeypatch, pool)
+    await store.write([cut_at_zero, cut_later, plain])
+    ((_, args),) = pool.calls
+    assert args[17] == [0, 9, None]
+    assert args[18] == [0, 4, None]
+    assert [type(value) for value in args[17][:2]] == [int, int]
 
 
 @pytest.mark.asyncio

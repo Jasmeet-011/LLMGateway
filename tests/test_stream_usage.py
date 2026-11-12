@@ -77,26 +77,33 @@ def failed(
     reason: str | None,
     status: int | None,
     usage: tuple[int, int] | None,
+    delivered: int = 0,
     **fields: Any,
 ) -> Any:
-    """A failed stream attempt; partial exactly when there is usage (D-095)."""
+    """A failed stream attempt; partial exactly when there is usage (D-095).
+
+    `delivered` is D-101's `delivered_chars`: the tests of this file never call `mark_delivered`,
+    so every stream that did not reach its end reports 0, before or after its first event.
+    """
     return stream_attempt(
         outcome="failed",
         reason=reason,
         provider_status=status,
         partial=usage is not None,
         usage=usage,
+        delivered_chars=delivered,
         **fields,
     )
 
 
-def abandoned(reason: str, usage: tuple[int, int] | None, **fields: Any) -> Any:
+def abandoned(reason: str, usage: tuple[int, int] | None, delivered: int = 0, **fields: Any) -> Any:
     return stream_attempt(
         outcome="abandoned",
         reason=reason,
         provider_status=None,
         partial=usage is not None,
         usage=usage,
+        delivered_chars=delivered,
         **fields,
     )
 

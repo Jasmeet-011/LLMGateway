@@ -1,11 +1,11 @@
 """Integration tests for M15: usage rows in the Compose stack's real Postgres (D-100).
 
 Marked `integration`: they need `docker compose up --build --wait` (the `migrate` service has run
-migration 0002, the api is healthy) and `LLMGATEWAY_BASE_URL`, under D-081's guard, which each test
-calls first, before any docker command or request. They fail and never skip. As in M14 (D-094), keys
-are made with the real CLI in the api container, the table is read with `psql` in the postgres
-container, and every value reaches SQL as a psql variable (`-v name=value`, quoted by psql as
-`:'name'`), never in the statement's text. Nothing here imports the gateway's code.
+migrations 0002 and 0003, the api is healthy) and `LLMGATEWAY_BASE_URL`, under D-081's guard, which
+each test calls first, before any docker command or request. They fail and never skip. As in M14
+(D-094), keys are made with the real CLI in the api container, the table is read with `psql` in the
+postgres container, and every value reaches SQL as a psql variable (`-v name=value`, quoted by psql
+as `:'name'`), never in the statement's text. Nothing here imports the gateway's code.
 
 What they prove, from PLAN.md's M15 Proof (usage rows for success and failure paths) and D-099,
 D-100:
@@ -20,7 +20,13 @@ D-100:
   with null and non-null counts, through `PostgresUsageStore`, and `psql` reads every field back; a
   batch with one bad row writes none of its rows, and the error carries the type name only;
 - the table has D-099's columns, indexes and checks, and `psql` inserts that break each of the
-  checks are rejected, while the boundary values the checks allow are accepted.
+  checks are rejected, while the boundary values the checks allow are accepted;
+- D-101 (migration 0003, `delivered_chars` and `estimated_output_tokens`): the failure-row script
+  writes both on cut-stream rows (null on the others) and `psql` reads them back; the real success
+  rows through the gateway have both null; `psql` inserts that break 0003's checks (a negative
+  value, one of the pair null, values on a success or a non-streaming row) are rejected by the
+  right constraint, and the boundaries it allows (0 and 0, both null on an old-style row) are
+  accepted; the catalog shows both columns, both named constraints and both column comments.
 
 The failure rows prove the store and the table, not the router's path to them, which the unit tests
 prove (D-100). Nothing here sorts after `test_zz_outage_*`; `conftest.py` runs that one last.
@@ -71,8 +77,23 @@ RECENT = (
 )
 DUMP = "SELECT usage_records::text FROM usage_records WHERE request_id = :'request_id'"
 
-# All seventeen values are psql variables; an empty one is NULL where the column allows it.
+# All nineteen values are psql variables; an empty one is NULL where the column allows it. The
+# last two are D-101's, and `valid_values` leaves them empty, so a case that does not name them
+# is a row with both null, as the rows written before migration 0003 are.
 INSERT_USAGE = (
+    "INSERT INTO usage_records (recorded_at, request_id, tenant_id, key_id, alias, "
+    "provider_instance, provider_type, model, stream, attempt, outcome, reason, "
+    "provider_status, partial, input_tokens, output_tokens, cost_nanousd, delivered_chars, "
+    "estimated_output_tokens) VALUES ("
+    ":'recorded_at', :'request_id', :'tenant_id', :'key_id', :'alias', :'provider_instance', "
+    ":'provider_type', :'model', :'stream', :'attempt', :'outcome', NULLIF(:'reason', ''), "
+    "NULLIF(:'provider_status', '')::integer, :'partial', NULLIF(:'input_tokens', '')::bigint, "
+    "NULLIF(:'output_tokens', '')::bigint, NULLIF(:'cost_nanousd', '')::bigint, "
+    "NULLIF(:'delivered_chars', '')::bigint, NULLIF(:'estimated_output_tokens', '')::bigint)"
+)
+
+# The statement as it was before 0003: it names neither new column.
+INSERT_USAGE_17 = (
     "INSERT INTO usage_records (recorded_at, request_id, tenant_id, key_id, alias, "
     "provider_instance, provider_type, model, stream, attempt, outcome, reason, "
     "provider_status, partial, input_tokens, output_tokens, cost_nanousd) VALUES ("
@@ -121,6 +142,8 @@ EXPECTED_COLUMNS = [
     "input_tokens:bigint:YES",
     "output_tokens:bigint:YES",
     "cost_nanousd:bigint:YES",
+    "delivered_chars:bigint:YES",
+    "estimated_output_tokens:bigint:YES",
 ]
 
 
@@ -170,6 +193,9 @@ def success_row(
         "input_tokens": usage["input_tokens"],
         "output_tokens": usage["output_tokens"],
         "cost_nanousd": 0,
+        # D-101: a request that reached its end, streamed or not, is not a cut stream.
+        "delivered_chars": None,
+        "estimated_output_tokens": None,
     }
 
 
@@ -301,6 +327,8 @@ def store_record(
         "input_tokens": None,
         "output_tokens": None,
         "cost_nanousd": None,
+        "delivered_chars": None,
+        "estimated_output_tokens": None,
     }
     record.update(fields)
     return record
@@ -338,6 +366,9 @@ def test_failed_abandoned_and_partial_rows_written_by_the_store_read_back_field_
             input_tokens=7,
             output_tokens=9,
             cost_nanousd=12345,
+            # D-101: 120 characters delivered; Claude's estimate is ceil(120 * 13 / 35) = 45.
+            delivered_chars=120,
+            estimated_output_tokens=45,
         ),
         store_record(
             request_id,
@@ -352,6 +383,8 @@ def test_failed_abandoned_and_partial_rows_written_by_the_store_read_back_field_
             input_tokens=3,
             output_tokens=4,
             cost_nanousd=99,
+            delivered_chars=70,
+            estimated_output_tokens=26,
         ),
         store_record(
             request_id,
@@ -371,6 +404,9 @@ def test_failed_abandoned_and_partial_rows_written_by_the_store_read_back_field_
             outcome="abandoned",
             reason="cancelled",
             provider_status=None,
+            # A stream stopped while opening: 0 and 0, not null.
+            delivered_chars=0,
+            estimated_output_tokens=0,
         ),
         store_record(
             request_id,
@@ -398,6 +434,37 @@ def test_failed_abandoned_and_partial_rows_written_by_the_store_read_back_field_
             input_tokens=0,
             output_tokens=0,
             cost_nanousd=0,
+        ),
+        # A cut stream that had no reported counts, with text delivered (11 characters: 5).
+        store_record(
+            request_id,
+            key_id,
+            tenant,
+            9,
+            stream=True,
+            reason="stream_truncated",
+            provider_status=None,
+            delivered_chars=11,
+            estimated_output_tokens=5,
+        ),
+        # Gemini's rate: ceil(9 / 4) = 3.
+        store_record(
+            request_id,
+            key_id,
+            tenant,
+            10,
+            provider_type="gemini",
+            model="gemini-3.6-flash",
+            stream=True,
+            outcome="abandoned",
+            reason="client_stalled",
+            provider_status=None,
+            partial=True,
+            input_tokens=4,
+            output_tokens=5,
+            cost_nanousd=100,
+            delivered_chars=9,
+            estimated_output_tokens=3,
         ),
     ]
     try:
@@ -477,14 +544,15 @@ def test_the_table_has_the_columns_indexes_and_checks_of_d_099() -> None:
         "SELECT count(*) FROM pg_constraint "
         "WHERE conrelid = 'usage_records'::regclass AND contype = 'c'"
     )
-    assert lines(checks) == ["19"]
+    # D-099's nineteen, and D-101's two on the new columns and two named table checks.
+    assert lines(checks) == ["23"]
     foreign = psql(
         "SELECT count(*) FROM information_schema.table_constraints "
         "WHERE table_name = 'usage_records' AND constraint_type = 'FOREIGN KEY'"
     )
     assert lines(foreign) == ["0"]
     version = psql("SELECT version_num FROM alembic_version")
-    assert lines(version) == ["0002"]
+    assert lines(version) == ["0003"]
 
 
 def valid_values(key_id: str, request_id: str) -> dict[str, str]:
@@ -506,6 +574,8 @@ def valid_values(key_id: str, request_id: str) -> dict[str, str]:
         "input_tokens": "1",
         "output_tokens": "2",
         "cost_nanousd": "0",
+        "delivered_chars": "",
+        "estimated_output_tokens": "",
     }
 
 
@@ -688,3 +758,234 @@ def test_psql_rejects_a_row_that_leaves_out_stream_or_partial_there_is_no_defaul
         assert lines(psql(COUNT_BY_KEY, key_id=key_id)) == ["0"]
     finally:
         psql(DELETE_BY_KEY, key_id=key_id)
+
+
+# D-101: migration 0003's columns, checks and comments, on the real database
+
+# A cut stream: a failed stream attempt with no reported counts, so only 0003's checks can refuse.
+CUT = {
+    "outcome": "failed",
+    "reason": "stream_idle",
+    "stream": "t",
+    "input_tokens": "",
+    "output_tokens": "",
+    "cost_nanousd": "",
+}
+PAIR = "usage_records_estimate_pair"
+CUT_ONLY = "usage_records_estimate_only_cut_streams"
+DELIVERED_CHECK = "usage_records_delivered_chars_check"
+ESTIMATE_CHECK = "usage_records_estimated_output_tokens_check"
+
+# name: (the constraint that must refuse it, the values that differ from `valid_values`)
+ESTIMATE_REJECTED: dict[str, tuple[str, dict[str, str]]] = {
+    "delivered_chars_negative": (
+        DELIVERED_CHECK,
+        {**CUT, "delivered_chars": "-1", "estimated_output_tokens": "0"},
+    ),
+    "estimated_tokens_negative": (
+        ESTIMATE_CHECK,
+        {**CUT, "delivered_chars": "0", "estimated_output_tokens": "-1"},
+    ),
+    "chars_set_and_estimate_null": (
+        PAIR,
+        {**CUT, "delivered_chars": "5", "estimated_output_tokens": ""},
+    ),
+    "estimate_set_and_chars_null": (
+        PAIR,
+        {**CUT, "delivered_chars": "", "estimated_output_tokens": "5"},
+    ),
+    "values_on_a_stream_success": (
+        CUT_ONLY,
+        {"stream": "t", "delivered_chars": "5", "estimated_output_tokens": "2"},
+    ),
+    "zeros_on_a_stream_success": (
+        CUT_ONLY,
+        {"stream": "t", "delivered_chars": "0", "estimated_output_tokens": "0"},
+    ),
+    "values_on_a_plain_success": (
+        CUT_ONLY,
+        {"stream": "f", "delivered_chars": "5", "estimated_output_tokens": "2"},
+    ),
+    "values_on_a_non_streaming_failure": (
+        CUT_ONLY,
+        {**CUT, "stream": "f", "delivered_chars": "5", "estimated_output_tokens": "2"},
+    ),
+    "zeros_on_a_non_streaming_failure": (
+        CUT_ONLY,
+        {**CUT, "stream": "f", "delivered_chars": "0", "estimated_output_tokens": "0"},
+    ),
+    "values_on_a_non_streaming_abandonment": (
+        CUT_ONLY,
+        {
+            **CUT,
+            "stream": "f",
+            "outcome": "abandoned",
+            "reason": "cancelled",
+            "delivered_chars": "5",
+            "estimated_output_tokens": "2",
+        },
+    ),
+}
+
+ESTIMATE_ACCEPTED: dict[str, dict[str, str]] = {
+    "a_failed_stream_with_both_values": {
+        **CUT,
+        "delivered_chars": "5",
+        "estimated_output_tokens": "2",
+    },
+    "a_failed_stream_with_zero_and_zero": {
+        **CUT,
+        "delivered_chars": "0",
+        "estimated_output_tokens": "0",
+    },
+    "an_abandoned_stream_with_both_values": {
+        **CUT,
+        "outcome": "abandoned",
+        "reason": "client_gone",
+        "delivered_chars": "70",
+        "estimated_output_tokens": "26",
+    },
+    "a_partial_stream_with_counts_and_both_values": {
+        "outcome": "failed",
+        "reason": "stream_idle",
+        "stream": "t",
+        "partial": "t",
+        "delivered_chars": "120",
+        "estimated_output_tokens": "45",
+    },
+    "an_estimate_below_the_reported_output_is_not_checked": {
+        "outcome": "failed",
+        "reason": "stream_idle",
+        "stream": "t",
+        "partial": "t",
+        "output_tokens": "5000",
+        "delivered_chars": "4",
+        "estimated_output_tokens": "1",
+    },
+    "the_largest_bigint": {
+        **CUT,
+        "delivered_chars": "9223372036854775807",
+        "estimated_output_tokens": "9223372036854775807",
+    },
+    # Rows written before 0003 have both null, and no check forces the values onto a cut stream.
+    "a_cut_stream_with_both_null": dict(CUT),
+    "a_success_with_both_null": {},
+    "a_stream_success_with_both_null": {"stream": "t"},
+}
+
+
+def test_psql_inserts_that_break_0003s_checks_are_rejected_by_the_right_constraint() -> None:
+    base_url()
+    key_id = secrets.token_hex(8)
+    request_id = f"gw_estimate_checks_{secrets.token_hex(6)}"
+    try:
+        control = psql(
+            INSERT_USAGE,
+            **{
+                **valid_values(key_id, request_id),
+                **ESTIMATE_ACCEPTED["a_failed_stream_with_both_values"],
+            },
+        )
+        assert control.returncode == 0, control.stderr
+        for name, (constraint, overrides) in ESTIMATE_REJECTED.items():
+            values = {**valid_values(key_id, request_id), **overrides}
+            result = psql(INSERT_USAGE, **values)
+            assert result.returncode != 0, name
+            assert f'violates check constraint "{constraint}"' in result.stderr, (
+                name,
+                result.stderr,
+            )
+        assert lines(psql(COUNT_BY_KEY, key_id=key_id)) == ["1"]
+    finally:
+        psql(DELETE_BY_KEY, key_id=key_id)
+
+
+def test_psql_accepts_the_boundaries_0003_allows_and_stores_them_as_given() -> None:
+    base_url()
+    key_id = secrets.token_hex(8)
+    request_id = f"gw_estimate_ok_{secrets.token_hex(6)}"
+    try:
+        for name, overrides in ESTIMATE_ACCEPTED.items():
+            values = {**valid_values(key_id, request_id), **overrides}
+            result = psql(INSERT_USAGE, **values)
+            assert result.returncode == 0, (name, result.stderr)
+        assert lines(psql(COUNT_BY_KEY, key_id=key_id)) == [str(len(ESTIMATE_ACCEPTED))]
+        stored = lines(
+            psql(
+                "SELECT coalesce(delivered_chars::text, 'null') || ':' || "
+                "coalesce(estimated_output_tokens::text, 'null') FROM usage_records "
+                "WHERE key_id = :'key_id' ORDER BY id",
+                key_id=key_id,
+            )
+        )
+        assert stored == [
+            "5:2",
+            "0:0",
+            "70:26",
+            "120:45",
+            "4:1",
+            "9223372036854775807:9223372036854775807",
+            "null:null",
+            "null:null",
+            "null:null",
+        ]
+    finally:
+        psql(DELETE_BY_KEY, key_id=key_id)
+
+
+def test_a_row_written_the_old_way_without_the_new_columns_has_both_null() -> None:
+    base_url()
+    key_id = secrets.token_hex(8)
+    request_id = f"gw_estimate_old_{secrets.token_hex(6)}"
+    try:
+        result = psql(INSERT_USAGE_17, **valid_values(key_id, request_id))
+        assert result.returncode == 0, result.stderr
+        stored = lines(
+            psql(
+                "SELECT delivered_chars IS NULL AND estimated_output_tokens IS NULL "
+                "FROM usage_records WHERE key_id = :'key_id'",
+                key_id=key_id,
+            )
+        )
+        assert stored == ["t"]
+    finally:
+        psql(DELETE_BY_KEY, key_id=key_id)
+
+
+def test_the_catalog_has_0003s_two_named_checks_and_both_column_comments() -> None:
+    base_url()
+    named = psql(
+        "SELECT conname FROM pg_constraint WHERE conrelid = 'usage_records'::regclass "
+        "AND contype = 'c' AND conname IN (:'pair', :'cut_only', :'delivered', :'estimate') "
+        "ORDER BY conname",
+        pair=PAIR,
+        cut_only=CUT_ONLY,
+        delivered=DELIVERED_CHECK,
+        estimate=ESTIMATE_CHECK,
+    )
+    assert lines(named) == sorted([PAIR, CUT_ONLY, DELIVERED_CHECK, ESTIMATE_CHECK])
+    comment_sql = (
+        "SELECT col_description('usage_records'::regclass, a.attnum) FROM pg_attribute a "
+        "WHERE a.attrelid = 'usage_records'::regclass AND a.attname = :'column'"
+    )
+    delivered = lines(psql(comment_sql, column="delivered_chars"))
+    estimate = lines(psql(comment_sql, column="estimated_output_tokens"))
+    assert delivered == [
+        "Characters of delta text sent to the client by a stream attempt that did not reach its "
+        "end (D-101). Not billed."
+    ]
+    assert estimate == [
+        "ESTIMATE, not a provider count: delivered_chars converted at a fixed characters-per-token "
+        "rate (D-101). Never billed or added to output_tokens."
+    ]
+    assert estimate[0].startswith("ESTIMATE")
+
+
+def test_no_other_column_of_usage_records_has_a_comment() -> None:
+    base_url()
+    commented = psql(
+        "SELECT a.attname FROM pg_attribute a WHERE a.attrelid = 'usage_records'::regclass "
+        "AND a.attnum > 0 AND NOT a.attisdropped "
+        "AND col_description('usage_records'::regclass, a.attnum) IS NOT NULL ORDER BY a.attname"
+    )
+    assert lines(commented) == ["delivered_chars", "estimated_output_tokens"]

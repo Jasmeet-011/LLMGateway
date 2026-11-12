@@ -111,6 +111,7 @@ def test_the_attempt_usage_fields_are_in_the_documented_order() -> None:
         "provider_status",
         "partial",
         "usage",
+        "delivered_chars",
     ]
 
 
@@ -134,6 +135,8 @@ def test_the_usage_record_fields_are_in_the_documented_order() -> None:
         "input_tokens",
         "output_tokens",
         "cost_nanousd",
+        "delivered_chars",
+        "estimated_output_tokens",
     ]
 
 
@@ -169,6 +172,7 @@ async def test_the_meter_builds_a_record_from_the_attempt_the_request_and_the_cl
             provider_status=503,
             partial=True,
             usage=(12, 3),
+            delivered_chars=70,
         )
     )
     await recorder.aclose()
@@ -191,6 +195,9 @@ async def test_the_meter_builds_a_record_from_the_attempt_the_request_and_the_cl
             input_tokens=12,
             output_tokens=3,
             cost_nanousd=12 * 100 + 3 * 500,
+            # 70 characters at Claude's rate: 70 * 13 / 35 is exactly 26 (D-101).
+            delivered_chars=70,
+            estimated_output_tokens=26,
         )
     ]
 

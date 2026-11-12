@@ -167,6 +167,8 @@ def make_record(
     model: str = "mock-1",
     alias: str = ALIAS,
     tenant_id: str = TEST_TENANT,
+    delivered_chars: int | None = None,
+    estimated_output_tokens: int | None = None,
 ) -> "UsageRecord":
     """A `UsageRecord` whose request id is `n` unless given: cheap to make a batch of."""
     record: UsageRecord = usage_module().UsageRecord(
@@ -187,8 +189,27 @@ def make_record(
         input_tokens=None if counts is None else counts[0],
         output_tokens=None if counts is None else counts[1],
         cost_nanousd=cost,
+        delivered_chars=delivered_chars,
+        estimated_output_tokens=estimated_output_tokens,
     )
     return record
+
+
+class _Unset:
+    """The marker for "the test did not say": see `attempt`."""
+
+    def __repr__(self) -> str:
+        return "UNSET"
+
+
+UNSET = _Unset()
+
+
+def expected_estimate(provider_type: str, chars: int) -> int:
+    """D-101's estimate, integer arithmetic: claude ceil(chars * 13 / 35), else ceil(chars / 4)."""
+    if provider_type == "claude":
+        return -(-(chars * 13) // 35)
+    return -(-chars // 4)
 
 
 def attempt(
@@ -203,8 +224,21 @@ def attempt(
     provider_status: int | None = None,
     partial: bool = False,
     usage: tuple[int, int] | None = (1, 2),
+    delivered_chars: "int | _Unset | None" = UNSET,
 ) -> "AttemptUsage":
-    """The `AttemptUsage` a router call should report. `usage` is (input, output) or None."""
+    """The `AttemptUsage` a router call should report. `usage` is (input, output) or None.
+
+    `delivered_chars` is None for a non-streaming attempt and for a stream success (D-101), so
+    that is what it is when a test does not say. For a stream that failed or was abandoned the
+    router reports an int, and a test must say which: leaving it out is an error here, so no
+    expectation about a cut stream can be written without its exact count.
+    """
+    if isinstance(delivered_chars, _Unset):
+        assert not (stream and outcome != "success"), (
+            "a stream attempt that failed or was abandoned reports an int delivered_chars (D-101): "
+            "the test must say which"
+        )
+        delivered_chars = None
     value = None if usage is None else Usage(input_tokens=usage[0], output_tokens=usage[1])
     report: AttemptUsage = usage_module().AttemptUsage(
         provider_instance=instance,
@@ -217,6 +251,7 @@ def attempt(
         provider_status=provider_status,
         partial=partial,
         usage=value,
+        delivered_chars=delivered_chars,
     )
     return report
 

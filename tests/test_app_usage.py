@@ -129,6 +129,8 @@ def expected_record(request_id: str, **fields: Any) -> dict[str, Any]:
         "input_tokens": 12,
         "output_tokens": 3,
         "cost_nanousd": 12 * 100 + 3 * 500,
+        "delivered_chars": None,
+        "estimated_output_tokens": None,
     }
     base.update(fields)
     return base
@@ -277,6 +279,8 @@ async def test_a_request_that_every_entry_fails_is_a_failed_row_and_a_502() -> N
     (record,) = store.records
     assert (record.outcome, record.reason, record.provider_status) == ("failed", "http_status", 503)
     assert (record.input_tokens, record.output_tokens, record.cost_nanousd) == (None, None, None)
+    # D-101: a non-streaming attempt has no delivered text, whatever its outcome.
+    assert (record.delivered_chars, record.estimated_output_tokens) == (None, None)
     await recorder.aclose()
 
 
@@ -356,6 +360,9 @@ async def test_a_stream_that_fails_partway_is_an_error_event_and_a_partial_faile
             input_tokens=2,
             output_tokens=3,
             cost_nanousd=2 * 100 + 3 * 500,
+            # D-101: the one delta "a" reached the client; Claude's rate gives ceil(13 / 35) = 1.
+            delivered_chars=1,
+            estimated_output_tokens=1,
         )
     ]
     await recorder.aclose()
@@ -375,6 +382,8 @@ async def test_a_stream_that_fails_before_its_first_event_is_a_json_error_and_a_
     (record,) = store.records
     assert (record.stream, record.outcome, record.partial) == (True, "failed", True)
     assert (record.input_tokens, record.output_tokens) == (2, 0)
+    # D-101: nothing was sent before the first event, so 0 characters and 0 estimated tokens.
+    assert (record.delivered_chars, record.estimated_output_tokens) == (0, 0)
     await recorder.aclose()
 
 
@@ -405,6 +414,9 @@ async def test_a_client_that_leaves_mid_stream_is_an_abandoned_client_gone_row()
             input_tokens=2,
             output_tokens=3,
             cost_nanousd=2 * 100 + 3 * 500,
+            # D-101: "a" was sent before the client left.
+            delivered_chars=1,
+            estimated_output_tokens=1,
         )
     ]
     await recorder.aclose()
@@ -431,6 +443,9 @@ async def test_a_client_that_leaves_while_the_stream_opens_is_an_abandoned_cance
     )
     assert (record.provider_status, record.partial, record.input_tokens) == (None, False, None)
     assert (record.output_tokens, record.cost_nanousd) == (None, None)
+    # D-101: a stream attempt stopped while opening has 0 characters and 0 estimated tokens,
+    # never null: null is for rows that are not cut streams.
+    assert (record.delivered_chars, record.estimated_output_tokens) == (0, 0)
     await recorder.aclose()
 
 

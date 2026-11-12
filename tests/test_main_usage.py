@@ -539,6 +539,7 @@ def _attempt():
         provider_status=None,
         partial=False,
         usage=Usage(input_tokens=1000, output_tokens=100),
+        delivered_chars=None,
     )
 
 

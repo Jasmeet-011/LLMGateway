@@ -50,16 +50,17 @@ def _flat(sql: str) -> str:
     return re.sub(r"\s+", " ", sql).strip()
 
 
-def test_the_script_directory_has_revision_0001_with_no_parent_and_0002_on_top_of_it() -> None:
-    # M15 (D-099) adds 0002 on top of 0001; 0001 itself is unchanged.
+def test_the_script_directory_has_revisions_0001_0002_and_0003_in_one_line() -> None:
+    # M15 (D-099) adds 0002 on top of 0001, and D-101 adds 0003 on top of 0002; 0001 is unchanged.
     config = Config()
     config.set_main_option("script_location", LOCATION)
     script = ScriptDirectory.from_config(config)
     revisions = list(script.walk_revisions())
-    assert [r.revision for r in revisions] == ["0002", "0001"]
-    assert revisions[0].down_revision == "0001"
-    assert revisions[1].down_revision is None
-    assert script.get_current_head() == "0002"
+    assert [r.revision for r in revisions] == ["0003", "0002", "0001"]
+    assert revisions[0].down_revision == "0002"
+    assert revisions[1].down_revision == "0001"
+    assert revisions[2].down_revision is None
+    assert script.get_current_head() == "0003"
 
 
 def test_the_migration_module_names_its_revision() -> None:
