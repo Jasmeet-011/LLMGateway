@@ -25,7 +25,9 @@ Key design choices:
   `LLMGATEWAY_KEY_CACHE_SECONDS` sets the key cache (D-090).
 - `LLMGATEWAY_REDIS_URL` is required too: the rate limiter's Redis (D-106). Like the
   database, a missing or malformed URL stops startup and an unreachable Redis does not;
-  requests are then served without a rate limit until Redis answers.
+  until Redis answers, a request is served without a limit when its check fails at once
+  or the limiter's breaker is open, and shed with 503 when the check times out. The app's
+  lifespan opens the pool and loads the script before serving.
   `LLMGATEWAY_RATE_LIMIT_BURST` and `LLMGATEWAY_RATE_LIMIT_PER_SECOND` set every key's
   bucket (D-105), and `LLMGATEWAY_MAX_BODY_BYTES` the body size limit (D-108).
 - Bad configuration stops the process at import, before uvicorn serves anything,

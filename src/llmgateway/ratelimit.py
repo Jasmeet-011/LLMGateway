@@ -17,36 +17,55 @@ Key design choices:
   from the environment (D-105). Every request after auth and the body limit counts, a
   malformed one or a cache hit too, because the limiter runs before the body is parsed
   (D-108).
-- Redis down or slow fails open: after 1 s, or on a Redis or socket error, or an
-  unusable reply, the request is served as if allowed, with one `ratelimit_unavailable`
-  line. Auth fails closed because it decides who may spend at all; the limiter only
-  decides how fast a verified key may go, and a Redis outage must not become a gateway
-  outage (D-106). The client makes one attempt per request, no retries, from a blocking
-  pool whose wait counts against the same 1 s. 250 ms was too short under a burst on a
-  busy event loop, which failed open exactly when the limit mattered (D-106's amendment).
+- Redis down and Redis slow are different cases (D-106, amended before M17):
+  - a take that gets no answer within 1 s is **shed**: 503 `rate_limit_timeout` with
+    `Retry-After: 1`. Letting it through would switch the limit off exactly when the
+    gateway is busiest, which is what the earlier fail-open-on-timeout rule did;
+  - a store error or an unusable reply comes back at once, so the request is let
+    through, with a `ratelimit_unavailable` line: a Redis outage must not become a
+    gateway outage, and the key is still authenticated and billed. Auth fails closed
+    because it decides who may spend at all;
+  - a circuit breaker (`redisguard.py`, five failures in a row, 5 s cooldown, one probe)
+    stops asking a Redis that is down, so while it is open requests pass at once instead
+    of each waiting out the budget. A timeout opens it only if no other take succeeded
+    meanwhile, so a busy gateway with a healthy Redis keeps its limit.
+- The client makes one attempt per request, no retries, from a blocking pool of 50 whose
+  wait is bounded only by the take's budget. `warm` opens all 50 connections and loads
+  the script at startup, so a first burst does not spend its budget connecting.
 - A refused request gets 429 `rate_limited` with `Retry-After`, the bucket's time to
   one token in whole seconds, at least 1. It stops here, so it reaches no provider, makes
-  no usage record and is neither a failure nor a success for any breaker (D-107).
+  no usage record and is neither a failure nor a success for any provider breaker (D-107).
+  A shed request stops here too.
 - Log lines hold only the request ID, a fixed reason and a class name: never the Redis
   URL, a key or an exception message.
 """
 
-import asyncio
 import hashlib
 import importlib.resources
 import logging
 import math
+import time
 from dataclasses import dataclass
 from typing import Any, Final, Literal, Protocol
 
 import redis.asyncio
 from redis.asyncio.retry import Retry
 from redis.backoff import NoBackoff
-from redis.exceptions import NoScriptError, RedisError
+from redis.exceptions import NoScriptError
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from llmgateway.auth import Principal
+from llmgateway.breaker import BreakerPolicy, CircuitBreaker
 from llmgateway.errors import error_response
+from llmgateway.redisguard import (
+    Clock,
+    GuardBadReply,
+    GuardOpen,
+    GuardStoreError,
+    GuardTimeout,
+    RedisGuard,
+    warm_pool,
+)
 
 logger = logging.getLogger("llmgateway.ratelimit")
 
@@ -56,12 +75,15 @@ SCRIPT: Final = (
 SCRIPT_SHA: Final = hashlib.sha1(SCRIPT.encode("utf-8"), usedforsecurity=False).hexdigest()
 BUCKET_PREFIX: Final = "llmgateway:ratelimit:"
 LIMIT_TIMEOUT_SECONDS: Final = 1.0
+WARM_TIMEOUT_SECONDS: Final = 2.0
 DEFAULT_BURST: Final = 60
 DEFAULT_PER_SECOND: Final = 1.0
 MAX_CONNECTIONS: Final = 50
+BREAKER_NAME: Final = "redis:ratelimit"
+BREAKER_POLICY: Final = BreakerPolicy(window_size=5, failure_threshold=5, cooldown=5.0)
 _PUBLIC_PATH: Final = "/healthz"
 
-Reason = Literal["timeout", "store_error", "bad_reply"]
+Reason = Literal["store_error", "bad_reply", "circuit_open"]
 
 
 @dataclass(frozen=True)
@@ -72,7 +94,7 @@ class Decision:
 
 
 class RateLimitUnavailable(Exception):
-    """Redis could not decide; carries a fixed reason and a type name only."""
+    """Redis could not decide, at once: the request goes on (D-106)."""
 
     def __init__(self, reason: Reason, error_type: str) -> None:
         super().__init__(f"rate limit unavailable ({reason}, {error_type})")
@@ -80,18 +102,28 @@ class RateLimitUnavailable(Exception):
         self.error_type = error_type
 
 
+class RateLimitTimeout(Exception):
+    """Redis did not answer within the budget: the request is shed (D-106)."""
+
+    def __init__(self, error_type: str) -> None:
+        super().__init__(f"rate limit timeout ({error_type})")
+        self.error_type = error_type
+
+
 class RateLimiter(Protocol):
     async def take(self, key_id: str) -> Decision: ...
+
+    async def warm(self) -> None: ...
 
     async def aclose(self) -> None: ...
 
 
 def redis_client(url: str) -> "redis.asyncio.Redis":
-    """D-106's client: no retries, and a blocking pool whose wait counts against the limit."""
+    """D-106's client: no retries, and a blocking pool whose wait only the take bounds."""
     pool = redis.asyncio.BlockingConnectionPool.from_url(
         url,
         max_connections=MAX_CONNECTIONS,
-        timeout=LIMIT_TIMEOUT_SECONDS,
+        timeout=None,
         socket_timeout=LIMIT_TIMEOUT_SECONDS,
         socket_connect_timeout=LIMIT_TIMEOUT_SECONDS,
         retry=Retry(NoBackoff(), 0),
@@ -99,18 +131,20 @@ def redis_client(url: str) -> "redis.asyncio.Redis":
     return redis.asyncio.Redis(connection_pool=pool)
 
 
-def _decision(reply: object) -> Decision:
-    if (
+def _usable(reply: object) -> bool:
+    return (
         isinstance(reply, list | tuple)
         and len(reply) == 2
         and all(type(value) is int for value in reply)
         and reply[0] in (0, 1)
         and reply[1] >= 0
-    ):
-        if reply[0] == 1:
-            return Decision(allowed=True, retry_after_seconds=0)
-        return Decision(allowed=False, retry_after_seconds=max(1, math.ceil(reply[1] / 1000)))
-    raise RateLimitUnavailable("bad_reply", type(reply).__name__)
+    )
+
+
+def _decision(reply: Any) -> Decision:
+    if reply[0] == 1:
+        return Decision(allowed=True, retry_after_seconds=0)
+    return Decision(allowed=False, retry_after_seconds=max(1, math.ceil(reply[1] / 1000)))
 
 
 class RedisRateLimiter:
@@ -121,10 +155,16 @@ class RedisRateLimiter:
         burst: int,
         per_second: float,
         timeout: float = LIMIT_TIMEOUT_SECONDS,
+        breaker: CircuitBreaker | None = None,
+        clock: Clock = time.monotonic,
     ) -> None:
         self._client = client
         self._args = (str(burst), repr(per_second))
-        self._timeout = timeout
+        self._guard = RedisGuard(
+            breaker if breaker is not None else CircuitBreaker(BREAKER_NAME, BREAKER_POLICY),
+            timeout=timeout,
+            clock=clock,
+        )
 
     def __repr__(self) -> str:
         # Never the client: its repr can name the Redis URL.
@@ -138,14 +178,33 @@ class RedisRateLimiter:
             return await self._client.eval(SCRIPT, 1, key, *self._args)
 
     async def take(self, key_id: str) -> Decision:
+        key = BUCKET_PREFIX + key_id
         try:
-            async with asyncio.timeout(self._timeout):
-                reply = await self._call(BUCKET_PREFIX + key_id)
-        except TimeoutError:
-            raise RateLimitUnavailable("timeout", "TimeoutError") from None
-        except (RedisError, OSError) as exc:
-            raise RateLimitUnavailable("store_error", type(exc).__name__) from None
+            reply = await self._guard.call(lambda: self._call(key), accept=_usable)
+        except GuardOpen:
+            raise RateLimitUnavailable("circuit_open", "CircuitOpen") from None
+        except GuardTimeout as exc:
+            raise RateLimitTimeout(exc.error_type) from None
+        except GuardStoreError as exc:
+            raise RateLimitUnavailable("store_error", exc.error_type) from None
+        except GuardBadReply as exc:
+            raise RateLimitUnavailable("bad_reply", exc.error_type) from None
         return _decision(reply)
+
+    async def warm(self) -> None:
+        """Loads the script and opens the pool before the first request; never raises."""
+        opened, error = await warm_pool(
+            self._client,
+            connections=MAX_CONNECTIONS,
+            budget=WARM_TIMEOUT_SECONDS,
+            script=SCRIPT,
+        )
+        if error is None:
+            logger.info("ratelimit_warm opened=%d of=%d", opened, MAX_CONNECTIONS)
+        else:
+            logger.warning(
+                "ratelimit_warm opened=%d of=%d error=%s", opened, MAX_CONNECTIONS, error
+            )
 
     async def aclose(self) -> None:
         await self._client.aclose(close_connection_pool=True)
@@ -166,6 +225,22 @@ class RateLimitMiddleware:
             raise RuntimeError("no principal: AuthMiddleware must run before the limiter")
         try:
             decision = await self.limiter.take(principal.key_id)
+        except RateLimitTimeout as exc:
+            # Shed, never let through unlimited: a busy gateway keeps its limit (D-106).
+            logger.warning(
+                "ratelimit_shed request_id=%s reason=timeout error=%s",
+                state["request_id"],
+                exc.error_type,
+            )
+            response = error_response(
+                state["request_id"],
+                503,
+                "rate_limit_timeout",
+                "The rate limiter did not answer in time.",
+                headers={"Retry-After": "1"},
+            )
+            await response(scope, receive, send)
+            return
         except RateLimitUnavailable as exc:
             # Fails open: the key is verified, only its rate is unchecked (D-106).
             logger.warning(

@@ -14,7 +14,8 @@ Key design choices:
   FastAPI reads the body: every request but `/healthz` needs a valid key. The
   request line names the verified key's tenant and key id, never the key (D-092).
 - Then `BodyLimitMiddleware` (`bodylimit.py`, 413 `request_too_large`) and, when the app
-  has a `limiter`, `RateLimitMiddleware` (`ratelimit.py`, 429 `rate_limited`), both
+  has a `limiter`, `RateLimitMiddleware` (`ratelimit.py`, 429 `rate_limited`, or 503
+  `rate_limit_timeout` when Redis does not answer in time), both
   before FastAPI parses the body, in that order (D-108). The body limit is always on;
   `limiter=None` means no rate limit, which only tests use: `main` always passes one.
 - `model` must be a configured alias (D-045): otherwise 400 `unknown_model`, with
@@ -35,6 +36,8 @@ Key design choices:
   router makes into a usage record with this key's tenant and key id (D-095). Recording
   only queues the record; the database write happens on the recorder's own task, so it
   never adds to a response's latency or fails it. Without one, nothing is recorded.
+- On startup the lifespan awaits `limiter.warm()`, which loads the script and opens the
+  Redis pool before anything is served and never raises (D-106).
 - The app owns its router, recorder, limiter and authenticator: on shutdown its lifespan
   calls `router.aclose()`, which closes each adapter's HTTP client, then
   `recorder.aclose()`, which drains the queue for a few seconds, then `limiter.aclose()`,
@@ -168,6 +171,10 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        # Open the Redis pool before serving, so a first burst does not spend its budget
+        # connecting (D-106). It never raises: Redis down at startup leaves the pool cold.
+        if limiter is not None:
+            await limiter.warm()
         yield
         # The router first, so a stream it closes is still recorded (D-099).
         try:
