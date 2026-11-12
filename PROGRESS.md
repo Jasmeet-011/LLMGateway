@@ -93,6 +93,22 @@ Distilled from the mistakes logs. The full history is in [docs/archive/2026-11-s
 
 Newest sessions go here. When this file passes 50 KB, move the session log and the mistakes rows, unchanged, to a new file in [docs/archive/](docs/archive/), and keep the Lessons section current.
 
+### 2026-11-12: owner's estimate results, the limiter's shed and breaker (D-106), M17 Tenant-scoped response cache
+
+**State check.** HEAD f925a21, clean, on `main`, level with origin after `git pull`, as the brief expected. `.\scripts\check.ps1` PASS: 6033 passed, 68 deselected in 419.40 s; ruff clean; 111 files formatted; mypy clean on 97 files. `tester` and `reviewer` both available.
+
+**Owner's results, recorded first** (e13265c). `tests/test_live_estimate_rate.py`, 2 passed: Claude `claude-haiku-5-5` 602 characters, 197 reported, estimate 224 (+13.7%); Gemini `gemini-3.5-flash-lite` 583, 123, 146 (+18.7%). On D-101 as one sample per provider, not a calibration; the rates stay. README.md and the open items updated.
+
+**Plan, the limiter fix (before M17, test-first).**
+1. Measure first (Lesson 19): what the gateway does today with Redis stopped and paused, and the take latency under bursts on a cold and a pre-warmed gateway, with the new design as a scratchpad prototype mounted into a second gateway.
+2. Spec: D-106's second amendment (shed on a timeout, a breaker for an unreachable Redis, pre-warm, the budget re-decided), FLOW.md sections 4, 6, 9, 13, a note on D-109.
+3. Tester, Mode 1: unit tests for the classification, the breaker, the last-success rule, the middleware's 503, `warm`, the lifespan; integration tests with Redis paused and stopped; the `gemini-3.6-flash` MINIMAL thinking live test (not run). Red run before any `src/` change.
+4. Build, Mode 2, reviewer, push, CI green. Then M17.
+
+**Measurements** (scratchpad, not in the repo). `probe_stop.py` against the stack's api (M16 image): with Redis stopped, the first request failed open on `ConnectionError` and the next seven each waited the 1 s budget (1,004 to 1,005 ms) and failed open on a timeout; with Redis paused, all eight waited 1 s. So both outages are mostly timeouts, and timeouts must count toward the breaker. `measure17.py`, the prototype mounted into a second gateway (burst 20, refill 0.001, one worker, fresh key per round), every take timed: the numbers are in D-106's amendment; with pre-warm and a 1 s budget, three rounds each of 70, 200 and 500 concurrent let exactly 20 through, none shed, none failed open, slowest take 708.9 ms at 500. The budget stays 1 s.
+
+**Spec** (cf181fe). D-106's second amendment. One choice departs from the brief's wording, recorded there with the reason: a timeout counts toward the breaker only if no other take succeeded during its wait. Counting every timeout would let an overloaded gateway with a healthy Redis open the breaker after five and run unlimited for 5 s at a time, the failure mode the fix exists to remove.
+
 ### 2026-11-11: owner's results, the partial-stream estimate, M16 Redis Lua token-bucket rate limiter
 
 **State check.** HEAD 00080c6, clean, on `main`, level with origin after `git pull`, as the brief expected. `.\scripts\check.ps1` PASS: 5234 passed, 39 deselected in 342.59 s, matching the brief. `.claude/agents/tester.md` and `reviewer.md` both present.

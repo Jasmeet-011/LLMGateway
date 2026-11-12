@@ -8,7 +8,7 @@ One line per entry, with what superseded it. A session reads this index plus eve
 
 - D-001 Mock provider for tests and load tests
 - D-002 Lua for the rate limiter
-- D-003 Cache only deterministic non-streaming requests; key includes tenant ID
+- D-003 Cache only deterministic non-streaming requests; key includes tenant ID (the key superseded by D-110; "deterministic" made precise by D-111)
 - D-004 Claude and Gemini only
 - D-005 Tooling and layout: uv, src layout, pinned versions
 - D-006 Unified schema shape
@@ -115,6 +115,14 @@ One line per entry, with what superseded it. A session reads this index plus eve
 - D-107 A limited request gets 429 `rate_limited` with `Retry-After` from the bucket's refill; it reaches no provider, is not billed and is neutral for the breaker
 - D-108 Order: auth, then the body size limit, then the rate limiter, all before the body is parsed; the body limit is 413 `request_too_large` (supersedes the order in D-089)
 - D-109 M16 integration tests: the script on the real Redis, exactness through a second gateway, and the outage
+- D-110 The cache key: tenant, alias and its resolved entries, and every request field that changes the answer, as canonical JSON hashed with SHA-256 (supersedes D-003's key)
+- D-111 Cacheable means: not streaming, the client opted in with `x-gateway-cache: use`, and no temperature above 0
+- D-112 What is stored: a complete answer from the alias's first entry, at most 256 KiB, for 300 s; Redis evicts least recently used keys with an expiry, under a 256 MB cap
+- D-113 A hit: no provider call, cost 0, one usage row marked `cache_hit`; it counts against the rate limit
+- D-114 Redis down or slow: the cache is bypassed and never fails a request; it has its own client, pool and breaker, not the limiter's
+- D-115 Concurrent identical misses each call the provider; they are not collapsed
+- D-116 `x-gateway-cache: hit`, `miss` or `bypass` on every 200 from `POST /v1/chat`
+- D-117 M17 integration tests: tenant isolation, a hit with no provider call and a zero-cost row, lower latency, Redis's eviction settings
 
 ## Entry format
 
@@ -154,6 +162,7 @@ One line per entry, with what superseded it. A session reads this index plus eve
 - **Alternatives:** Cache all requests (returns stale or wrong answers for sampled output); shared cache across tenants (higher hit rate but leaks data across tenants); semantic cache (out of scope).
 - **Risk:** Normalization bugs cause wrong hits or no hits; what counts as "deterministic" must be defined precisely in code.
 - **Revisit when:** Measured hit rate is too low to matter, or streaming cache becomes a requirement.
+- **Superseded in part (M17):** the key by D-110 (tenant, alias and its resolved entries, every request field, canonical JSON, SHA-256); "deterministic" by D-111, since no request field can promise it: a client opts in with `x-gateway-cache: use`, and a temperature above 0 is never cached. Streams stay uncached.
 
 ## D-004 Claude and Gemini only
 
@@ -226,6 +235,7 @@ One line per entry, with what superseded it. A session reads this index plus eve
 - **Alternatives:** Report zero usage on hits (the body would then depend on cache state, and clients would see different usage for the same content); bill hits at full price (charges for work not done).
 - **Risk:** Anything that sums `usage` from response bodies will overcount spend. Spend must come from accounting records, not response bodies. The header name is not chosen yet.
 - **Revisit when:** The cache and accounting steps are built.
+- **Implemented by D-113 and D-116 (M17):** a hit writes one usage row with `cache_hit` true and cost 0, keeping the content's counts, and the header is `x-gateway-cache`.
 
 ## D-013 Normalize empty `stop` to `None`
 
@@ -308,6 +318,7 @@ One line per entry, with what superseded it. A session reads this index plus eve
 - **Alternatives:** A field in the body (the body would depend on cache state, which D-012 avoids); a standard `Age` header (says how old a response is, not whether the gateway cache served it).
 - **Risk:** Requests that are not cacheable need a defined value or no header; not decided.
 - **Revisit when:** The cache step starts.
+- **Settled by D-116 (M17):** every 200 from `POST /v1/chat` says `hit`, `miss` or `bypass`; errors carry no `x-gateway-cache`. The same name is the request's opt-in header, with the value `use` (D-111).
 
 ## D-022 First endpoints
 
@@ -1522,3 +1533,113 @@ Sources: https://platform.claude.com/docs/en/build-with-claude/streaming, read 2
 - **Risk:** `docker compose run` needs port 8001 free on the host. Timing allowances in the script tests can be too tight on a very slow runner; they are milliseconds against seconds of margin. The outage test must restore Redis, or later tests fail.
 - **Revisit when:** The stack runs somewhere `docker compose exec` and `run` cannot reach.
 - **Extended by D-106's second amendment (2026-11-12):** the outage test now shows the limiter's breaker: with Redis stopped, requests pass without waiting once the breaker is open; and a new test pauses Redis (`docker compose pause`, unpaused in a `finally`) to show that takes that time out are shed with 503 `rate_limit_timeout`, never passed. The exactness test is unchanged.
+
+## D-110 The cache key: tenant, alias and its resolved entries, and every request field that changes the answer, as canonical JSON hashed with SHA-256
+
+- **Decision:** Supersedes D-003's key ("a hash of the normalized request, model, params, and key/tenant ID") with an exact one; D-003's rule that only deterministic non-streaming requests are cached is made precise by D-111. Settles PLAN.md M17's "supersede D-003".
+  - **The key document,** a JSON object with exactly these members:
+    - `"v"`: `1`, the key format's version;
+    - `"tenant"`: the verified key's `tenant_id` (D-092);
+    - `"alias"`: the request's `model`, the alias (D-045);
+    - `"routes"`: the alias's resolved entries in order, each `[provider instance, provider model]`, as the router holds them (`Router.routes(alias)`);
+    - `"system"`, `"max_tokens"`, `"temperature"`, `"top_p"`, `"stop"`: the request's values, `null` when unset (`stop` is already `null` for `[]`, D-013; `temperature` and `top_p` are floats after validation, D-009, so `0` and `0.0` are one value);
+    - `"messages"`: an array of `[role, content]` pairs, in order.
+    `stream` is not in it: only non-streaming requests are cached (D-111). Nothing else of the request is.
+  - **Canonical form:** `json.dumps(document, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False)` encoded as UTF-8; its SHA-256 in lowercase hex is the hash, and the Redis key is `llmgateway:cache:<hash>`. Text is hashed exactly as sent: no Unicode normalization, no whitespace trimming, no case folding, because any of those can change what a model answers. The document is built from the parsed fields one by one, never from `model_dump(exclude_unset=True)` (CLAUDE.md, D-013).
+  - **Interface,** in `llmgateway/cache.py`: `CACHE_PREFIX = "llmgateway:cache:"`, `KEY_VERSION = 1`, `cache_key(tenant_id: str, alias: str, routes: Sequence[tuple[str, str]], request: ChatRequest) -> str`, returning the whole Redis key.
+- **Why:** Tenant scoping is a privacy rule, not a hit-rate choice. The tenant is inside the hashed document, so two tenants' identical requests have different keys: tenant B can never be served tenant A's answer, and B's latency on any request depends only on B's own history, so a fast answer never tells B that A asked the same thing. Within a tenant, sharing across its keys is intended: the tenant owns all its keys (D-092). The resolved entries are in the key so that changing an alias's models in the config stops serving answers from the old ones at once, instead of for a TTL. Every field that reaches a provider is in it, so two requests share a key only when the provider would have been asked the same thing. SHA-256 keeps keys fixed-length and keeps prompts out of key names. A version member lets a later format change miss old entries instead of misreading them.
+- **Alternatives:** Per API key (no privacy gain, since a tenant owns its keys, and a lower hit rate); no tenant, one cache for all (a hit's latency would tell one tenant what another asked, and with any key bug it would serve one tenant's answer to another); the alias only, not its entries (a config change would serve the old models' answers until they expire); the provider model only (two aliases over the same model would share answers though their fallback lists differ); `model_dump_json()` of the request (its form follows pydantic's field order and the unset marker, D-013); normalizing text (changes what the model was asked).
+- **Risk:** Redis holds each prompt only as part of a SHA-256: someone with Redis access who guesses a prompt and a tenant id can confirm the guess. A bug that leaves a field out of the document would merge requests that differ; the tests compute the expected key from this entry's text, not from the code.
+- **Revisit when:** A request field is added to `ChatRequest`, or tenants need to share answers by agreement.
+
+## D-111 Cacheable means: not streaming, the client opted in with `x-gateway-cache: use`, and no temperature above 0
+
+- **Decision:** Settles PLAN.md M17's "what cacheable means given D-033" and the owner's questions on sampled answers and streams. A request is looked up and may be stored only when all hold:
+  - **Not streaming.** A request with `stream` true is never looked up and never stored. Its response carries `x-gateway-cache: bypass` (D-116).
+  - **Opted in:** exactly one `x-gateway-cache` request header whose value, with surrounding spaces stripped and in lower case, is `use`. No header, two headers, or any other value means not opted in; there is no error for it, and the response says `bypass`.
+  - **No temperature above 0:** `temperature` unset or `0.0`. With `temperature` above 0 the client asked for a sampled answer, and it is not replayed even when opted in.
+  - Interface: `CACHE_HEADER = "x-gateway-cache"`, `OPT_IN_VALUE = "use"`, `cacheable(request: ChatRequest, header_values: Sequence[str]) -> bool`, `header_values` being every value of that header in the request.
+- **Why:** No request field can promise a deterministic answer. The Claude adapter refuses `temperature` and `top_p` (D-033), so a Claude request cannot say 0; Gemini 3.6 Flash and newer ignore them (D-040); and an unset temperature means each provider's default, which samples. Even temperature 0 is not guaranteed repeatable. So "deterministic" cannot be inferred: the client must say that a stored answer is acceptable, and only it knows. An explicit temperature above 0 contradicts that, so it wins. Off by default means no client gets a replayed answer it did not ask for. Streams stay off, as D-003 and CLAUDE.md decided, to keep the stream path simple: replaying would need its own event pacing and a `StreamEnd` for a call that never happened, and a streaming client wants the first token fast, which a hit gives anyway only in a non-streaming form.
+- **Alternatives:** Cache whenever `temperature` is 0 (impossible on Claude, ignored on Gemini 3.6, so the cache would be nearly unusable and misleading); cache everything by default (every client would silently get replayed sampled answers); cache sampled answers when opted in (the request contradicts itself; the gateway takes the stricter reading); a body field for opt-in (a `schema.py` change, D-006's shape, and a field adapters would have to ignore); standard `Cache-Control` request directives (they speak to HTTP caches about freshness, not to a gateway about replaying generations); replaying cached answers to streams as `delta` and `end` events (a second replay path to build and test, for little gain).
+- **Risk:** Clients that do not send the header get no benefit, so the hit rate depends on clients. A typo in the header is silent except for `bypass` in the response.
+- **Revisit when:** A provider guarantees deterministic output for some setting, or streaming clients need cached answers.
+
+## D-112 What is stored: a complete answer from the alias's first entry, at most 256 KiB, for 300 s; Redis evicts least recently used keys with an expiry, under a 256 MB cap
+
+- **Decision:**
+  - **Only complete successful answers:** a cacheable request (D-111) whose lookup was a miss is stored only if the router's `serve` returned a result **from the alias's first entry**, with `finish_reason` other than `other` and non-empty `content`. Never an error, never a stream (D-111), so never a partial stream, and never an answer from a fallback entry.
+  - **The stored value** is the canonical JSON (as in D-110) of `{"v": 1, "provider", "provider_instance", "model", "content", "finish_reason", "usage": {"input_tokens", "output_tokens"}, "provider_response_id"}`: what the `ChatResponse` carries except the gateway's `id`, which is per request. A value that is not valid UTF-8 JSON of exactly that shape, with `v` 1, a known `provider` and `finish_reason`, and counts that are integers of at least 0, is a bad entry: treated as a miss and overwritten if the answer is stored (D-114).
+  - **Size cap:** a value over `MAX_ENTRY_BYTES = 262_144` (256 KiB) encoded is not stored, with no Redis call.
+  - **TTL:** `SET <key> <value> EX 300` (`CACHE_TTL_SECONDS = 300`). A later store of the same key replaces the value and restarts the TTL.
+  - **Eviction:** Compose runs Redis with `--maxmemory 256mb --maxmemory-policy volatile-lru`. Every key the gateway writes has an expiry (the limiter's buckets too, D-105), so under memory pressure Redis evicts the least recently used of them.
+  - Interface: `CachedAnswer` (those fields, `encode() -> bytes`, `CachedAnswer.decode(raw: bytes) -> CachedAnswer` raising `ValueError` for a bad entry), `storable(result: ProviderResult, *, first_entry: bool) -> bool`, `CACHE_TTL_SECONDS`, `MAX_ENTRY_BYTES`.
+- **Why:** A fallback answer comes from a different, often cheaper, model, given only because the first entry failed (D-060). Storing it would keep serving the degraded model's answer for 300 s after the first entry recovered. `other` covers safety stops and unknown reasons, and an empty answer is what Gemini returns when thinking used every token (D-049); replaying either would repeat an accident. An answer cut at `max_tokens` is kept: that is what the client asked for, and `max_tokens` is in the key. 256 KiB is far above a normal answer (about 65,000 tokens of English) and keeps one request from filling the cache. 300 s bounds how long response content sits in Redis and how stale an answer can be, while a burst of repeats, such as measurement 3's workload or a retrying client, is still served. Without a memory cap Redis grows with the number of distinct cacheable requests; `noeviction` at a cap would make the limiter's script fail on writes and fail open (D-106), so the cap needs an eviction policy, and `volatile-lru` only takes keys that expire anyway.
+- **Alternatives:** Store fallback answers too (higher hit rate during an outage, at the cost above); store every success including `other` and empty answers; a longer TTL such as an hour (content kept longer, small gain on a repeat workload); `allkeys-lru` (the same here, since every key expires, but it would also evict any key without an expiry added later); `volatile-ttl` (evicts the shortest TTLs first, which are the limiter's buckets, so it would reset busy keys' limits); a second Redis for the cache (full isolation from the limiter, a fourth service to run); compress values (CPU on every hit to save memory a cap already bounds).
+- **Risk:** Response content is kept in Redis for up to 300 s, readable by anyone with Redis access; Redis's port is not published (D-078). Under memory pressure an evicted limiter bucket starts full again, letting that key burst once more; the least recently used buckets are those closest to full. Settings are constants, not environment variables.
+- **Revisit when:** Measurement 3 shows the TTL or cap matter, an operator needs to tune them, or the cache needs its own Redis.
+
+## D-113 A hit: no provider call, cost 0, one usage row marked `cache_hit`; it counts against the rate limit
+
+- **Decision:** Implements D-012.
+  - **A hit** answers with the stored answer: a `ChatResponse` with a new gateway `id` (D-020) and every other field as stored, `provider_response_id` included, since that is the generation it came from. No router call, so no adapter call, no retry, no breaker outcome.
+  - **One usage record per hit,** through the request's meter (D-095): `provider_instance`, `provider_type`, `model` from the stored answer; `stream` false; `attempt` 1; `outcome` `success`; `reason`, `provider_status`, `delivered_chars`, `estimated_output_tokens` null; `partial` false; `input_tokens` and `output_tokens` the stored answer's counts, the content's usage as D-012 says; **`cost_nanousd` 0**, never priced; and **`cache_hit` true**. Every other record has `cache_hit` false. `AttemptUsage` gains `cache_hit: bool = False` as its last field; the meter sets the cost to 0 when it is true; `UsageRecord` gains `cache_hit: bool`, and the batched `INSERT` (D-099) grows to 20 columns, the new one last, `$20::boolean[]`.
+  - **Migration 0004** (`0004_cache_hits.py`, revision `0004`, parent `0003`), **a database schema change**:
+
+    ```sql
+    ALTER TABLE usage_records
+        ADD COLUMN cache_hit boolean NOT NULL DEFAULT false,
+        ADD CONSTRAINT usage_records_cache_hit_free
+            CHECK (NOT cache_hit OR (cost_nanousd = 0 AND outcome = 'success'
+                AND NOT stream AND attempt = 1 AND NOT partial));
+    COMMENT ON COLUMN usage_records.cache_hit IS
+        'True when the response cache answered (D-113): no provider call, cost 0. The token counts are the cached answer''s, not tokens billed.';
+    ```
+
+    Rows written before 0004 get `false`, which is true of them. The downgrade drops the column, which drops its check and comment.
+  - **Rate limit:** a hit counts, one token like any request, because the limiter runs before the body is parsed (D-105, D-108).
+- **Why:** A hit made no upstream call, so it cost nothing, but it is still traffic a tenant sent and an answer it got; a row per hit lets an operator see the hit rate and what the cache saved per tenant from one table. Keeping the content's counts on the row follows D-012: the response body reports them, and the row says which answer the tenant got; the flag and the zero cost keep it out of anything that sums spend. The check makes the database refuse a hit row that claims a cost or a stream. Counting hits against the limit keeps one rule for every request, as D-105 decided.
+- **Alternatives:** No row for a hit (hits invisible in accounting, and the hit rate only in logs); zero counts on hit rows (the row would no longer say what the tenant received, and the body would disagree with the table); a separate `cache_hits` table (two places to read for one tenant's traffic); price hits at the provider's rate (charges for work not done, D-012); a new `provider_response_id` on hits (there is no provider response).
+- **Risk:** A sum of `output_tokens` over all rows double counts hits; anything counting provider tokens must filter `NOT cache_hit`, as the column comment says.
+- **Revisit when:** Tenants are billed for hits by agreement, or a spend cap (stretch) needs to count them.
+
+## D-114 Redis down or slow: the cache is bypassed and never fails a request; it has its own client, pool and breaker, not the limiter's
+
+- **Decision:**
+  - **Its own client:** `cache_client(url)`, built from the same `LLMGATEWAY_REDIS_URL` as D-106's with the same settings, except that the socket and connect timeouts are `CACHE_TIMEOUT_SECONDS = 0.25`: its own `BlockingConnectionPool` of `MAX_CONNECTIONS = 50`, `timeout=None`, no retries. Pre-warmed at startup like the limiter's (D-106): `warm()` opens all 50 within `WARM_TIMEOUT_SECONDS = 2.0` and writes `cache_warm opened=<n> of=50` (INFO when all opened, else WARNING with ` error=<type>`), never raising. `main.py` builds it with `cache_from_env(environ)` after the limiter; `create_app(..., cache: ResponseCache | None = None)`; `cache=None` means no cache (every 200 says `bypass`). The lifespan warms it after the limiter and closes it after the limiter, before the authenticator, each step still run if an earlier one raises.
+  - **Each `get` and `set`** runs under `asyncio.timeout(0.25)`. `RedisResponseCache(client, *, ttl=CACHE_TTL_SECONDS, timeout=CACHE_TIMEOUT_SECONDS, breaker: CircuitBreaker | None = None, clock=time.monotonic)`; `get(key) -> CachedAnswer | None` and `put(key, answer) -> bool` (False when over the size cap, with no call) raise `CacheUnavailable(reason, error_type)`, reason `timeout`, `store_error`, `circuit_open` or, for `get` only, `bad_entry`. A `RedisError` or `OSError` is `store_error`; `redis.exceptions.TimeoutError` and the `asyncio` timeout are `timeout`.
+  - **Its own breaker,** `CircuitBreaker("redis:cache", BreakerPolicy(window_size=5, failure_threshold=5, cooldown=5.0))`, with the limiter's rules (D-106): a store error is a failure; a timeout is a failure only if no call of this cache succeeded during its wait; a cancellation is neutral; any reply, a miss or a bad entry included, is a success; while it is open, nothing is sent and the call raises `circuit_open` at once.
+  - **The app:** on `CacheUnavailable` from `get` it writes one WARNING line, `cache_unavailable request_id=<id> op=get reason=<reason> error=<type>`, and goes on to the router. For `bad_entry` the response says `miss` and the answer may be stored over it; for the other reasons it says `bypass` and nothing is stored. On `CacheUnavailable` from `put`, the same line with `op=set`; the answer is returned as usual with `miss`. Never the key, the URL or an exception message.
+- **Why:** The cache only saves money and time; it decides nothing, so it must never cost a client its answer, and a failed lookup is a miss in effect. Sharing the limiter's breaker would let a cache problem, such as slow large values, open it and switch the rate limit off; the limit matters more than the cache. A separate pool keeps cache reads and writes of up to 256 KiB from holding connections the limiter needs under a burst. 250 ms rather than the limiter's 1 s: a lookup that takes longer than a provider call would be worse than a miss, and a timeout here costs only a provider call, not a shed request.
+- **Alternatives:** Share the limiter's client and breaker (above); fail the request when the cache cannot answer (the cache would become a dependency of every opted-in request); retry a failed lookup (adds wait to a request that can just go to the provider); store asynchronously after responding (one fewer round trip on a miss, but a task to track, close and test, for about a millisecond).
+- **Risk:** A miss pays one `SET` on its path, up to 250 ms if Redis is slow and the breaker still closed. Under a burst that fills the pool, lookups can time out and send opted-in requests to the provider: a cost, not a failure. A Redis outage writes one line per opted-in request.
+- **Revisit when:** The cache gets its own Redis, or measurement 3 shows the 250 ms matters.
+
+## D-115 Concurrent identical misses each call the provider; they are not collapsed
+
+- **Decision:** N identical cacheable requests that miss at the same time each go to the router, each make their own provider calls, each are billed and recorded, and each store their answer; the last store wins, and the entry's TTL restarts with it. Nothing waits on another request.
+- **Why:** Collapsing them into one call is request coalescing, a stretch item (D-031, PLAN.md); measurement 6 belongs to it. Building it now would be building the stretch list. The cost is bounded and visible: N calls instead of one, in N usage rows, only for requests that arrive within one provider call's time of each other, and only once per TTL per key.
+- **Alternatives:** Coalesce in process (stretch, and per worker only); a Redis lock per key so one caller fills the entry and the others wait (a distributed lock with its own timeouts and failure modes, and it is coalescing again).
+- **Risk:** A burst of identical first requests, such as many clients starting at once, costs N calls.
+- **Revisit when:** The coalescing stretch item is built.
+
+## D-116 `x-gateway-cache: hit`, `miss` or `bypass` on every 200 from `POST /v1/chat`
+
+- **Decision:** Settles D-021's open risk. Every 200 response from `POST /v1/chat`, stream or not, carries `x-gateway-cache` with one value: `hit` (served from the cache), `miss` (looked up, not found or a bad entry; the answer may now be stored), or `bypass` (not looked up: not cacheable under D-111, no cache configured, or the lookup could not be made, D-114). Error responses and `/healthz` carry no `x-gateway-cache`. `schema.py` does not change.
+- **Why:** A header lets a client and a load test see cache behavior without a body that depends on cache state (D-012, D-021). Three values, because "not looked up" and "looked up and not found" mean different things to someone measuring a hit rate. On an error nothing was served, so there is no cache state to report.
+- **Alternatives:** A body field (D-021's reason); only `hit` and `miss` (a request that was never eligible would look like a miss and lower the measured hit rate); no header on non-cacheable requests (a client cannot tell "not eligible" from "header lost").
+- **Risk:** Clients may read `miss` as "this answer is now cached"; it is not, if it was not storable (D-112).
+- **Revisit when:** Measurement 3's workload needs more detail, such as why an answer was not stored.
+
+## D-117 M17 integration tests: tenant isolation, a hit with no provider call and a zero-cost row, lower latency, Redis's eviction settings
+
+- **Decision:** Extends D-100 and D-109; Redis's port stays unpublished.
+  - **Tenant isolation:** two keys of different tenants send the identical opted-in request to the stack's api. Tenant A's first request is a `miss`; the test computes A's key from D-110's text and replaces the stored value with a planted answer through `docker compose exec redis redis-cli`; A's repeat is a `hit` with the planted content. Tenant B's identical request is a `miss`, with the mock's own answer and a different `provider_response_id`, never the planted content; B's key exists separately afterwards.
+  - **A hit makes no provider call and costs 0:** on a second gateway started with `docker compose run` (as D-109's) and a test-owned config, mounted read-only, with one mock instance of `latency_ms` 300 and no failures: a first opted-in request is a `miss`, an identical second is a `hit` with the same content and `provider_response_id`, and a much lower latency (the test states its bound). `usage_records` for that key then holds exactly two rows: the miss's, `cache_hit` false, and the hit's, `cache_hit` true, `cost_nanousd` 0, `attempt` 1, `outcome` `success`. The mock's call count is shown by the stored `provider_response_id`: the hit's is the miss's.
+  - **Not cacheable:** without the header, with `temperature` 0.5, and with `stream` true, the response says `bypass` and no key is written.
+  - **Redis's settings:** `CONFIG GET maxmemory` is 268435456 and `maxmemory-policy` is `volatile-lru`; a stored entry's TTL is at most 300 s and above 0.
+  - **Migration 0004** runs on the stack (the `migrate` service), the column and check exist, and the check refuses a hit row with a cost.
+  - Unit tests cover the key document member by member, `cacheable`, `storable`, the value's encoding and every bad-entry shape, the client's settings, the breaker and timeout rules over a fake client, the app's paths over a fake cache (hit, miss, bypass, every `CacheUnavailable` reason for `get` and `put`, bad entry, fallback answer not stored, header on streams and absent on errors), the meter's zero cost, the 20-column insert and migration 0004 offline.
+- **Why:** PLAN.md's proof is a hit with lower latency, another tenant's miss, and hits billed zero; the planted value proves that B is not served A's entry even when the content would be the same, which the mock's deterministic answers (D-016) would otherwise hide. The second gateway gives a provider latency to beat without changing the stack everyone uses.
+- **Alternatives:** Compare content only for isolation (the mock gives both tenants the same text, so it cannot tell a leak from a fresh call); publish Redis to read keys from pytest (D-094's reasoning).
+- **Risk:** The latency bound can be flaky on a slow runner; the mock's 300 ms leaves wide margin.
+- **Revisit when:** The stack runs somewhere `docker compose` cannot reach.

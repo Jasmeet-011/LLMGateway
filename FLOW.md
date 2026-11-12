@@ -50,8 +50,8 @@ flowchart TD
     B -->|no| R1[Reject with 422]
     B -->|yes| AL{Model is a configured alias}
     AL -->|no| R0[Reject with 400 unknown_model]
-    AL -->|yes| K{Cacheable, deterministic and non streaming}
-    K -->|yes| E{Cache hit}
+    AL -->|yes| K{Cacheable: opted in, not streaming, no temperature above 0}
+    K -->|yes| E{Cache hit, Redis answering}
     E -->|yes| H[Record usage, cache_hit flag, billed zero]
     E -->|no| F{Identical request in flight, stretch}
     F -->|yes| W[Wait for that request and share its result, stretch]
@@ -61,8 +61,8 @@ flowchart TD
     G -->|no| R4[Reject, status to be decided, stretch]
     G -->|yes| RT[Router calls a provider]
     RT --> U[Record usage]
-    U --> S{Cacheable}
-    S -->|yes| SC[Store in cache]
+    U --> S{Cacheable, a miss, and a complete answer from the first entry}
+    S -->|yes| SC[Store in cache for 300 s]
     S -->|no| OUT[Respond with gateway request ID]
     SC --> OUT
     H --> OUT
@@ -75,12 +75,12 @@ Why each check sits where it does:
 2. **Body size next, before the body is parsed (D-108).** One `Content-Length` header over `LLMGATEWAY_MAX_BODY_BYTES` (default 1 MiB) is refused at once, without reading a byte; otherwise, a chunked body included, the gateway reads the body itself, counting bytes, and refuses as soon as it passes the limit. The refusal is 413 `request_too_large` with `Connection: close`. A body within the limit is handed on whole. So a key holder cannot make the gateway buffer or parse an unbounded body, and an oversized request costs no Redis call and no token.
 3. **Rate limit before any parsing or expensive work (D-103 to D-107).** Each request takes one token from its key's bucket in Redis, through one Lua script that reads Redis's own clock, so the check and the update are one atomic step shared by every worker and instance. Every request that gets this far counts: a malformed body, an unknown alias and a cache hit too. A key over its limit gets 429 `rate_limited` with `Retry-After`, the seconds until its bucket holds a token; nothing after this point runs, so it reaches no provider, is not recorded and is neutral for the breaker. If Redis fails at once (connection refused or lost, a script error, an unusable reply), the request is allowed, with one `ratelimit_unavailable` line: the limiter fails open, unlike auth (D-106). If Redis does not answer within 1 s, the request is shed with 503 `rate_limit_timeout` and `Retry-After: 1`, never let through unlimited, so an overloaded gateway keeps its limit. The limiter has its own circuit breaker (section 6): five failures in a row open it, and while it is open the request goes on at once, without asking Redis. A timeout counts as a failure only if no other take succeeded during its wait, so a busy gateway with a healthy Redis does not open it. The pool's 50 connections are opened and the script loaded at startup, so a first burst does not spend its budget connecting (D-106, amended before M17).
 4. **Validate the body next.** It needs no database or Redis call. Rejected with 422 (D-019). Then the `model` must exactly match a configured alias (D-045), another check that needs nothing but the config. An unknown alias gets 400 `unknown_model`, for a stream too, before any provider call.
-5. **Cache lookup before calling anyone.** Only cacheable requests are looked up; the rest go straight to the spend cap. A hit made no upstream call, so it is returned at once and billed zero (D-012). The cache key includes the caller, so one tenant never sees another tenant's response (D-003).
-6. **Coalescing after a cache miss (stretch, D-031).** If an identical request is already on its way to a provider, this one waits for that result instead of making a second upstream call. PLAN.md measurement 6 targets exactly one upstream call for N identical requests. The coalescing key is the cache key, including the caller, so tenants never share an in-flight result. Only cacheable requests coalesce.
+5. **Cache lookup before calling anyone (D-110 to D-116).** Only cacheable requests are looked up; the rest go straight to the spend cap. Cacheable means the client sent exactly one `x-gateway-cache: use` header, the request is not a stream, and `temperature` is unset or 0: no request field can promise a deterministic answer (Claude refuses `temperature`, Gemini 3.6 ignores it), so the client says when a stored answer is acceptable (D-111). The key is the SHA-256 of a canonical JSON document holding the tenant, the alias, the alias's resolved entries and every request field but `stream`, so one tenant is never served another's answer and a hit's speed never tells one tenant what another asked (D-110). A hit made no upstream call: it is returned at once with a new gateway `id`, recorded as one usage row with `cache_hit` true and cost 0, and it has already counted against the rate limit (D-113). If Redis cannot answer within 250 ms, fails, or the cache's own breaker is open, the request goes on as if not cacheable, with one `cache_unavailable` line; the cache never fails a request (D-114). Every 200 says `x-gateway-cache: hit`, `miss` or `bypass` (D-116).
+6. **Coalescing after a cache miss (stretch, D-031).** Not built: today identical concurrent misses each call the provider, are each billed, and the last to finish is stored (D-115). If an identical request is already on its way to a provider, this one would wait for that result instead of making a second upstream call. PLAN.md measurement 6 targets exactly one upstream call for N identical requests. The coalescing key is the cache key, including the caller, so tenants never share an in-flight result. Only cacheable requests coalesce.
 7. **Spend cap just before spending (stretch, D-031).** This is the last point where the gateway can refuse before money is spent. Placing it after the cache and coalescing means free answers are never blocked by the cap. The rejection status is to be decided. Checking the cap before the call and recording usage after it is not atomic: concurrent requests can all pass the check before any of them records its cost. How the cap stays atomic across a provider call (for example, reserving the worst-case cost before the call and settling the real cost after) is not decided.
 8. **Router.** Applies timeouts, retries, the circuit breaker, and fallback (section 5).
 9. **Record usage, per attempt (D-095 to D-099).** Real token counts are only known once the provider answers, so the router reports every adapter attempt as it ends: retries, fallback attempts, failures and streams cut short included (section 5). The app adds the key's tenant and key id, the alias, the time and the cost in integer nano-dollars from the dated price table, and puts the record on a bounded in-process queue. A writer task inserts records into `usage_records` in batches, off the response's path, so an answer never waits on the database and a failed write never fails it; a failed write is logged and its rows are lost.
-10. **Store in cache only if deterministic and non-streaming** (D-003). Sampled output should not be replayed as if it were the only answer.
+10. **Store in cache only a complete answer to a cacheable request that missed** (D-112): served by the alias's first entry, not a fallback; `finish_reason` not `other`; non-empty content; at most 256 KiB encoded. `SET` with a 300 s expiry. Never an error and never a stream. A store that fails is logged and the answer is returned as usual.
 11. **Respond with the gateway request ID** (D-011), so logs, metrics, and accounting share one key.
 
 ## 5. Router flow
@@ -187,7 +187,7 @@ event: error
 data: {"type":"error","code":"provider_unavailable","message":"The provider is unavailable.","request_id":"gw_..."}
 ```
 
-The response has `content-type: text/event-stream; charset=utf-8`, `cache-control: no-cache`, `x-accel-buffering: no` and `x-request-id`. Streams are never cached (D-003).
+The response has `content-type: text/event-stream; charset=utf-8`, `cache-control: no-cache`, `x-accel-buffering: no`, `x-request-id` and `x-gateway-cache: bypass`. Streams are never looked up or stored in the cache (D-003, D-111).
 
 ## 6. Circuit breaker
 
@@ -290,7 +290,7 @@ src/llmgateway/
 ├── auth.py              key format, hash_key, Principal, Authenticator and its cache, AuthMiddleware
 ├── keystore.py          PostgresKeyStore over asyncpg: find, create, revoke, list; run_migrations
 ├── keys.py              the key CLI: python -m llmgateway.keys migrate | create | revoke | list
-├── migrations/          Alembic env.py, versions/0001_api_keys.py (D-093), 0002_usage_records.py (D-099), 0003_stream_estimates.py (D-101)
+├── migrations/          Alembic env.py, versions/0001_api_keys.py (D-093), 0002_usage_records.py (D-099), 0003_stream_estimates.py (D-101), 0004_cache_hits.py (D-113)
 ├── usage.py             AttemptUsage, UsageRecord, Meter, UsageRecorder: the queue and writer task (D-095, D-099)
 ├── usagestore.py        PostgresUsageStore over asyncpg: one batched INSERT per write (D-099)
 ├── prices.py            the price table: parse, startup check, cost in nano-dollars (D-096, D-098)
@@ -298,7 +298,7 @@ src/llmgateway/
 ├── bodylimit.py         BodyLimitMiddleware: Content-Length, then a counted read; 413 (D-108)
 ├── ratelimit.py         RedisRateLimiter, RateLimitMiddleware: one script call per request; 429 (D-103 to D-107)
 ├── ratelimit.lua        the token bucket script, run atomically by Redis (D-103)
-├── cache                cache key and storage
+├── cache.py             cache_key, cacheable, storable, CachedAnswer, RedisResponseCache (D-110 to D-114)
 ├── coalescing           stretch (D-031)
 ├── spend                stretch (D-031): spend caps
 └── metrics              stretch (D-031): Prometheus metrics
@@ -311,9 +311,10 @@ src/llmgateway/
 | Postgres | The `api_keys` table: key id, tenant, SHA-256 of the key, created and revoked times (D-093). Created by Alembic migrations, read with asyncpg (D-085) |
 | Process memory | Found key rows, per worker, for `LLMGATEWAY_KEY_CACHE_SECONDS` (default 10 s); misses are not cached (D-090) |
 | Redis | Rate limit token buckets, one hash per API key at `llmgateway:ratelimit:<key id>` with `tokens` and `ts`, updated only by the Lua script using Redis server time, expiring when they would be full (D-103 to D-105) |
-| Redis | Cached responses, keyed by a hash of the normalized request, model, params, and caller (D-003) |
+| Redis | Cached answers at `llmgateway:cache:<SHA-256 of the key document>`, the document holding the tenant, alias, resolved entries and request fields (D-110); each value the answer's canonical JSON, at most 256 KiB, expiring after 300 s (D-112). Redis is capped at 256 MB and evicts the least recently used keys with an expiry (D-112). Prompts are never stored, only inside the hash |
+| Process memory | One breaker per worker for the cache's Redis, `redis:cache`, separate from the limiter's (D-114) |
 | Process memory | Circuit breaker state, one per config instance in each worker, lost on restart (D-055); one more per worker for the rate limiter's Redis, with the time of its last successful take (D-106) |
-| Postgres | The `usage_records` table: one row per adapter attempt, with tenant, key id, alias, instance, model, attempt, outcome, token counts and cost in nano-dollars (D-095, D-099), and for a stream cut short the characters delivered and an estimated output token count (D-101). Created by migration 0002, extended by 0003; written in batches by one writer task per worker |
+| Postgres | The `usage_records` table: one row per adapter attempt, with tenant, key id, alias, instance, model, attempt, outcome, token counts and cost in nano-dollars (D-095, D-099), and for a stream cut short the characters delivered and an estimated output token count (D-101); also one row per cache hit, with `cache_hit` true and cost 0 (D-113). Created by migration 0002, extended by 0003 and 0004; written in batches by one writer task per worker |
 | Process memory | Usage records waiting to be written, at most 10,000 per worker; lost if the process dies (D-099) |
 | The package | `prices.toml`: dated prices per model, each with its source and the day it was read (D-098) |
 | To be decided | Spend cap counters and coalescing state (stretch, D-031) |
@@ -446,6 +447,7 @@ The first candidate's non-thought text is streamed; thought parts produce no eve
 | The key's bucket holds less than one token (D-103, D-107). `Retry-After` is the bucket's time to one token, rounded up to whole seconds and at least 1. No provider call, no usage record, no breaker outcome | 429 | `rate_limited` |
 | Redis does not answer a take within 1 s: the `asyncio.timeout`, redis-py's socket or connect timeout, or a full pool's wait (D-106, amended before M17). `Retry-After: 1`; one `ratelimit_shed` WARNING line. No provider call, no usage record, no breaker outcome for any provider | 503 | `rate_limit_timeout` |
 | Redis fails at once (a `RedisError` or `OSError`) or gives an unusable reply, or the limiter's breaker is open or its probe is out (D-106): not an error. The request is served as if allowed, with one `ratelimit_unavailable` WARNING line, `reason=store_error`, `bad_reply` or `circuit_open` | as served | as served |
+| The response cache's Redis does not answer a `GET` or `SET` within 250 ms, fails, or the cache's breaker is open (D-114): not an error. The request goes to the router (`x-gateway-cache: bypass`), or a failed store still returns the answer (`miss`), with one `cache_unavailable` WARNING line | as served | as served |
 | Body fails validation, or is not valid JSON (`details` holds `loc` and `msg` only); a body that is not valid UTF-8 gets 400 `http_error` instead (row below) | 422 | `validation_error` |
 | `model` is not a configured alias (exact, case-sensitive match; the value is not echoed; no provider is called; for a stream too, D-045) | 400 | `unknown_model` |
 | Unknown route | 404 | `not_found` |
@@ -456,7 +458,7 @@ The first candidate's non-thought text is streamed; thought parts produce no eve
 | Any other exception | 500 | `internal_error` |
 | Any other exception after a stream's first event (D-069) | 200 already sent; an `error` event | `internal_error` |
 
-Every response, including errors, carries `x-request-id` (D-020).
+Every response, including errors, carries `x-request-id` (D-020). Every 200 from `POST /v1/chat`, and no other response, carries `x-gateway-cache: hit`, `miss` or `bypass` (D-116).
 
 ### Configuration errors (startup, `config.py`, `router.py`, `main.py`, D-044, D-046)
 

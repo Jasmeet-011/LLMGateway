@@ -114,6 +114,7 @@ Worked in order. Status and evidence are in [PROGRESS.md](PROGRESS.md); this fil
 - **Proof:** a second identical call returns `x-gateway-cache: hit` with lower latency; another tenant misses; hits are recorded billed zero (D-012).
 - **Dependencies allowed:** none new.
 - **Open issues to settle:** what "cacheable" means given D-033 (temperature cannot signal determinism on Claude), for example explicit client opt-in; supersede D-003 with a new entry; TTL; the header value for requests that are not cacheable (D-021).
+- **Settled:** D-110 (the key: tenant, alias, resolved entries, every request field; canonical JSON, SHA-256; supersedes D-003's key), D-111 (opt-in with `x-gateway-cache: use`, no streams, no temperature above 0), D-112 (only complete first-entry answers, 256 KiB, 300 s, `volatile-lru` under 256 MB), D-113 (a hit: no call, cost 0, a `cache_hit` row by migration 0004, counts against the rate limit), D-114 (Redis down or slow: bypass, own client, pool and breaker), D-115 (concurrent misses not collapsed: coalescing is stretch), D-116 (`hit`, `miss`, `bypass` on every 200), D-117 (integration tests). Added by the owner for M17: each with the alternative rejected; tenant isolation as a privacy rule, latency included; Redis down or slow; concurrent misses; integration tests on real Redis. Added before M17: D-106's second amendment, the limiter's shed and breaker.
 
 ### M18 Load tests and results
 
