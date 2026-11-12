@@ -26,7 +26,7 @@ M15 is done: every adapter attempt, retries, fallback attempts, failures and str
 
 The next milestone is **M16 Redis Lua token-bucket rate limiter**, which now includes the request body size limit.
 
-Open items: whether Gemini's streamed `thoughtsTokenCount` is cumulative is still unverified (D-075, D-097); `tests/test_live_gemini_thinking_usage.py` is written, not run. The Gemini price rows were read through a fetch that summarizes the page and want the owner's eye (D-098). The owner confirmed D-089 (2026-11-11). No request body size limit yet; it is now in M16's scope (D-025, PLAN.md). D-071 is approved by the owner (2026-11-11), with its condition pinned by tests. The owner reran the five non-streaming live tests on 2026-11-04 after the Gemini fixes (D-048, D-049): 5 passed. Every checkout is now LF (`.gitattributes`).
+Open items: the owner's thinking live test passed on 2026-11-11, so Gemini's streamed thinking counts are cumulative and the latest-value rule holds (D-097); it ran at `LOW` thinking, so what `MINIMAL` costs on `gemini-3.6-flash` is unmeasured (D-049). The owner verified the Gemini price rows on 2026-11-11 (D-098). The owner confirmed D-089 (2026-11-11). No request body size limit yet; it is now in M16's scope (D-025, PLAN.md). D-071 is approved by the owner (2026-11-11), with its condition pinned by tests. The owner reran the five non-streaming live tests on 2026-11-04 after the Gemini fixes (D-048, D-049): 5 passed. Every checkout is now LF (`.gitattributes`).
 
 ## Milestones
 
@@ -87,6 +87,15 @@ Distilled from the mistakes logs. The full history is in [docs/archive/2026-11-s
 ## Session Log
 
 Newest sessions go here. When this file passes 50 KB, move the session log and the mistakes rows, unchanged, to a new file in [docs/archive/](docs/archive/), and keep the Lessons section current.
+
+### 2026-11-11: owner's results, the partial-stream estimate, M16 Redis Lua token-bucket rate limiter
+
+**State check.** HEAD 00080c6, clean, on `main`, level with origin after `git pull`, as the brief expected. `.\scripts\check.ps1` PASS: 5234 passed, 39 deselected in 342.59 s, matching the brief. `.claude/agents/tester.md` and `reviewer.md` both present.
+
+**Owner's results, recorded first.**
+- `tests/test_live_gemini_thinking_usage.py` (`gemini-3.6-flash`): passed, as reported by the owner. `thoughtsTokenCount` 246 on all three chunks, `candidatesTokenCount` 3, 17, 17, `promptTokenCount` 20 on every chunk; the adapter reported 20 in and 263 out (17 visible + 246 thinking), matching the last chunk. Summing would have billed 738 thinking tokens. Recorded on D-097, with a line on D-075.
+- The cost note, on D-049 and in a new README.md Known limitations section. **One correction:** the owner's note says the 246 thinking tokens were spent at `MINIMAL`, but the test's raw request sends `thinkingLevel` `LOW` (line 130), not the adapter's `MINIMAL`. Both places record `LOW` as the measured level and say `MINIMAL` on this model is unmeasured; this is listed for the owner.
+- The owner verified the four Gemini rows in `prices.toml` against Google's pricing page on 2026-11-11: all match. The brief says to record it in D-096; the rows and the open item are in D-098, so the note is on D-098, with a pointer line on D-096.
 
 ### 2026-11-11: owner's results, M15 Token and cost accounting
 
