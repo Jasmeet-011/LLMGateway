@@ -259,6 +259,29 @@ async def test_the_limit_is_the_one_given_to_the_middleware(limit: int) -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("value", "body"),
+    [
+        pytest.param(b"0", b"", id="zero"),
+        pytest.param(b"00", b"", id="two_zeros"),
+        pytest.param(b"0" * 30, b"", id="thirty_zeros"),
+        pytest.param(b"0" * 25 + b"5", b"hello", id="five_with_25_leading_zeros"),
+        pytest.param(b"0" * 5000 + b"5", b"hello", id="five_with_5000_leading_zeros"),
+        pytest.param(b"1000", b"x" * 1000, id="exactly_the_limit"),
+    ],
+)
+async def test_a_content_length_of_digits_within_the_limit_passes_whatever_its_leading_zeros(
+    value: bytes, body: bytes
+) -> None:
+    # The value, not the number of digits written, is what is compared with the limit.
+    server = Server(request_message(body))
+    inner = Inner()
+    sent = await run(server, inner, headers=length(value))
+    assert sent.status == 200
+    assert inner.body == body
+
+
+@pytest.mark.asyncio
 async def test_a_content_length_of_exactly_the_limit_and_a_body_of_exactly_the_limit_passes() -> (
     None
 ):

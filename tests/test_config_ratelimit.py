@@ -17,9 +17,10 @@ A variable that is set but empty or blank is set, and wrong, for the three numbe
 names its variable and none contains the value that was given: a recognizable value is planted in
 each rejected input (Lesson 9).
 
-Not pinned, because no sentence says: leading zeros in an integer ("060"), non-ASCII decimal digits,
-exponent notation in the rate ("1e-3", which `float` reads), surrounding spaces around the rate,
-and a port that is not a number in the URL.
+Not pinned, because no sentence says: non-ASCII decimal digits (Arabic-Indic and the like),
+exponent notation in the rate ("1e-3", which `float` reads) and surrounding spaces around the
+rate. A port that is not a number is pinned, as the same rule as `database_url` (D-091), after the
+mutation checks found it unpinned.
 """
 
 from typing import Any
@@ -84,6 +85,8 @@ def test_a_redis_url_that_is_unset_or_blank_is_an_error_naming_the_variable(
         pytest.param(f"unix://:{MARKER}@/var/run/redis.sock", id="unix"),
         pytest.param(f"redis+sentinel://:{MARKER}@redis:26379/0", id="sentinel"),
         pytest.param(f"valkey://:{MARKER}@redis:6379/0", id="valkey"),
+        # A unix URL that names a host would pass the host check, so only the scheme stops it.
+        pytest.param(f"unix://:{MARKER}@redis/var/run/redis.sock", id="unix_with_a_host"),
         pytest.param(f"REDISX://:{MARKER}@redis:6379/0", id="longer_scheme"),
         pytest.param(f":{MARKER}@redis:6379/0", id="no_scheme"),
         pytest.param(f"//:{MARKER}@redis:6379/0", id="empty_scheme"),
@@ -126,6 +129,24 @@ def test_a_redis_url_that_urlsplit_cannot_parse_is_an_error_that_never_shows_the
     assert MARKER not in message
 
 
+@pytest.mark.parametrize(
+    "url",
+    [
+        pytest.param(f"redis://:{MARKER}@redis:notaport/0", id="port_not_a_number"),
+        pytest.param(f"redis://:{MARKER}@redis:99999/0", id="port_out_of_range"),
+        pytest.param(f"rediss://:{MARKER}@redis:-1/0", id="negative_port"),
+    ],
+)
+def test_a_redis_url_with_a_port_that_is_not_a_port_is_an_error_that_never_shows_the_value(
+    url: str,
+) -> None:
+    # The same rule as `database_url` (D-091): `urlsplit` raises for a bad port only when the
+    # port is read, and a gateway that started with one would fail on its first request.
+    message = message_of("redis_url", {REDIS: url})
+    assert REDIS in message
+    assert MARKER not in message
+
+
 def test_the_redis_url_message_for_each_rule_is_not_the_same_text_as_the_value() -> None:
     # A password in the URL is a value the message must not echo under any rule.
     for url in (f"http://:{MARKER}@h/0", f"redis://:{MARKER}@/0", ""):
@@ -148,6 +169,24 @@ def test_a_burst_of_decimal_digits_from_1_to_a_million_is_an_int(text: str, valu
     result = config.rate_limit_burst({BURST: text})
     assert result == value
     assert type(result) is int
+
+
+@pytest.mark.parametrize(
+    ("text", "value"),
+    [("007", 7), ("0000000000000000000000060", 60), ("0" * 5000 + "5", 5), ("01000000", 1_000_000)],
+)
+def test_leading_zeros_are_decimal_digits_and_do_not_count_toward_the_length(
+    text: str, value: int
+) -> None:
+    # The value is what is compared with the range, however many zeros were written.
+    assert config.rate_limit_burst({BURST: text}) == value
+
+
+@pytest.mark.parametrize(
+    ("text", "value"), [("01024", 1024), ("0" * 25 + "2048", 2048), ("067108864", 67_108_864)]
+)
+def test_leading_zeros_in_the_body_limit_are_decimal_digits_too(text: str, value: int) -> None:
+    assert config.max_body_bytes({BODY: text}) == value
 
 
 def test_an_unset_burst_is_60() -> None:
@@ -176,6 +215,13 @@ BAD_BURSTS = [
     "",
     "   ",
     "1,000",
+    # `str.isdigit` is true for these, `int` cannot read them: a crash and not an error.
+    "²",
+    "1²",
+    "①",
+    # Too long for `int` to read at all (Python refuses past 4300 digits).
+    "9" * 5000,
+    "9" * 400,
 ]
 
 
@@ -303,6 +349,11 @@ BAD_BODIES = [
     "inf",
     "",
     "   ",
+    "²",
+    "2048²",
+    "①",
+    "9" * 5000,
+    "9" * 400,
 ]
 
 

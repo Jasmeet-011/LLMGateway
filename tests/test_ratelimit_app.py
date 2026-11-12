@@ -329,6 +329,25 @@ async def test_every_kind_of_request_is_429_when_the_bucket_is_empty(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "path", ["/healthz/", "/healthz/x", "/healthzz", "/HEALTHZ", "/healthz%2f"]
+)
+async def test_a_path_that_is_not_exactly_healthz_takes_a_token_like_any_request(
+    path: str,
+) -> None:
+    # Only /healthz itself is exempt (D-089, D-108). A key holder asking for another path is a
+    # request like any other: the limiter is called, and a denial is a 429 and not a 404.
+    rig = build(FakeLimiter(allow(), deny(3)))
+    allowed = await authed(rig, method="GET", path=path)
+    # The framework answers `/healthz/` with a redirect to `/healthz` and the others with 404.
+    assert allowed.status in (307, 404)
+    assert rig.limiter.keys == [TEST_KEY_ID]
+    denied = await authed(rig, method="GET", path=path)
+    assert denied.status == 429
+    assert rig.limiter.keys == [TEST_KEY_ID, TEST_KEY_ID]
+
+
+@pytest.mark.asyncio
 async def test_healthz_is_served_and_never_calls_the_limiter() -> None:
     rig = build(FakeLimiter(deny(1)))
     called = await asgi(rig.app, method="GET", path="/healthz")

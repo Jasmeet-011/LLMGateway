@@ -37,7 +37,16 @@ from typing import Any
 import pytest
 import redis.asyncio
 import redis.exceptions as rexc
-from ratelimit_support import MARKER, FakeRedis, Hang, Slow, ratelimit_module, unavailable
+from ratelimit_support import (
+    MARKER,
+    URL_MARKER,
+    FakeRedis,
+    Hang,
+    Slow,
+    everything_logged,
+    ratelimit_module,
+    unavailable,
+)
 from stream_support import pass_time, until
 from usage_support import virtual_loop_time
 
@@ -381,6 +390,70 @@ async def test_the_unavailable_error_never_carries_the_exceptions_message(
     assert all(MARKER not in str(argument) for argument in error.args)
     assert MARKER not in error.reason
     assert MARKER not in error.error_type
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "raised",
+    [
+        rexc.ConnectionError(f"Error connecting to {MARKER}"),
+        OSError(f"connect to {MARKER} failed"),
+    ],
+)
+async def test_the_unavailable_error_does_not_chain_the_exception_that_carries_the_message(
+    raised: BaseException,
+) -> None:
+    # `raise ... from exc` would keep the original, message and all, on `__cause__`, where a
+    # traceback or a handler could print it (D-106: never an exception message).
+    error = await take_error(make_limiter(FakeRedis(raised)))
+    assert error.__cause__ is None
+    assert error.__suppress_context__ is True
+
+
+LEAKY_STEPS = [
+    pytest.param(rexc.ConnectionError(f"Error connecting to {URL_MARKER}: {MARKER}"), id="redis"),
+    pytest.param(OSError(f"connect to {URL_MARKER} failed: {MARKER}"), id="os_error"),
+    pytest.param(rexc.ResponseError(f"ERR {MARKER}"), id="script_error"),
+    pytest.param([MARKER, URL_MARKER], id="bad_list_reply"),
+    pytest.param(MARKER, id="bad_string_reply"),
+    pytest.param({MARKER: URL_MARKER}, id="bad_dict_reply"),
+    pytest.param([1, 0], id="allowed"),
+    pytest.param([0, 1500], id="refused"),
+]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("step", LEAKY_STEPS)
+async def test_a_take_writes_nothing_to_any_log_at_any_level_whatever_it_gets(
+    step: Any, all_logs: pytest.LogCaptureFixture
+) -> None:
+    # The limiter returns or raises; the middleware writes the one line (D-106). A line from
+    # here at DEBUG, INFO or WARNING, with a reply, a message or the client in it, is a leak.
+    limiter = make_limiter(FakeRedis(step))
+    try:
+        await limiter.take(KEY_ID)
+    except ratelimit_module().RateLimitUnavailable:
+        pass
+    assert [r for r in all_logs.records if r.name.startswith("llmgateway")] == []
+    assert MARKER not in everything_logged(all_logs)
+
+
+@pytest.mark.asyncio
+async def test_a_take_that_times_out_writes_nothing_to_any_log(
+    all_logs: pytest.LogCaptureFixture,
+) -> None:
+    limiter = make_limiter(FakeRedis(Hang()), timeout=0.05)
+    await take_error(limiter)
+    assert [r for r in all_logs.records if r.name.startswith("llmgateway")] == []
+
+
+def test_the_limiters_repr_and_str_never_name_the_client_or_its_url() -> None:
+    client = ratelimit_module().redis_client(f"redis://:{MARKER}@example.invalid:6379/0")
+    limiter = make_limiter(client)
+    for text in (repr(limiter), str(limiter)):
+        assert MARKER not in text
+        assert "example.invalid" not in text
+        assert "redis://" not in text
 
 
 @pytest.mark.asyncio
