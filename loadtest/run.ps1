@@ -14,6 +14,12 @@ makes an API key whose tenant is the run id (not for the direct mock); runs k6 i
 `k6` service with the key in its environment; waits 5 s for the usage writer; saves
 docs/results/raw/<id>/: records.jsonl, summary.json, k6.txt (k6's stdout and stderr), api.log, usage.tsv (when the
 catalog says so) and run.json. It stops if the key appears in any saved file.
+
+Standby guard (D-121, amended after the first pass, which ran with the laptop in Modern Standby):
+it refuses to start while the machine is in Modern Standby, holds a power request that keeps the
+display on while it runs, and lists in run.json every Kernel-Power standby event (506 entering,
+507 exiting) between the run's start and end; if there is one, it stops with an error after
+saving the output, so the run is kept and recorded as disturbed.
 #>
 param(
     [Parameter(Mandatory = $true)][string]$Run,
@@ -34,6 +40,34 @@ function Invoke-Native {
     return $output
 }
 
+function Get-StandbyEvents {
+    # Kernel-Power 506 (entering Modern Standby) and 507 (exiting), oldest first.
+    param([Nullable[datetime]]$Start, [Nullable[datetime]]$End, [int]$Newest = 0)
+    $filter = @{ LogName = 'System'; ProviderName = 'Microsoft-Windows-Kernel-Power'; Id = 506, 507 }
+    if ($null -ne $Start) { $filter.StartTime = $Start }
+    if ($null -ne $End) { $filter.EndTime = $End }
+    $query = @{ FilterHashtable = $filter; ErrorAction = 'Stop' }
+    if ($Newest -gt 0) { $query.MaxEvents = $Newest }
+    try {
+        $found = @(Get-WinEvent @query)
+    }
+    catch {
+        # "No events were found" is an answer; any other failure (no access to the log) is not.
+        if ($_.FullyQualifiedErrorId -like 'NoMatchingEventsFound*') { return @() }
+        throw
+    }
+    return @($found | Sort-Object TimeCreated)
+}
+
+# SetThreadExecutionState: a power request bound to this thread, held until it is reset.
+Add-Type -Namespace LgwLoad -Name Power -MemberDefinition @'
+[DllImport("kernel32.dll")]
+public static extern uint SetThreadExecutionState(uint esFlags);
+'@
+$ES_CONTINUOUS = [uint32]'0x80000000'
+$ES_SYSTEM_REQUIRED = [uint32]'0x00000001'
+$ES_DISPLAY_REQUIRED = [uint32]'0x00000002'
+
 function Write-LfFile {
     param([string]$Path, [object[]]$Lines)
     $text = if ($null -eq $Lines -or $Lines.Count -eq 0) { '' } else { ($Lines -join "`n") + "`n" }
@@ -42,6 +76,7 @@ function Write-LfFile {
 
 $repo = Split-Path -Parent $PSScriptRoot
 Push-Location $repo
+$powerHeld = $false
 try {
     $catalog = Get-Content -Raw -Path 'loadtest/runs.json' | ConvertFrom-Json
     $entry = $catalog | Where-Object { $_.id -eq $Run }
@@ -58,6 +93,19 @@ try {
     if (Test-Path $out) {
         throw "$out exists: every run keeps its output, and a rerun gets its own id (D-121)"
     }
+
+    # Refuse to start in Modern Standby: its latest 506 or 507 event is a 506 (D-121).
+    $last = @(Get-StandbyEvents -Newest 1)
+    if ($last.Count -eq 1 -and $last[0].Id -eq 506) {
+        $since = $last[0].TimeCreated.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
+        throw "the machine has been in Modern Standby since $since; wake it before a run (D-121)"
+    }
+    # 0x80000003: keep the system and the display on until the reset in the finally below.
+    if ([LgwLoad.Power]::SetThreadExecutionState($ES_CONTINUOUS -bor $ES_SYSTEM_REQUIRED -bor $ES_DISPLAY_REQUIRED) -eq 0) {
+        throw 'SetThreadExecutionState refused the power request'
+    }
+    $powerHeld = $true
+    $startedLocal = Get-Date
 
     $files = @('compose', '-f', 'compose.yaml', '-f', 'loadtest/compose.loadtest.yaml')
     foreach ($override in $entry.overrides) { $files += @('-f', $override) }
@@ -115,7 +163,12 @@ try {
         Write-LfFile (Join-Path $out 'usage.tsv') @($usage | Where-Object { $_ -ne '' })
     }
 
-    $ended = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.fffZ')
+    $endedLocal = Get-Date
+    $ended = $endedLocal.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.fffZ')
+    # Any standby event during the run (D-121); [ordered] keeps the keys in this order in JSON.
+    $powerEvents = @(Get-StandbyEvents -Start $startedLocal -End $endedLocal | ForEach-Object {
+            [ordered]@{ utc = $_.TimeCreated.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.fffZ'); id = $_.Id }
+        })
     $commit = (Invoke-Native 'git' @('rev-parse', 'HEAD')).Trim()
     $dirty = [bool](Invoke-Native 'git' @('status', '--porcelain', '--', 'src', 'config', 'loadtest', 'compose.yaml', 'Dockerfile'))
     $imageId = (Invoke-Native 'docker' @('image', 'inspect', 'llmgateway:local', '--format', '{{.Id}}')).Trim()
@@ -140,6 +193,7 @@ try {
         key_id          = $keyId
         started_utc     = $started
         ended_utc       = $ended
+        power_events    = $powerEvents
     }
     Write-LfFile (Join-Path $out 'run.json') @(($meta | ConvertTo-Json -Depth 4).Replace("`r`n", "`n"))
 
@@ -152,11 +206,19 @@ try {
             }
         }
     }
+    if ($powerEvents.Count -gt 0) {
+        $listed = ($powerEvents | ForEach-Object { "$($_.id) at $($_.utc)" }) -join ', '
+        throw "standby events during the run ($listed); the output is kept in $out and the run is disturbed (D-121)"
+    }
     if ($k6Exit -ne 0) {
         throw "k6 exited with $k6Exit; the output is kept in $out"
     }
     Write-Host "done: $out"
 }
 finally {
+    if ($powerHeld) {
+        # Back to ES_CONTINUOUS alone: the power request ends.
+        [LgwLoad.Power]::SetThreadExecutionState($ES_CONTINUOUS) | Out-Null
+    }
     Pop-Location
 }

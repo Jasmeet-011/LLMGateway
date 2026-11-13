@@ -11,6 +11,11 @@ Key design choices:
 - Attempt and fallback lines are joined to a tenant through the request line's `request_id`,
   in any order, because the request line is written when the response finishes, after them.
 - The breaker's `ts` must be UTC with an explicit `+00:00` offset (D-082).
+- Requests refused before their key's tenant was known (tenant `-`: a 401, or a 503
+  `auth_unavailable`) are counted apart in `before_auth`, whatever the tenant asked for, since
+  the runner recreates the gateway for every run. A tenant-less 200 is a health check, because a
+  chat request cannot succeed without a tenant, so it is not counted (D-122, amended after the
+  first pass, where 14 such 503s were in no column).
 """
 
 from collections.abc import Iterable
@@ -34,6 +39,7 @@ class GatewayCounts:
     by_status: dict[int, int] = field(default_factory=dict)
     failed_attempts: int = 0
     fallbacks: int = 0
+    before_auth: dict[int, int] = field(default_factory=dict)
 
 
 def _fields(line: str) -> dict[str, str]:
@@ -84,6 +90,7 @@ def breaker_events(lines: Iterable[str]) -> list[BreakerEvent]:
 
 def gateway_counts(lines: Iterable[str], tenant: str) -> GatewayCounts:
     statuses: dict[str, int] = {}
+    refused: dict[str, int] = {}
     attempts: list[str] = []
     fallbacks: list[str] = []
     for line in lines:
@@ -94,16 +101,23 @@ def gateway_counts(lines: Iterable[str], tenant: str) -> GatewayCounts:
                 (attempts if "attempt_failed" in tokens else fallbacks).append(request_id)
             continue
         fields = _fields(line)
-        if fields.get("tenant") != tenant or "request_id" not in fields:
-            continue
         status = fields.get("status", "")
-        if status.isdigit():
+        if "request_id" not in fields or not status.isdigit():
+            continue
+        # Refusals first, so they are counted whatever tenant was asked for (D-122, amended).
+        if fields.get("tenant") == "-" and int(status) != 200:
+            refused[fields["request_id"]] = int(status)
+        elif fields.get("tenant") == tenant:
             statuses[fields["request_id"]] = int(status)
     by_status: dict[int, int] = {}
     for status_code in statuses.values():
         by_status[status_code] = by_status.get(status_code, 0) + 1
+    before_auth: dict[int, int] = {}
+    for status_code in refused.values():
+        before_auth[status_code] = before_auth.get(status_code, 0) + 1
     return GatewayCounts(
         by_status=by_status,
         failed_attempts=sum(1 for request_id in attempts if request_id in statuses),
         fallbacks=sum(1 for request_id in fallbacks if request_id in statuses),
+        before_auth=before_auth,
     )

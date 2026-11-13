@@ -11,6 +11,10 @@ Key design choices:
 - When a run has reruns (`<id>-rerun<k>`, D-121), the figure uses the latest rerun and the table
   lists the first run too, marked as replaced.
 - Smoke runs (`smoke-*`) are listed by id only; no figure comes from them.
+- A replaced run's figures are not dropped: once any run has a rerun, the same tables are also
+  written from every run's first output (`*-first-pass.*`), as D-121 asks (D-122, amended).
+- Requests the gateway refused before it knew the tenant, and standby events the runner saw
+  during a run, get their own sections, so neither can hide in a table (D-122, amended).
 """
 
 import json
@@ -43,7 +47,7 @@ def _dropped(run_dir: Path) -> int:
     return int(metric["count"]) if isinstance(metric, dict) and "count" in metric else 0
 
 
-def _chosen_dir(raw: Path, run_id: str) -> tuple[Path, list[str]]:
+def _chosen_dir(raw: Path, run_id: str, first_pass: bool = False) -> tuple[Path, list[str]]:
     """The directory whose figures count, and every id this catalog run produced."""
     first = raw / run_id
     if not first.is_dir():
@@ -52,8 +56,12 @@ def _chosen_dir(raw: Path, run_id: str) -> tuple[Path, list[str]]:
         (p for p in raw.glob(f"{run_id}-rerun*") if p.is_dir()),
         key=lambda p: int(p.name.rsplit("rerun", 1)[1]),
     )
-    chosen = reruns[-1] if reruns else first
+    chosen = reruns[-1] if reruns and not first_pass else first
     return chosen, [first.name] + [p.name for p in reruns]
+
+
+def _status_text(by_status: dict[str, int]) -> str:
+    return ", ".join(f"{k}: {v}" for k, v in by_status.items())
 
 
 def _fmt(value: float, digits: int = 1) -> str:
@@ -65,13 +73,14 @@ def _range(values: Sequence[float], digits: int = 1, unit: str = "") -> str:
     return f"{_fmt(s.median, digits)}{unit} [{_fmt(s.low, digits)} to {_fmt(s.high, digits)}]"
 
 
-def build(repo: Path) -> dict[str, Any]:
+def build(repo: Path, first_pass: bool = False) -> dict[str, Any]:
+    """Every run's figures; with `first_pass`, from each run's first output, reruns ignored."""
     raw = repo / "docs" / "results" / "raw"
     catalog = json.loads((repo / "loadtest" / "runs.json").read_text(encoding="utf-8"))
     runs: dict[str, dict[str, Any]] = {}
     records: dict[str, list[Record]] = {}
     for entry in catalog:
-        chosen, produced = _chosen_dir(raw, entry["id"])
+        chosen, produced = _chosen_dir(raw, entry["id"], first_pass)
         record_lines = _lines(chosen / "records.jsonl")
         recs = parse_records(record_lines)
         records[entry["id"]] = recs
@@ -85,7 +94,12 @@ def build(repo: Path) -> dict[str, Any]:
             "git_commit": meta.get("git_commit"),
             "dropped_iterations": _dropped(chosen),
             "k6_messages": k6_messages(record_lines) + k6_log_messages(_lines(chosen / "k6.txt")),
+            # None for runs made before the runner recorded standby events (D-121, amended).
+            "power_events": meta.get("power_events"),
         }
+        if entry["target"] == "api":
+            refused = gateway_counts(_lines(chosen / "api.log"), chosen.name).before_auth
+            info["before_auth"] = {str(k): v for k, v in sorted(refused.items())}
         m = entry["measurement"]
         if m in (1, 2, 3):
             info["latency"] = asdict(latency(recs, "measure"))
@@ -190,7 +204,11 @@ def _table(header: Sequence[str], rows: Sequence[Sequence[object]]) -> list[str]
 
 
 def _note(info: dict[str, Any]) -> str:
-    replaced = info["produced"][:-1]
+    produced = info["produced"]
+    if info["used"] != produced[-1]:
+        # A first-pass table: this row's output was replaced by the latest rerun.
+        return f" (replaced by: {produced[-1]})"
+    replaced = produced[:-1]
     return f" (replaced: {', '.join(replaced)})" if replaced else ""
 
 
@@ -206,7 +224,7 @@ def _m1(summary: dict[str, Any]) -> list[str]:
         lat = info["latency"]
         rows.append(
             [
-                rid + _note(info),
+                info["used"] + _note(info),
                 lat["count"] + lat["failed"],
                 lat["failed"],
                 info["dropped_iterations"],
@@ -249,7 +267,7 @@ def _m2(summary: dict[str, Any]) -> list[str]:
         tput.append(info["throughput_rps"])
         rows.append(
             [
-                rid + _note(info),
+                info["used"] + _note(info),
                 info["success"]["succeeded"],
                 info["success"]["total"],
                 _fmt(info["error_rate"] * 100, 2) + "%",
@@ -277,7 +295,7 @@ def _m3(summary: dict[str, Any]) -> list[str]:
         rates.append(c["hit_rate"] * 100)
         rows.append(
             [
-                rid + _note(info),
+                info["used"] + _note(info),
                 c["total"],
                 c["hits"],
                 c["misses"],
@@ -307,7 +325,8 @@ def _failures(summary: dict[str, Any], m: int, title: str) -> list[str]:
         info = runs[rid]
         variant = "off" if "-off-" in rid else "on"
         by_variant.setdefault(variant, []).append(info["success_rate"] * 100)
-        statuses = ", ".join(f"{k}: {v}" for k, v in info["gateway"]["by_status"].items())
+        statuses = _status_text(info["gateway"]["by_status"])
+        refused = _status_text(info.get("before_auth", {})) or "-"
         served = ", ".join(f"{k}: {v}" for k, v in info["served_by"].items())
         breaker = "; ".join(
             f"{e['provider']} {e['to_state']} at {_fmt(e['at_s'], 1)} s" for e in info["breaker"]
@@ -315,7 +334,7 @@ def _failures(summary: dict[str, Any], m: int, title: str) -> list[str]:
         u = info["usage"]
         problems = info["cross_check"]
         row: list[object] = [
-            rid + _note(info),
+            info["used"] + _note(info),
             info["success"]["total"],
             info["success"]["succeeded"],
             _fmt(info["success_rate"] * 100, 2) + "%",
@@ -326,6 +345,7 @@ def _failures(summary: dict[str, Any], m: int, title: str) -> list[str]:
         row += [
             info["dropped_iterations"],
             statuses,
+            refused,
             info["gateway"]["failed_attempts"],
             info["gateway"]["fallbacks"],
             served,
@@ -337,7 +357,8 @@ def _failures(summary: dict[str, Any], m: int, title: str) -> list[str]:
     header = ["Run", "Requests", "Successes", "Success rate"]
     if m == 8:
         header.append("In window")
-    header += ["Dropped", "Gateway statuses", "Failed attempts", "Fallbacks", "Served by"]
+    header += ["Dropped", "Gateway statuses", "Refused before auth", "Failed attempts"]
+    header += ["Fallbacks", "Served by"]
     header += ["Breaker changes", "Usage rows (success/failed/abandoned)", "Cross-check"]
     out = [f"## {title}", "", *_table(header, rows), ""]
     for variant in ("off", "on"):
@@ -356,7 +377,7 @@ def _m5(summary: dict[str, Any]) -> list[str]:
         p = info["paced"]
         rows.append(
             [
-                rid + _note(info),
+                info["used"] + _note(info),
                 b["requests"],
                 b["ok"],
                 b["limited"],
@@ -376,8 +397,15 @@ def _m5(summary: dict[str, Any]) -> list[str]:
     return [title, "", *_table(header, rows)]
 
 
-def tables(summary: dict[str, Any]) -> str:
-    out = ["# Load test tables", "", "Generated by `loadtest/report.py`; do not edit.", ""]
+def tables(summary: dict[str, Any], first_pass: bool = False) -> str:
+    title = "# Load test tables, first pass" if first_pass else "# Load test tables"
+    out = [title, "", "Generated by `loadtest/report.py`; do not edit.", ""]
+    if first_pass:
+        out += [
+            "The first output of every pre-registered run, including the runs that reruns",
+            "replaced (D-121). The figures that count are in tables.md.",
+            "",
+        ]
     out += [*_m1(summary), "", *_m2(summary), "", *_m3(summary), ""]
     out += _failures(summary, 4, "Measurement 4: 30% injected failures, 50 req/s, 60 s")
     out += ["", *_m5(summary), ""]
@@ -389,6 +417,20 @@ def tables(summary: dict[str, Any]) -> str:
         for message in info["k6_messages"]
     ]
     out += noted or ["- none"]
+    out += ["", "## Requests refused before auth (tenant unknown, D-091)", ""]
+    refused = [
+        f"- {rid}: {_status_text(info['before_auth'])}"
+        for rid, info in summary["runs"].items()
+        if info.get("before_auth")
+    ]
+    out += refused or ["- none"]
+    out += ["", "## Power events during a run (Kernel-Power 506 entering, 507 leaving standby)", ""]
+    events = [
+        f"- {rid}: " + ", ".join(f"{e['id']} at {e['utc']}" for e in info["power_events"])
+        for rid, info in summary["runs"].items()
+        if info.get("power_events")
+    ]
+    out += events or ["- none"]
     out += ["", "## Smoke runs (not results)", ""]
     out += [f"- {name}" for name in summary["smoke_runs"]] or ["- none"]
     return "\n".join(out) + "\n"
@@ -410,16 +452,23 @@ def chart(summary: dict[str, Any]) -> str:
     return outage_svg(runs, WINDOW_START_S, WINDOW_LENGTH_S)
 
 
-def main(repo: Path) -> int:
-    summary = build(repo)
-    results = repo / "docs" / "results"
+def _write(results: Path, summary: dict[str, Any], suffix: str) -> None:
     svg = chart(summary)
-    text = tables(summary)
+    text = tables(summary, first_pass=suffix != "")
     del summary["_records"]
-    (results / "summary.json").write_text(
+    (results / f"summary{suffix}.json").write_text(
         json.dumps(summary, indent=1, sort_keys=True) + "\n", encoding="utf-8", newline="\n"
     )
-    (results / "tables.md").write_text(text, encoding="utf-8", newline="\n")
-    (results / "m8-outage.svg").write_text(svg, encoding="utf-8", newline="\n")
-    print(f"wrote {results / 'summary.json'}, tables.md and m8-outage.svg")
+    (results / f"tables{suffix}.md").write_text(text, encoding="utf-8", newline="\n")
+    (results / f"m8-outage{suffix}.svg").write_text(svg, encoding="utf-8", newline="\n")
+    print(f"wrote {results / f'summary{suffix}.json'}, tables{suffix}.md and m8-outage{suffix}.svg")
+
+
+def main(repo: Path) -> int:
+    results = repo / "docs" / "results"
+    summary = build(repo)
+    has_reruns = any(len(info["produced"]) > 1 for info in summary["runs"].values())
+    _write(results, summary, "")
+    if has_reruns:
+        _write(results, build(repo, first_pass=True), "-first-pass")
     return 0
