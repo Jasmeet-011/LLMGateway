@@ -69,7 +69,12 @@ def only_line(caplog: pytest.LogCaptureFixture) -> tuple[logging.LogRecord, int,
     return record, int(match["opened"]), match["error"]
 
 
-def no_connection_left_out(pool: FakePool) -> None:
+async def no_connection_left_out(pool: FakePool) -> None:
+    # Gives the loop turns first: a connection a child gets after `warm` has returned (a warm
+    # that stops waiting for its children, or does not cancel them) is out and never returned.
+    for _ in range(200):
+        await asyncio.sleep(0)
+    assert pool.pending == 0, "a get_connection call is still running after warm returned"
     assert pool.outstanding == {}, pool.outstanding
     assert pool.release_mistakes == []
     indexes = [connection.index for connection in pool.released]
@@ -100,7 +105,7 @@ async def test_warm_loads_the_script_then_opens_all_fifty_connections_at_once_an
     # All fifty were out before the first was returned: they are held until all are open.
     assert pool.outstanding_at_first_release == 50
     assert sorted(c.index for c in pool.released) == list(range(50))
-    no_connection_left_out(pool)
+    await no_connection_left_out(pool)
     record, opened, error = only_line(all_logs)
     assert (record.levelno, opened, error) == (logging.INFO, 50, None)
     assert record.getMessage() == "ratelimit_warm opened=50 of=50"
@@ -142,7 +147,7 @@ async def test_a_connection_that_fails_last_gives_a_warning_and_the_other_forty_
     assert record.getMessage() == f"ratelimit_warm opened=49 of=50 error={name}"
     assert (opened, error) == (49, name)
     assert sorted(c.index for c in pool.released) == list(range(49))
-    no_connection_left_out(pool)
+    await no_connection_left_out(pool)
 
 
 @pytest.mark.asyncio
@@ -160,7 +165,7 @@ async def test_a_connection_that_fails_first_gives_a_warning_naming_it_and_retur
     assert error == name
     assert opened < 50
     assert opened == len(pool.released)
-    no_connection_left_out(pool)
+    await no_connection_left_out(pool)
 
 
 @pytest.mark.asyncio
@@ -175,7 +180,7 @@ async def test_a_script_load_that_fails_gives_a_warning_with_nothing_opened_and_
     assert record.levelno == logging.WARNING
     assert record.getMessage() == f"ratelimit_warm opened=0 of=50 error={name}"
     assert (opened, error) == (0, name)
-    no_connection_left_out(pool)
+    await no_connection_left_out(pool)
 
 
 @pytest.mark.asyncio
@@ -188,7 +193,7 @@ async def test_two_connections_that_fail_still_give_one_line_and_nothing_stays_o
     _, opened, error = only_line(all_logs)
     assert error == "ConnectionError"
     assert opened == len(pool.released) < 50
-    no_connection_left_out(pool)
+    await no_connection_left_out(pool)
 
 
 # The budget: 2 s in all, in fake time
@@ -216,7 +221,7 @@ async def test_a_connection_that_never_opens_ends_warm_at_two_seconds_with_the_r
     # The one that hung was cancelled, and the forty-nine that were got are all given back.
     assert pool.cancelled == 1
     assert sorted(c.index for c in pool.released) == [i for i in range(50) if i != 7]
-    no_connection_left_out(pool)
+    await no_connection_left_out(pool)
 
 
 @pytest.mark.asyncio
@@ -240,7 +245,7 @@ async def test_the_two_seconds_are_for_the_script_load_and_the_connections_toget
     record, _, _ = only_line(all_logs)
     assert record.getMessage() == "ratelimit_warm opened=0 of=50 error=TimeoutError"
     assert pool.cancelled == 50
-    no_connection_left_out(pool)
+    await no_connection_left_out(pool)
 
 
 @pytest.mark.asyncio
@@ -261,7 +266,7 @@ async def test_a_script_load_that_never_answers_ends_warm_at_two_seconds(
     record, _, _ = only_line(all_logs)
     assert record.getMessage() == "ratelimit_warm opened=0 of=50 error=TimeoutError"
     assert client.cancelled == 1
-    no_connection_left_out(pool)
+    await no_connection_left_out(pool)
 
 
 @pytest.mark.asyncio
@@ -275,7 +280,7 @@ async def test_warm_that_finishes_inside_the_budget_is_not_cut_short(
     assert await limiter.warm() is None
     record, opened, error = only_line(all_logs)
     assert (record.levelno, opened, error) == (logging.INFO, 50, None)
-    no_connection_left_out(pool)
+    await no_connection_left_out(pool)
     assert len(pool.released) == 50
 
 
@@ -297,7 +302,7 @@ async def test_a_warm_cancelled_from_outside_still_returns_every_connection_it_g
     # Whether the cancel is re-raised or reported is not specified; the connections are.
     assert sorted(c.index for c in pool.released) == list(range(10))
     assert pool.cancelled == 40
-    no_connection_left_out(pool)
+    await no_connection_left_out(pool)
 
 
 @pytest.mark.asyncio
@@ -399,3 +404,24 @@ async def test_warm_against_a_server_that_never_answers_gives_a_timeout_warning_
         # It waited (redis-py's own 1 s socket timeout or the 2 s budget) and then gave up.
         assert 0.9 <= elapsed < module.WARM_TIMEOUT_SECONDS + 5
         await limiter.aclose()
+
+
+# Added by the mutation checks of D-106's amendment (mut106)
+
+
+@pytest.mark.asyncio
+async def test_a_connection_that_fails_at_once_does_not_leave_the_slower_ones_to_leak(
+    all_logs: pytest.LogCaptureFixture,
+) -> None:
+    # The first connection fails in the first turn; the other forty-nine need twenty more. A warm
+    # that returns when the first failure arrives, leaving the others running, gets a line and a
+    # return, and then forty-nine connections arrive that nobody gives back. Whether warm waits
+    # for them (and returns them) or cancels them is not specified; that none stays out is.
+    pool = FakePool(lambda index: rexc.ConnectionError("down") if index == 0 else 20)
+    limiter, _ = make_warm(pool)
+    assert await asyncio.wait_for(limiter.warm(), timeout=60) is None
+    record, opened, error = only_line(all_logs)
+    assert record.levelno == logging.WARNING
+    assert error == "ConnectionError"
+    await no_connection_left_out(pool)
+    assert opened == len(pool.released) < 50

@@ -230,7 +230,8 @@ class FakePool:
     """`client.connection_pool`: `get_connection()` and `release(connection)`, written down.
 
     `plan(index)` says what the `index`th `get_connection` call does: `None` gives a
-    connection (after one loop turn), an exception is raised, a `Hang` never answers.
+    connection (after one loop turn), an exception is raised, a `Hang` never answers, and an
+    int gives a connection after that many more loop turns.
     With `hold_until=n` every call first waits until `n` calls have started, so the pool only
     hands out connections to a caller that asked for all of them at once.
     """
@@ -269,6 +270,10 @@ class FakePool:
                 await self.all_started.wait()
             else:
                 await asyncio.sleep(0)
+            if isinstance(step, int) and not isinstance(step, bool):
+                # A connection that takes `step` more loop turns to open.
+                for _ in range(step):
+                    await asyncio.sleep(0)
             if isinstance(step, Hang):
                 step.reached.set()
                 await asyncio.Event().wait()

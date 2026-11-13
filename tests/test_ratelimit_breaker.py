@@ -899,3 +899,81 @@ async def test_failures_that_open_the_breaker_write_only_its_fixed_line_and_noth
     }
     for record in all_logs.records:
         assert record.exc_info is None
+
+
+# Added by the mutation checks of D-106's amendment (mut106)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("origin", [-5.0, 0.0])
+async def test_a_timeout_with_no_success_ever_counts_whatever_origin_the_clock_has(
+    origin: float, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # "No take succeeded" is a fact about takes, not about the clock's zero: the limiter's
+    # initial last-success must lie below every clock value, including a clock that starts at
+    # or below zero (an injected one; `time.monotonic` is positive).
+    loop_clock = virtual_loop_time(monkeypatch)
+    outcomes = Outcomes(monkeypatch)
+    fake = FakeRedis()
+    rig = breaking(fake)
+    task = await begin_hang(rig, fake, origin)
+    await let_it_time_out(task, loop_clock)
+    assert outcomes.of(rig.breaker) == ["failure"]
+
+
+class PlantedRedisTimeout(rexc.TimeoutError):
+    pass
+
+
+class PlantedBuiltinTimeout(TimeoutError):
+    pass
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("raised", "name"),
+    [
+        pytest.param(PlantedRedisTimeout("x"), "PlantedRedisTimeout", id="redis_subclass"),
+        pytest.param(PlantedBuiltinTimeout("x"), "PlantedBuiltinTimeout", id="builtin_subclass"),
+    ],
+)
+async def test_a_timeout_is_named_by_its_own_class_like_every_other_error(
+    raised: BaseException, name: str
+) -> None:
+    # `error=<exception type name>` (D-106): a timeout that is a subclass is named by the
+    # subclass, as `PlantedRedisError` is in test_ratelimit.py, not by a constant.
+    assert await how_it_ended(breaking(FakeRedis(raised)).limiter) == f"timeout:{name}"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "step",
+    [
+        pytest.param([MARKER, URL_MARKER], id="bad_reply"),
+        pytest.param(rexc.ConnectionError(f"{URL_MARKER} {MARKER}"), id="store_error"),
+        pytest.param(rexc.TimeoutError(f"{URL_MARKER} {MARKER}"), id="timeout"),
+    ],
+)
+async def test_no_error_a_take_raises_is_chained_to_what_redis_or_a_reply_said(
+    step: Any,
+) -> None:
+    # `raise ... from None` on every kind: bad replies (which carry the reply's contents) and
+    # circuit_open are held to the same rule as the store errors in test_ratelimit.py.
+    module = ratelimit_module()
+    fake = FakeRedis(step)
+    rig = breaking(fake)
+    with pytest.raises((module.RateLimitUnavailable, module.RateLimitTimeout)) as info:
+        await rig.limiter.take(KEY_ID)
+    assert info.value.__cause__ is None
+    assert info.value.__suppress_context__ is True
+
+
+@pytest.mark.asyncio
+async def test_the_circuit_open_error_is_not_chained_either() -> None:
+    fake = FakeRedis()
+    rig = breaking(fake)
+    await trip(rig, fake)
+    with pytest.raises(ratelimit_module().RateLimitUnavailable) as info:
+        await rig.limiter.take(KEY_ID)
+    assert info.value.__cause__ is None
+    assert info.value.__suppress_context__ is True
