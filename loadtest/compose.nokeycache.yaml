@@ -1,0 +1,7 @@
+# Measurement 1's second gateway variant (D-090, D-121): no key cache, so every
+# request also reads its key's row from Postgres. Added after compose.loadtest.yaml.
+
+services:
+  api:
+    environment:
+      LLMGATEWAY_KEY_CACHE_SECONDS: "0"

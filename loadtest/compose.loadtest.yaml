@@ -1,0 +1,37 @@
+# The load tests' additions to compose.yaml (M18, D-119). Used only with it:
+#   docker compose -f compose.yaml -f loadtest/compose.loadtest.yaml [-f <variant>] ...
+# loadtest/run.ps1 does this for every run; see docs/RESULTS.md for the commands.
+# Paths are relative to the project directory, the folder of compose.yaml.
+
+services:
+  api:
+    # The image's command is kept: one uvicorn worker (D-119).
+    environment:
+      LLMGATEWAY_CONFIG: /app/config/loadtest.toml
+      # Far above any test rate, so the limiter runs its script on every request but
+      # never refuses one (D-119). Measurement 5 overrides these (compose.burst.yaml).
+      LLMGATEWAY_RATE_LIMIT_BURST: "100000"
+      LLMGATEWAY_RATE_LIMIT_PER_SECOND: "100000"
+
+  # Measurement 1's baseline: the same mock as mock-steady, served by the same uvicorn
+  # from the same image, with no gateway in front (D-120). No port is published.
+  direct-mock:
+    image: llmgateway:local
+    command:
+      ["uvicorn", "direct_mock:app", "--app-dir", "/loadtest", "--host", "0.0.0.0", "--port", "8000"]
+    volumes:
+      - ./loadtest/direct_mock.py:/loadtest/direct_mock.py:ro
+
+  # The load generator (D-118), run once per measurement by loadtest/run.ps1 with
+  # `docker compose run`; the profile keeps `up` from starting it.
+  k6:
+    image: grafana/k6:2.3.0@sha256:2dd4756ec6e14e62778916e1eb850108e4b499304c02df56760fa0bdb0fba0b8
+    profiles: ["load"]
+    # The runner sets TARGET per run with `-e`. Docker Compose 2.34 panics on `run -e`
+    # for a service with no environment map ("assignment to entry in nil map"), so
+    # this default is also what keeps the map present.
+    environment:
+      TARGET: http://api:8000
+    volumes:
+      - ./loadtest/k6:/scripts:ro
+      - ./docs/results/raw:/out

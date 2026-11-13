@@ -1,0 +1,8 @@
+# Measurement 5's limits (D-119, D-121): a burst of 20 per key, refilled at 1 per
+# second. Added after compose.loadtest.yaml, whose limits it replaces.
+
+services:
+  api:
+    environment:
+      LLMGATEWAY_RATE_LIMIT_BURST: "20"
+      LLMGATEWAY_RATE_LIMIT_PER_SECOND: "1"

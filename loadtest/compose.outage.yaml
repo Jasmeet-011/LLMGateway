@@ -1,0 +1,7 @@
+# Measurement 8's outage (D-119, D-121): mock-outage fails every call from 60 s after
+# its first call, for 30 s (D-064). Added after compose.loadtest.yaml.
+
+services:
+  api:
+    environment:
+      LLMGATEWAY_FAULTS: mock-outage=1.0@60+30
