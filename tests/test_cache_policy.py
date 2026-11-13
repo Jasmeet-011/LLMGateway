@@ -239,6 +239,14 @@ def test_one_character_of_content_is_enough() -> None:
     assert storable(result(content="x"), first_entry=True) is True
 
 
+def test_content_that_is_only_whitespace_is_non_empty_and_so_storable() -> None:
+    # D-112 says "non-empty content", and a space is not empty: only the empty string is the
+    # accident (Gemini's answer when thinking used every token, D-049). Added by the M17 mutation
+    # checks: a `content.strip() != ""` passed every other test.
+    assert storable(result(content=" "), first_entry=True) is True
+    assert storable(result(content="\n"), first_entry=True) is True
+
+
 def test_the_provider_response_id_does_not_matter() -> None:
     assert storable(result(provider_response_id=None), first_entry=True) is True
     assert storable(result(provider_response_id="id-1"), first_entry=True) is True

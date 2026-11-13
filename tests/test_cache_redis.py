@@ -362,15 +362,32 @@ async def test_a_bug_is_raised_as_itself_for_get_and_for_put() -> None:
     assert second.value is bug
 
 
+SECRET_FAILURES = [
+    pytest.param(
+        lambda: rexc.ConnectionError(f"Error connecting to {URL_MARKER}: {MARKER}"),
+        id="store_error",
+    ),
+    pytest.param(lambda: OSError(f"connect to {URL_MARKER} failed: {MARKER}"), id="os_error"),
+    # Added by the M17 mutation checks: the timeout branch was not held to the same rule.
+    pytest.param(
+        lambda: rexc.TimeoutError(f"Timeout reading from {URL_MARKER}: {MARKER}"),
+        id="redis_timeout",
+    ),
+    pytest.param(
+        lambda: TimeoutError(f"timed out talking to {URL_MARKER}: {MARKER}"), id="builtin_timeout"
+    ),
+]
+
+
 @pytest.mark.asyncio
+@pytest.mark.parametrize("make_secret", SECRET_FAILURES)
 @pytest.mark.parametrize("operation", ["get", "put"])
 async def test_the_error_is_not_chained_to_the_exception_that_carries_redis_py_s_message(
-    operation: str,
+    operation: str, make_secret: Any
 ) -> None:
     # `raise ... from exc` would keep the original, message and all, on `__cause__`, where a
     # logged traceback would print it (redis-py's messages can hold the URL).
-    secret = rexc.ConnectionError(f"Error connecting to {URL_MARKER}: {MARKER}")
-    cache = make_cache(FakeCacheRedis(secret))
+    cache = make_cache(FakeCacheRedis(make_secret()))
     with pytest.raises(cache_module().CacheUnavailable) as info:
         if operation == "get":
             await cache.get(KEY)

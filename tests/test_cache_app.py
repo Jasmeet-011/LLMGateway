@@ -76,6 +76,7 @@ from stream_support import (
     PROMPT_MARKER,
     SECOND,
     Done,
+    Entry,
     Fail,
     Hold,
     Outcomes,
@@ -359,6 +360,33 @@ async def test_what_a_miss_stores_is_what_a_later_hit_returns() -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
+    ("finish", "provider_type"),
+    [("stop", "mock"), ("max_tokens", "claude"), ("stop_sequence", "gemini")],
+)
+async def test_the_stored_value_carries_the_providers_type_finish_reason_counts_and_id(
+    finish: str, provider_type: str
+) -> None:
+    # Added by the M17 mutation checks: a store that wrote `finish_reason="stop"` (or zero counts)
+    # for every answer passed the tests, which only stored a plain `stop` answer.
+    cache = FakeCache()
+    answer_in = Answer(content="cut here", input_tokens=21, output_tokens=34, finish_reason=finish)  # type: ignore[arg-type]
+    rig = build(cache, UsageAdapter(results=[answer_in], provider_type=provider_type))  # type: ignore[arg-type]
+    response = await one(rig)
+    assert response.status_code == 200
+    ((_, stored),) = cache.puts
+    assert stored.encode() == answer_bytes(
+        provider=provider_type,
+        provider_instance=FIRST.instance,
+        model=FIRST.model,
+        content="cut here",
+        finish_reason=finish,
+        usage={"input_tokens": 21, "output_tokens": 34},
+        provider_response_id="fake-complete-1",
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
     ("finish", "stored"),
     [("stop", True), ("max_tokens", True), ("stop_sequence", True), ("other", False)],
 )
@@ -394,6 +422,26 @@ async def test_an_answer_from_a_fallback_entry_is_returned_as_a_miss_and_not_sto
     assert response.json()["content"] == "from the second entry"
     assert cache_header(response) == "miss"
     assert cache.gets == [body_key(chat_body(), entries=(FIRST, SECOND))]
+    assert cache.puts == []
+
+
+@pytest.mark.asyncio
+async def test_a_fallback_to_another_model_of_the_same_instance_is_not_stored_either() -> None:
+    # Added by the M17 mutation checks: an alias may list one instance twice with two models
+    # (D-044), and the first entry is the first (instance, model), not the first instance.
+    cache = FakeCache()
+    first = UsageAdapter(results=[Fail(provider_unavailable())])
+    second = UsageAdapter(results=[Answer(content="from the cheaper model")])
+    sibling = Entry(FIRST.instance, "model-cheaper")
+    rig = build(cache, first, second, entries=(FIRST, sibling))
+    response = await one(rig)
+    assert response.status_code == 200
+    assert (response.json()["provider_instance"], response.json()["model"]) == (
+        FIRST.instance,
+        "model-cheaper",
+    )
+    assert cache_header(response) == "miss"
+    assert cache.gets == [body_key(chat_body(), entries=(FIRST, sibling))]
     assert cache.puts == []
 
 

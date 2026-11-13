@@ -233,6 +233,7 @@ import os as _os
 import redis.asyncio as _redis
 
 _CALLS = []
+_POOLS = []
 _REPLIES = _json.loads(_os.environ["PROBE_GET_REPLIES"])
 
 
@@ -246,6 +247,7 @@ def _text(value):
 
 
 async def _get(self, name, *args, **kwargs):
+    _POOLS.append(["get", id(self.connection_pool)])
     _CALLS.append(["get", _text(name), *_where(self)])
     reply = _REPLIES.pop(0)
     return None if reply is None else reply.encode("utf-8")
@@ -258,6 +260,7 @@ async def _set(self, name, value, *args, **kwargs):
 
 
 async def _evalsha(self, *args):
+    _POOLS.append(["evalsha", id(self.connection_pool)])
     return [1, 0]
 
 
@@ -307,7 +310,7 @@ async def probe():
                     data.get("provider_response_id"),
                 ]
             )
-    print(json.dumps({"out": out, "calls": _CALLS, "unused": _REPLIES}))
+    print(json.dumps({"out": out, "calls": _CALLS, "unused": _REPLIES, "pools": _POOLS}))
 
 
 asyncio.run(probe())
@@ -418,3 +421,14 @@ def test_main_a_miss_then_a_hit_is_one_provider_call_when_the_cache_is_the_real_
 def test_main_uses_the_cache_at_the_address_of_the_environments_url() -> None:
     found = _probe([None], [True], **{REDIS: "redis://127.0.0.1:6391/5"})
     assert [call[-3:] for call in found["calls"]] == [["127.0.0.1", 6391, 5]] * 2
+
+
+def test_main_gives_the_cache_a_client_and_pool_of_its_own_not_the_limiters() -> None:
+    # D-114: a cache problem must never hold the connections the limiter needs, so the two use
+    # different pools. Added by the M17 mutation checks: a `main` that built the cache on the
+    # limiter's client passed every other test. One opted-in request makes one limiter call
+    # (`evalsha`) and one cache call (`get`); their pools are different objects.
+    found = _probe([None], [True])
+    pools = {name: pool for name, pool in found["pools"]}
+    assert set(pools) == {"evalsha", "get"}, found["pools"]
+    assert pools["evalsha"] != pools["get"]

@@ -153,6 +153,20 @@ def test_the_models_above_really_have_no_price_so_the_test_is_not_vacuous() -> N
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("counts", [(0, 5), (5, 0), (0, 0), (100_000_000, 100_000_000)])
+async def test_a_hit_costs_zero_whatever_its_counts_even_zero_input_or_huge_ones(
+    counts: tuple[int, int],
+) -> None:
+    # Added by the M17 mutation checks: a hit costed only when its input count was non-zero passed
+    # every test, because the others all gave a hit non-zero input tokens.
+    record = await metered(
+        attempt(provider_type="claude", model="claude-haiku-5-5", usage=counts, cache_hit=True)
+    )
+    assert (record.input_tokens, record.output_tokens) == counts
+    assert record.cost_nanousd == 0
+
+
+@pytest.mark.asyncio
 async def test_a_hit_never_asks_the_price_table(monkeypatch: pytest.MonkeyPatch) -> None:
     asked: list[tuple[Any, ...]] = []
 
