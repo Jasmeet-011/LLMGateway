@@ -55,8 +55,15 @@ addopts = --strict-markers
 # Every attempt to resolve a name or connect is written down and refused.
 RECORDER = """
 import os
+import platform
 import socket
 import subprocess
+
+# asyncpg calls `platform.uname()` at import. On Windows, when its WMI query fails (as it
+# does under load), the standard library falls back to running `ver` through `subprocess`,
+# which the recorder below would write down as a process start and fail the test. Asked
+# once here, before `Popen` is replaced, the answer is cached for the rest of the child.
+platform.uname()
 
 
 def _write(kind, target):
