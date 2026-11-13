@@ -73,7 +73,7 @@ Component rules:
 - Cache key = hash of normalized request + model + params + key/tenant ID. Cache only deterministic non-streaming requests.
 - Cache keys are built from a canonical JSON dump of the request, never from `model_dump(exclude_unset=True)`, because `stop=[]` and an omitted `stop` are equal requests that differ only in the unset marker.
 - Fallback only before the first streamed byte.
-- Retries happen only in the router; adapters raise each failure once (D-032).
+- Provider calls are retried only in the router; adapters raise each failure once (D-032).
 
 ## Agents
 

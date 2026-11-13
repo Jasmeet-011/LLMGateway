@@ -145,7 +145,7 @@ GitHub Actions runs `check.ps1` on Linux, and builds and starts the Compose stac
 
 ## Known limitations
 
-- **Thinking makes short answers expensive.** Gemini bills thinking as output, and `max_tokens` does not bound it (D-049). In the owner's live run, `gemini-3.6-flash` spent 246 thinking tokens on a 17-token answer, so it billed 263 output tokens. That run asked for `LOW` thinking; the gateway asks for `MINIMAL`, whose cost on this model has not been measured. Either way, a short answer from a thinking model can cost many times what its visible length suggests.
+- **Thinking can make short answers expensive.** Gemini bills thinking as output, and `max_tokens` does not bound it (D-049). In the owner's live run at `LOW` thinking, `gemini-3.6-flash` spent 246 thinking tokens on a 17-token answer, so it billed 263 output tokens. The gateway asks for `MINIMAL`: in one live run through the adapter (2026-11-13), `gemini-3.6-flash` produced no thinking on that short prompt and billed 20 output tokens for a 20-token answer. That is one sample on one prompt; a harder prompt may still think at `MINIMAL`, and then a short answer can cost many times what its visible length suggests.
 
 ## Results
 
