@@ -413,11 +413,11 @@ def test_building_the_client_looks_nothing_up_and_connects_to_nothing(
 
 @pytest.mark.asyncio
 async def test_a_get_against_a_server_that_closes_at_once_is_a_store_error_with_no_url(
-    refusing_redis: int, all_logs: pytest.LogCaptureFixture
+    closing_server: int, all_logs: pytest.LogCaptureFixture
 ) -> None:
     module = cache_module()
     cache = module.RedisResponseCache(
-        module.cache_client(f"redis://:{MARKER}@127.0.0.1:{refusing_redis}/0")
+        module.cache_client(f"redis://:{MARKER}@127.0.0.1:{closing_server}/0")
     )
     with pytest.raises(module.CacheUnavailable) as info:
         await cache.get("llmgateway:cache:" + "c" * 64)
@@ -429,11 +429,11 @@ async def test_a_get_against_a_server_that_closes_at_once_is_a_store_error_with_
 
 @pytest.mark.asyncio
 async def test_warm_against_a_server_that_closes_at_once_gives_a_warning_and_does_not_raise(
-    refusing_redis: int, all_logs: pytest.LogCaptureFixture
+    closing_server: int, all_logs: pytest.LogCaptureFixture
 ) -> None:
     module = cache_module()
     cache = module.RedisResponseCache(
-        module.cache_client(f"redis://:{MARKER}@127.0.0.1:{refusing_redis}/0")
+        module.cache_client(f"redis://:{MARKER}@127.0.0.1:{closing_server}/0")
     )
     started = time.monotonic()
     assert await cache.warm() is None

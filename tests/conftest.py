@@ -35,6 +35,7 @@ in M12 (D-067), so a fake written for `complete` inherits `CompleteOnly` to stay
 `ProviderAdapter` for mypy; `all_logs` is the capture every leak check needs (D-065).
 """
 
+import asyncio
 import logging
 import socket
 import threading
@@ -42,6 +43,7 @@ from collections.abc import AsyncIterator, Iterator
 from typing import Any
 
 import pytest
+import pytest_asyncio
 
 from llmgateway.schema import ChatRequest
 
@@ -105,6 +107,33 @@ def refusing_redis() -> Iterator[int]:
     threading.Thread(target=serve, daemon=True, name="refusing-redis").start()
     yield port
     listener.close()
+
+
+@pytest_asyncio.fixture
+async def closing_server() -> AsyncIterator[int]:
+    """The port of an asyncio server, on the test's own loop, that closes each connection at once.
+
+    The same Redis that refuses its clients as `refusing_redis` is, but accepted and closed by
+    the event loop the client runs on and not by a thread. A thread that accepts one connection at
+    a time competes for the GIL with the loop, and `warm` opens 50 connections at once, each
+    retried once (D-106's fourth amendment): on a loaded host the thread fell behind, a handshake
+    read met the client's 1 s socket timeout, and a test that pins `ConnectionError` saw
+    `TimeoutError` (M17's mutation checks). On the loop, accepting and closing are scheduled with
+    the client's own work, so the order is the same on a slow host as on a fast one. For tests
+    that run inside an event loop; `refusing_redis` stays for the ones whose client lives in
+    another process.
+    """
+
+    async def close_at_once(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+        writer.close()
+
+    server = await asyncio.start_server(close_at_once, "127.0.0.1", 0)
+    port: int = server.sockets[0].getsockname()[1]
+    try:
+        yield port
+    finally:
+        server.close()
+        await server.wait_closed()
 
 
 @pytest.fixture(autouse=True)

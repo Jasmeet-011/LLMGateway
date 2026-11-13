@@ -366,10 +366,10 @@ async def test_the_warm_line_holds_no_url_key_or_message_whatever_happened(
 
 @pytest.mark.asyncio
 async def test_warm_against_a_server_that_closes_at_once_gives_a_warning_and_does_not_raise(
-    refusing_redis: int, all_logs: pytest.LogCaptureFixture
+    closing_server: int, all_logs: pytest.LogCaptureFixture
 ) -> None:
     module = ratelimit_module()
-    client = module.redis_client(f"redis://:{MARKER}@127.0.0.1:{refusing_redis}/0")
+    client = module.redis_client(f"redis://:{MARKER}@127.0.0.1:{closing_server}/0")
     limiter = module.RedisRateLimiter(client, burst=60, per_second=1.0)
     started = time.monotonic()
     assert await limiter.warm() is None

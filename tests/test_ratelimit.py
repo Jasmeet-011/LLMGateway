@@ -828,12 +828,12 @@ async def test_the_real_client_against_a_closed_port_ends_by_the_platforms_rule(
 
 @pytest.mark.asyncio
 async def test_the_real_client_against_a_server_that_closes_at_once_is_a_store_error(
-    refusing_redis: int,
+    closing_server: int,
 ) -> None:
-    # A listener that accepts and closes (the conftest's `refusing_redis`): redis-py raises
-    # `ConnectionError` in milliseconds on every platform, which is let through, not shed.
+    # A listener that accepts and closes (the conftest's `closing_server`, on this loop): redis-py
+    # raises `ConnectionError` in milliseconds on every platform, which is let through, not shed.
     limiter = make_limiter(
-        ratelimit_module().redis_client(f"redis://:{MARKER}@127.0.0.1:{refusing_redis}/0")
+        ratelimit_module().redis_client(f"redis://:{MARKER}@127.0.0.1:{closing_server}/0")
     )
     started = time.monotonic()
     outcome = await outcome_of(limiter)

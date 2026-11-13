@@ -950,8 +950,10 @@ def test_a_redis_restart_under_the_running_gateway_costs_no_limiter_or_cache_fai
     # to fail once: a request let through unlimited, a cache bypass, and with five in a row an open
     # breaker. This test is in this file and not in the cache's because it touches Redis's process
     # (`test_integration_guard.py` forbids that in the cache file); it is not a `test_zz_outage_`
-    # test because it leaves Redis running and answering and needs nothing restored, and the
-    # restart wipes Redis's data, which no test relies on across tests (each makes its own key,
+    # test because it leaves Redis running and answering and needs nothing restored. Whether
+    # Redis's data survives the restart is not claimed and not needed: `compose restart` keeps
+    # the container, and Redis writes its default snapshot on SIGTERM, so the data probably
+    # does, but no test relies on Redis state across tests either way (each makes its own key,
     # the limiter's buckets are per key, and the 20 cache entries are the test tenant's own and
     # expire within 300 s). If it fails it waits out the breakers' cooldown and sends three
     # requests, so that its failure does not become a failure of the tests after it.
