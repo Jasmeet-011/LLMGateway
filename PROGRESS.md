@@ -130,6 +130,12 @@ Against HEAD, every test of new behavior failed. One stayed red against the buil
 
 `powercfg /requests` needs admin, so it is unverified that the request keeps this laptop out of standby on idle. The post-run event check is the guard that counts. check.ps1: PASS, 7,403 passed.
 
+**Reruns** (22:08 to 22:54 UTC, from 11b53af, the same gateway image). The 27 runs went as `-rerun1` with the machine awake: k6 exited 0 in all of them, and `power_events` was `[]` in each.
+- **Figures:** overhead p95 2.02 ms [1.81 to 2.11]; throughput 509.3 req/s; measurement 4 A 97.20% and B 100.00%; measurement 8 off 79.84% and on 100.00%.
+- **Cross-check:** all 12 runs matched.
+- **Standby effect:** in the first pass, measurement 2 was 116.2 req/s, which shows how much standby cost.
+- **Chart:** rendered and inspected, which found three layout faults: the axis title overlapped the breaker caption, both end labels sat at 100%, and the lanes were labeled with catalog ids rather than the outputs plotted. All three are fixed, and the chart and report tests pass.
+
 ### 2026-11-12 and 13: M17 Tenant-scoped response cache
 
 The same session began with the owner's estimate results and the limiter's shed, breaker and pre-warm (D-106, pushed in c97bb20, CI run 43344654684) and the `ver` flake fix (08d1627, CI run 43345819414); that part is in [docs/archive/2026-11-d106-sessions.md](docs/archive/2026-11-d106-sessions.md).

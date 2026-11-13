@@ -2,7 +2,7 @@
 
 Load-test results for LLMGateway (M18). Every number here comes from a measured run whose raw output is committed under [results/raw/](results/raw/), and is computed by `uv run python loadtest/report.py`, which writes [results/tables.md](results/tables.md), [results/summary.json](results/summary.json) and the outage chart. The measurements are fixed by PLAN.md's Measurements table; the runs, their order and how they are aggregated were fixed in this file and pushed before the first run (D-121).
 
-**Status: first pass run (2026-11-13, 20:31 to 21:33 UTC); 27 of its 30 runs are to be rerun because the laptop went into Modern Standby during it (a defect, recorded under Results).** The conditions and commands below were written before any measured run. Results are added below them after the runs; nothing above the Results heading is changed by the results except to record a defect.
+**Status: measured (2026-11-13).** The first pass ran from 20:31 to 21:33 UTC. The laptop went into Modern Standby during it (a defect, recorded under Results), so 27 of its 30 runs were rerun from 22:08 to 22:54 UTC with the machine awake. Both passes are reported. The conditions and commands below were written before any measured run. Results are added below them after the runs; nothing above the Results heading is changed by the results except to record a defect.
 
 Everything here is measured against the **mock provider on one laptop**. No real provider is called. These numbers describe the gateway's own behaviour and cost, not Claude's or Gemini's latency or reliability.
 
@@ -106,6 +106,74 @@ All 30 runs of the catalog ran once, in catalog order, from a script that called
 - The other 26 runs ran wholly in standby.
 
 The figures of these 27 runs are reported with the rest, but they were not measured in the pre-registered conditions. They are rerun as `<id>-rerun1` with the machine awake, under D-121's rule for a recorded defect.
+
+### Reruns (2026-11-13, 22:08 to 22:54 UTC, commit 11b53af)
+
+The 27 runs from m1-direct-r2 to m8-on-r3 ran once more, in catalog order, each as `.\loadtest\run.ps1 -Run <id> -Rerun 1`. The machine was awake: it left standby at 21:57:35 UTC (Kernel-Power 507). The gateway image was the first pass's (`sha256:2279219a4354746f9b61d516bfeb77fb0bd36afa1fa89ff97dfc514edf388498`, built from 65b043a); the commits since then change only the load-test tooling, tests and docs, none of `src/`, `config/` or the `Dockerfile`. The runner's standby guard (D-121, amended) was in place: every rerun's `run.json` has `"power_events": []`, and k6 exited 0 in all 27.
+
+The figures that count are in [results/tables.md](results/tables.md): the three repetition-1 runs of measurement 1 from the first pass, and the reruns for everything else. Every first-pass figure, including those of the 27 replaced runs, is in [results/tables-first-pass.md](results/tables-first-pass.md). The JSON behind each is [results/summary.json](results/summary.json) and [results/summary-first-pass.json](results/summary-first-pass.json).
+
+### Figures
+
+Median of three runs, [minimum to maximum]. "Row" names where the number is in tables.md.
+
+| # | What | Figure | Row in tables.md |
+| --- | --- | --- | --- |
+| 1 | Gateway overhead, key cache 10 s (as shipped) | p50 **1.07 ms** [0.93 to 1.10], p95 **2.02 ms** [1.81 to 2.11], p99 **2.71 ms** [2.27 to 2.74] | Measurement 1, overhead, "gateway, key cache 10 s" |
+| 1 | Gateway overhead, key cache 0 (every request reads its key from Postgres) | p50 1.65 ms [1.51 to 1.78], p95 3.07 ms [2.60 to 3.29], p99 4.47 ms [3.09 to 4.48] | Measurement 1, overhead, "gateway, key cache 0" |
+| 2 | Throughput, 50 virtual users in a closed loop, one worker | **509.3 req/s** [489.1 to 537.0], no errors; p50 latency 81.77 to 88.65 ms | Measurement 2, "median [min to max]" |
+| 3 | Hit rate, workload hot10-repeat80 at 50 req/s | **79.64%** in all three runs (2,390 hits of 3,001) | Measurement 3, "median [min to max]" |
+| 3 | Hit and miss latency | p50: hit 2.81 ms [2.23 to 2.94], miss 24.92 ms [23.78 to 25.43]; p95: hit 4.96 ms [3.26 to 5.30], miss 27.83 ms [25.47 to 27.93] (medians of the three rows) | Measurement 3, the three runs |
+| 4 | Success rate, 30% injected failures, 50 req/s: **A, fallback off** | **97.20%** [96.87 to 97.40] | Measurement 4, "Fallback off" |
+| 4 | **B, everything on** | **100.00%** [100.00 to 100.00] (3,001, 3,000 and 3,001 of as many requests) | Measurement 4, "Fallback on" |
+| 5 | 429 under a burst of 100 (burst 20, refill 1/s) | **Correct in 3 of 3:** 20 × 200 and 80 × 429, every 429 with `Retry-After`, nothing else; the paced requests afterwards all 200 (11, 11, 10) | Measurement 5 |
+| 8 | Outage of `mock-outage` from 60 s to 90 s, 50 req/s, whole 150 s run | fallback off **79.84%** [79.84 to 79.85], fallback on **100.00%** [100.00 to 100.00] | Measurement 8, the two summary lines |
+| 8 | Inside the window (seconds 60 to 89) | fallback off 0.00% in all three, fallback on 100.00% in all three | Measurement 8, "In window" |
+| 8 | Breaker | opened at 60.2 s in all six runs; half-open and closed again at 90.2 to 90.3 s | Measurement 8, "Breaker changes" |
+
+Measurement 8's timeline, generated by `loadtest/report.py` from the raw records and the gateway's breaker log lines:
+
+![Success rate per second with fallback on and off during a 30 s outage of one provider, and each run's breaker state](results/m8-outage.svg)
+
+The first pass's chart, from the runs made in standby, is [results/m8-outage-first-pass.svg](results/m8-outage-first-pass.svg).
+
+### Accounting cross-check (measurements 4 and 8)
+
+After each run of measurements 4 and 8, the usage rows in Postgres for the run's tenant were counted with one parameterized query (D-122) and compared with the gateway's log and k6's records. **All 12 counted runs match**, and so do the 12 of the first pass. In each: usage `success` rows = the gateway's 200 lines = k6's successes; usage `failed` rows = the gateway's `attempt_failed` lines; no `abandoned` rows. For example, m4-on-r1-rerun1 has 3,001 success rows and 1,255 failed rows: 4,256 adapter attempts for 3,001 requests, one row each (D-095). No mismatch was found. The check counts rows; it does not compare token counts, which the mock makes up (D-016).
+
+### What the numbers say, and what caused them
+
+- **B is only 2.8 points above A in measurement 4, because A already retries.** Retries have no switch (D-050), so A is "retries and breaker on, fallback off", not a bare call. With up to 3 attempts at an independent 30% failure rate, a request fails only when all three attempts do: 0.3³ = 2.7%, so A should be about 97.3%; it measured 97.20%. Fallback rescues exactly those: 78 to 83 requests per run were served by `mock-secondary`, about 2.7% of 3,000. B reaching 100% depends on `mock-secondary` being healthy. No breaker opened, since 30% failures stay below 15 of the last 20.
+- **Measurement 8 is where fallback matters.** When the primary is fully down, the fallback-off runs answer nothing for 30 s. Ten or eleven requests that arrived before the breaker opened (0.2 s into the window) got 502, and the 1,501 after it got 503 without a provider call. The fallback-on runs answered every request, 1,510 to 1,513 of them from `mock-secondary`.
+- **One worker saturates near 500 req/s.** In measurement 2, 50 virtual users kept about 509 requests per second going, with a p50 of about 88 ms against a 20 ms mock, so requests were queueing in the one process. That is about ten times the 50 req/s of measurements 1, 3, 4 and 8, so those ran well below saturation, as D-121 intended.
+- **The gateway adds about 1 ms at p50 and 2 ms at p95** over the same mock served directly. Reading the key from Postgres on every request (key cache 0) adds about 0.6 ms more at p50 and 1 ms more at p95.
+- **Cache hits skip the provider call**, so a hit's p50 is about 22 ms below a miss's. The hit rate is set by the workload: 601 unique prompts plus the first sight of each of the 10 hot prompts are the 611 misses. It shows that the cache behaves as designed on that workload, not what hit rate real traffic would see.
+
+### The first pass beside the reruns
+
+From [results/tables-first-pass.md](results/tables-first-pass.md); 27 of these 30 runs ran in Modern Standby:
+
+- Measurement 2's throughput was 116.2 req/s [113.2 to 117.4], under a quarter of the 509.3 measured awake. That is the clearest sign that standby changed the numbers rather than adding noise.
+- Measurement 1's p95 overhead was 1.81 ms [−24,076.63 to 26.93]: the median is repetition 1, which ran awake. Repetition 2's direct-mock run stalled when standby began, so its difference is hugely negative, and repetition 3's is 26.93 ms.
+- Measurement 4: A 97.27% [97.10 to 97.30], B 100.00% [99.53 to 100.00]. B's low end is m4-on-r3, whose first second had 14 `503 auth_unavailable`: the key lookup in Postgres exceeded its 2 s limit (D-091), and auth fails closed.
+- Measurement 8: fallback off 79.81% [79.63 to 79.81], fallback on 100.00% [100.00 to 100.00].
+- Measurement 5 was correct in 3 of 3, and measurement 3's hit rate was 79.64% in all three.
+- Every accounting cross-check matched.
+
+## Known limitations
+
+- **One laptop, mocks only.** Every number is from one Windows laptop (above) running the gateway, Postgres, Redis, the mocks and k6 in one Docker VM, so k6's own CPU use is inside the latencies and the throughput. No real provider was called; the mocks answer in a fixed 20 ms (40 ms for the secondary), so these numbers say nothing about Claude's or Gemini's latency or reliability.
+- **Injected failures are fast and clean.** A mock failure is a `ProviderUnavailable` raised after the mock's latency. Real outages often look like timeouts or slow errors, which cost each attempt far more time and would change both the success rates and the latency under failure.
+- **One worker, plain asyncio and h11.** Measurement 2 is one uvicorn process without uvloop or httptools (the shipped image, D-119). More workers would raise throughput but split the fault window and the breakers per process.
+- **Measurement 4's A includes retries** (no switch, D-050), so B − A is fallback's contribution on top of retries, not the whole layer's over a bare call. **The secondary is healthy in every run**, so B = 100% is the best case for fallback.
+- **Modest load and few runs.** 50 req/s in measurements 1, 3, 4 and 8; three runs per figure give a range, not a confidence interval.
+- **Measurement 1's overhead is a difference of percentiles** of two separate runs, not a per-request difference. It comes from runs without failures; overhead under measurement 4's failure load was not measured.
+- **The cache workload is synthetic** (hot10-repeat80), and its hit rate follows from its definition.
+- **Measurements 6 and 7 were not run**: request coalescing and spend caps are stretch and not built (D-031).
+- **27 of the first pass's 30 runs ran in Modern Standby.** They are kept and shown, and rerun with the machine awake (D-121, amended).
+- **From earlier milestones:**
+  - On a thinking model, Gemini bills thinking as output and `max_tokens` does not bound it (D-049). One live run at `MINIMAL` produced no thinking on a short prompt; a harder prompt may still think.
+  - A stream cut short before the provider reports usage records an estimated output token count in its own column, never in the counts or the cost (D-101). The estimate's characters-per-token rates overestimated English prose by 13.7% (Claude) and 18.7% (Gemini), in one sample each.
 
 ## Smoke runs (not results)
 

@@ -145,11 +145,27 @@ GitHub Actions runs `check.ps1` on Linux, and builds and starts the Compose stac
 
 ## Known limitations
 
+The full list is in [docs/RESULTS.md, Known limitations](docs/RESULTS.md#known-limitations). In short:
+
+- **The load-test numbers come from one laptop against mock providers,** with the gateway, Postgres, Redis, the mocks and k6 sharing one Docker VM. They describe the gateway's own cost and behavior, not Claude's or Gemini's.
+- **One gateway worker** (one uvicorn process, plain asyncio and h11), because the fault window and the circuit breakers are per process.
+- **Measurement 4's baseline still retries.** Retries have no switch (D-050), so "fallback off" is compared with "everything on", not with a bare call, and the secondary provider is healthy in every run.
 - **Thinking can make short answers expensive.** Gemini bills thinking as output, and `max_tokens` does not bound it (D-049). In the owner's live run at `LOW` thinking, `gemini-3.6-flash` spent 246 thinking tokens on a 17-token answer, so it billed 263 output tokens. The gateway asks for `MINIMAL`: in one live run through the adapter (2026-11-13), `gemini-3.6-flash` produced no thinking on that short prompt and billed 20 output tokens for a 20-token answer. That is one sample on one prompt; a harder prompt may still think at `MINIMAL`, and then a short answer can cost many times what its visible length suggests.
 
 ## Results
 
-None yet. Any performance figures will be added only from measured runs recorded in `docs/RESULTS.md` together with the test conditions.
+Measured with k6 against mock providers on one laptop, 2026-11-13. Each figure is the median of three runs, [minimum to maximum]. Conditions, every run's numbers, definitions and limitations are in [docs/RESULTS.md](docs/RESULTS.md).
+
+| Measurement | Result |
+| --- | --- |
+| Gateway overhead over the same mock called directly, 50 req/s | p50 1.07 ms [0.93 to 1.10], p95 2.02 ms [1.81 to 2.11] |
+| Throughput, one worker, 50 concurrent clients | 509.3 req/s [489.1 to 537.0], no errors |
+| Cache, 80% repeated prompts | hit p50 2.81 ms vs miss 24.92 ms; hit rate 79.64% (set by the workload) |
+| 30% injected provider failures, 50 req/s | 97.20% [96.87 to 97.40] successful with fallback off (retries on), 100.00% [100.00 to 100.00] with fallback on |
+| One provider fully down for 30 s, 50 req/s | inside the outage, 0% successful with fallback off and 100% with fallback on; the breaker opened 0.2 s into it |
+| Burst of 100 against a 20-request bucket | exactly 20 served and 80 refused with 429 and `Retry-After`, in 3 of 3 runs |
+
+![Success rate per second with fallback on and off during a 30 s outage of one provider](docs/results/m8-outage.svg)
 
 ## Project docs
 

@@ -1,0 +1,36 @@
+INFO:     Started server process [1]
+INFO:     Waiting for application startup.
+2026-11-13T22:08:36.452+00:00 INFO llmgateway.ratelimit ratelimit_warm opened=50 of=50
+2026-11-13T22:08:36.585+00:00 INFO llmgateway.cache cache_warm opened=50 of=50
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     127.0.0.1:38134 - "GET /healthz HTTP/1.1" 200 OK
+2026-11-13T22:08:38.878+00:00 INFO llmgateway.request request_id=gw_edb1e93180c54cafafb26afde33265b4 tenant=- key_id=- provider=- model=- status=200 latency_ms=3.2 provider_model=-
+INFO:     127.0.0.1:38148 - "GET /healthz HTTP/1.1" 200 OK
+2026-11-13T22:08:44.403+00:00 INFO llmgateway.request request_id=gw_80ddaade9e9a414db6c06af061526aac tenant=- key_id=- provider=- model=- status=200 latency_ms=1.1 provider_model=-
+INFO:     127.0.0.1:52140 - "GET /healthz HTTP/1.1" 200 OK
+2026-11-13T22:08:49.803+00:00 INFO llmgateway.request request_id=gw_49f5eba84ab147c78ff3fea5feb320fa tenant=- key_id=- provider=- model=- status=200 latency_ms=0.7 provider_model=-
+INFO:     127.0.0.1:52144 - "GET /healthz HTTP/1.1" 200 OK
+2026-11-13T22:08:55.193+00:00 INFO llmgateway.request request_id=gw_a1043b01934f41abb2d46b1c4ff70d73 tenant=- key_id=- provider=- model=- status=200 latency_ms=0.9 provider_model=-
+INFO:     127.0.0.1:51304 - "GET /healthz HTTP/1.1" 200 OK
+2026-11-13T22:09:00.587+00:00 INFO llmgateway.request request_id=gw_38f30c1698384fdda6a2a4f851019ae4 tenant=- key_id=- provider=- model=- status=200 latency_ms=0.7 provider_model=-
+INFO:     127.0.0.1:51320 - "GET /healthz HTTP/1.1" 200 OK
+2026-11-13T22:09:06.232+00:00 INFO llmgateway.request request_id=gw_9bfd1ae53e2149bea33fa4631ee7997f tenant=- key_id=- provider=- model=- status=200 latency_ms=0.8 provider_model=-
+INFO:     127.0.0.1:33742 - "GET /healthz HTTP/1.1" 200 OK
+2026-11-13T22:09:11.632+00:00 INFO llmgateway.request request_id=gw_9cb1adc5a12c44f5be3a843d8e81b9a7 tenant=- key_id=- provider=- model=- status=200 latency_ms=0.8 provider_model=-
+INFO:     127.0.0.1:53910 - "GET /healthz HTTP/1.1" 200 OK
+2026-11-13T22:09:17.156+00:00 INFO llmgateway.request request_id=gw_ff98edc5b0684506ba812a1d03e7205b tenant=- key_id=- provider=- model=- status=200 latency_ms=0.9 provider_model=-
+INFO:     127.0.0.1:53920 - "GET /healthz HTTP/1.1" 200 OK
+2026-11-13T22:09:22.569+00:00 INFO llmgateway.request request_id=gw_2b415dc51a3e4e25a88d6306c0ca71c9 tenant=- key_id=- provider=- model=- status=200 latency_ms=1.4 provider_model=-
+INFO:     127.0.0.1:57954 - "GET /healthz HTTP/1.1" 200 OK
+2026-11-13T22:09:28.078+00:00 INFO llmgateway.request request_id=gw_9a6b16e9cc674ac6af305b0ffec5090d tenant=- key_id=- provider=- model=- status=200 latency_ms=0.9 provider_model=-
+INFO:     127.0.0.1:57972 - "GET /healthz HTTP/1.1" 200 OK
+2026-11-13T22:09:33.577+00:00 INFO llmgateway.request request_id=gw_b4a588f00fd44e7585960ff74921aff4 tenant=- key_id=- provider=- model=- status=200 latency_ms=0.7 provider_model=-
+INFO:     127.0.0.1:46192 - "GET /healthz HTTP/1.1" 200 OK
+2026-11-13T22:09:39.129+00:00 INFO llmgateway.request request_id=gw_ef6671bf5837419a857e76218a5c6b44 tenant=- key_id=- provider=- model=- status=200 latency_ms=0.7 provider_model=-
+INFO:     127.0.0.1:46210 - "GET /healthz HTTP/1.1" 200 OK
+2026-11-13T22:09:44.545+00:00 INFO llmgateway.request request_id=gw_52691790e0b64c64b4579bf0d60b28a9 tenant=- key_id=- provider=- model=- status=200 latency_ms=0.6 provider_model=-
+INFO:     127.0.0.1:46818 - "GET /healthz HTTP/1.1" 200 OK
+2026-11-13T22:09:50.018+00:00 INFO llmgateway.request request_id=gw_320ff27be2bf45ff9b4389c5221ba6d0 tenant=- key_id=- provider=- model=- status=200 latency_ms=1.1 provider_model=-
+INFO:     127.0.0.1:46820 - "GET /healthz HTTP/1.1" 200 OK
+2026-11-13T22:09:55.464+00:00 INFO llmgateway.request request_id=gw_8edd81abfb0149b292f3301edf61d66b tenant=- key_id=- provider=- model=- status=200 latency_ms=1.1 provider_model=-

@@ -1,0 +1,37 @@
+{
+  "id": "m8-off-r1-rerun1",
+  "catalog_id": "m8-off-r1",
+  "measurement": 8,
+  "smoke": false,
+  "rerun": 1,
+  "command": ".\\loadtest\\run.ps1 -Run m8-off-r1 -Rerun 1",
+  "script": "failures.js",
+  "target": "http://api:8000",
+  "alias": "outage-off",
+  "compose_files": [
+    "compose.yaml",
+    "loadtest/compose.loadtest.yaml",
+    "loadtest/compose.outage.yaml"
+  ],
+  "k6_image": "grafana/k6:2.3.0@sha256:2dd4756ec6e14e62778916e1eb850108e4b499304c02df56760fa0bdb0fba0b8",
+  "k6_args": [
+    "run",
+    "-q",
+    "--no-usage-report",
+    "--log-format",
+    "json",
+    "--console-output",
+    "/out/m8-off-r1-rerun1/records.jsonl",
+    "--summary-export",
+    "/out/m8-off-r1-rerun1/summary.json",
+    "/scripts/failures.js"
+  ],
+  "k6_exit_code": 0,
+  "api_image_id": "sha256:2279219a4354746f9b61d516bfeb77fb0bd36afa1fa89ff97dfc514edf388498",
+  "git_commit": "11b53af76d658b34ad3cc8adce36dd991e6acd77",
+  "git_dirty": false,
+  "key_id": "84392ea0416ef741",
+  "started_utc": "2026-11-13T22:37:32.318Z",
+  "ended_utc": "2026-11-13T22:40:18.210Z",
+  "power_events": []
+}

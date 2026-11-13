@@ -3,37 +3,37 @@
   "p50": {
    "differences": [
     0.9329169999999998,
-    8.749316,
-    4.854223000000001
+    1.0650790000000008,
+    1.099136999999999
    ],
    "spread": [
-    4.854223000000001,
+    1.0650790000000008,
     0.9329169999999998,
-    8.749316
+    1.099136999999999
    ]
   },
   "p95": {
    "differences": [
     1.8059410000000007,
-    -24076.634320999998,
-    26.926371
+    2.1123210000000014,
+    2.0228859999999997
    ],
    "spread": [
+    2.0228859999999997,
     1.8059410000000007,
-    -24076.634320999998,
-    26.926371
+    2.1123210000000014
    ]
   },
   "p99": {
    "differences": [
     2.2690850000000005,
-    -28866.848316000003,
-    64.99828399999998
+    2.735609,
+    2.709924000000001
    ],
    "spread": [
+    2.709924000000001,
     2.2690850000000005,
-    -28866.848316000003,
-    64.99828399999998
+    2.735609
    ]
   }
  },
@@ -41,37 +41,37 @@
   "p50": {
    "differences": [
     1.514089000000002,
-    12.876773,
-    9.474432999999998
+    1.7760619999999996,
+    1.6455730000000024
    ],
    "spread": [
-    9.474432999999998,
+    1.6455730000000024,
     1.514089000000002,
-    12.876773
+    1.7760619999999996
    ]
   },
   "p95": {
    "differences": [
     2.6044069999999984,
-    -23982.699345999998,
-    63.778324999999995
+    3.28613,
+    3.0723209999999987
    ],
    "spread": [
+    3.0723209999999987,
     2.6044069999999984,
-    -23982.699345999998,
-    63.778324999999995
+    3.28613
    ]
   },
   "p99": {
    "differences": [
     3.092931,
-    -28670.843233000003,
-    219.03894599999998
+    4.479665000000001,
+    4.473241999999999
    ],
    "spread": [
+    4.473241999999999,
     3.092931,
-    -28670.843233000003,
-    219.03894599999998
+    4.479665000000001
    ]
   }
  },
@@ -101,76 +101,54 @@
    "used": "m1-direct-r1"
   },
   "m1-direct-r2": {
-   "dropped_iterations": 1212,
-   "git_commit": "65b043ab00926bab33661884906df27d6b11f77e",
+   "dropped_iterations": 0,
+   "git_commit": "11b53af76d658b34ad3cc8adce36dd991e6acd77",
    "id": "m1-direct-r2",
-   "k6_messages": [
-    "Request Failed",
-    "Request Failed",
-    "Request Failed",
-    "Request Failed",
-    "Request Failed",
-    "Request Failed",
-    "Request Failed",
-    "Request Failed",
-    "Request Failed",
-    "Request Failed",
-    "Request Failed",
-    "Request Failed",
-    "Request Failed",
-    "Request Failed",
-    "Request Failed",
-    "Request Failed",
-    "Request Failed",
-    "Request Failed",
-    "Request Failed",
-    "Request Failed",
-    "Request Failed",
-    "Request Failed",
-    "Request Failed"
-   ],
+   "k6_messages": [],
    "latency": {
-    "count": 1766,
-    "failed": 23,
-    "p50": 21.787937,
-    "p95": 24155.576092,
-    "p99": 29006.305477
+    "count": 3001,
+    "failed": 0,
+    "p50": 21.817145,
+    "p95": 22.599102,
+    "p99": 22.927758
    },
    "measurement": 1,
-   "power_events": null,
+   "power_events": [],
    "produced": [
-    "m1-direct-r2"
+    "m1-direct-r2",
+    "m1-direct-r2-rerun1"
    ],
-   "started_utc": "2026-11-13T20:35:16.902Z",
+   "started_utc": "2026-11-13T22:08:27.876Z",
    "success": {
-    "succeeded": 1766,
-    "total": 1789
+    "succeeded": 3001,
+    "total": 3001
    },
-   "used": "m1-direct-r2"
+   "used": "m1-direct-r2-rerun1"
   },
   "m1-direct-r3": {
    "dropped_iterations": 0,
-   "git_commit": "65b043ab00926bab33661884906df27d6b11f77e",
+   "git_commit": "11b53af76d658b34ad3cc8adce36dd991e6acd77",
    "id": "m1-direct-r3",
    "k6_messages": [],
    "latency": {
     "count": 3001,
     "failed": 0,
-    "p50": 25.063598,
-    "p95": 29.762834,
-    "p99": 37.278336
+    "p50": 21.821226,
+    "p95": 22.596505,
+    "p99": 23.098181
    },
    "measurement": 1,
-   "power_events": null,
+   "power_events": [],
    "produced": [
-    "m1-direct-r3"
+    "m1-direct-r3",
+    "m1-direct-r3-rerun1"
    ],
-   "started_utc": "2026-11-13T20:41:24.859Z",
+   "started_utc": "2026-11-13T22:12:52.097Z",
    "success": {
     "succeeded": 3001,
     "total": 3001
    },
-   "used": "m1-direct-r3"
+   "used": "m1-direct-r3-rerun1"
   },
   "m1-gateway-r1": {
    "before_auth": {},
@@ -200,52 +178,54 @@
   "m1-gateway-r2": {
    "before_auth": {},
    "dropped_iterations": 0,
-   "git_commit": "65b043ab00926bab33661884906df27d6b11f77e",
+   "git_commit": "11b53af76d658b34ad3cc8adce36dd991e6acd77",
    "id": "m1-gateway-r2",
    "k6_messages": [],
    "latency": {
-    "count": 3001,
+    "count": 3000,
     "failed": 0,
-    "p50": 30.537253,
-    "p95": 78.941771,
-    "p99": 139.457161
+    "p50": 22.882224,
+    "p95": 24.711423,
+    "p99": 25.663367
    },
    "measurement": 1,
-   "power_events": null,
+   "power_events": [],
    "produced": [
-    "m1-gateway-r2"
+    "m1-gateway-r2",
+    "m1-gateway-r2-rerun1"
    ],
-   "started_utc": "2026-11-13T20:37:17.525Z",
+   "started_utc": "2026-11-13T22:09:57.445Z",
    "success": {
-    "succeeded": 3001,
-    "total": 3001
+    "succeeded": 3000,
+    "total": 3000
    },
-   "used": "m1-gateway-r2"
+   "used": "m1-gateway-r2-rerun1"
   },
   "m1-gateway-r3": {
    "before_auth": {},
    "dropped_iterations": 0,
-   "git_commit": "65b043ab00926bab33661884906df27d6b11f77e",
+   "git_commit": "11b53af76d658b34ad3cc8adce36dd991e6acd77",
    "id": "m1-gateway-r3",
    "k6_messages": [],
    "latency": {
     "count": 3000,
     "failed": 0,
-    "p50": 29.917821,
-    "p95": 56.689205,
-    "p99": 102.27662
+    "p50": 22.920363,
+    "p95": 24.619391,
+    "p99": 25.808105
    },
    "measurement": 1,
-   "power_events": null,
+   "power_events": [],
    "produced": [
-    "m1-gateway-r3"
+    "m1-gateway-r3",
+    "m1-gateway-r3-rerun1"
    ],
-   "started_utc": "2026-11-13T20:43:08.730Z",
+   "started_utc": "2026-11-13T22:14:16.510Z",
    "success": {
     "succeeded": 3000,
     "total": 3000
    },
-   "used": "m1-gateway-r3"
+   "used": "m1-gateway-r3-rerun1"
   },
   "m1-nokeycache-r1": {
    "before_auth": {},
@@ -275,133 +255,138 @@
   "m1-nokeycache-r2": {
    "before_auth": {},
    "dropped_iterations": 0,
-   "git_commit": "65b043ab00926bab33661884906df27d6b11f77e",
+   "git_commit": "11b53af76d658b34ad3cc8adce36dd991e6acd77",
    "id": "m1-nokeycache-r2",
    "k6_messages": [],
    "latency": {
     "count": 3001,
     "failed": 0,
-    "p50": 34.66471,
-    "p95": 172.876746,
-    "p99": 335.462244
+    "p50": 23.593207,
+    "p95": 25.885232,
+    "p99": 27.407423
    },
    "measurement": 1,
-   "power_events": null,
+   "power_events": [],
    "produced": [
-    "m1-nokeycache-r2"
+    "m1-nokeycache-r2",
+    "m1-nokeycache-r2-rerun1"
    ],
-   "started_utc": "2026-11-13T20:39:28.996Z",
+   "started_utc": "2026-11-13T22:11:24.821Z",
    "success": {
     "succeeded": 3001,
     "total": 3001
    },
-   "used": "m1-nokeycache-r2"
+   "used": "m1-nokeycache-r2-rerun1"
   },
   "m1-nokeycache-r3": {
    "before_auth": {},
    "dropped_iterations": 0,
-   "git_commit": "65b043ab00926bab33661884906df27d6b11f77e",
+   "git_commit": "11b53af76d658b34ad3cc8adce36dd991e6acd77",
    "id": "m1-nokeycache-r3",
    "k6_messages": [],
    "latency": {
     "count": 3001,
     "failed": 0,
-    "p50": 34.538031,
-    "p95": 93.541159,
-    "p99": 256.317282
+    "p50": 23.466799,
+    "p95": 25.668826,
+    "p99": 27.571423
    },
    "measurement": 1,
-   "power_events": null,
+   "power_events": [],
    "produced": [
-    "m1-nokeycache-r3"
+    "m1-nokeycache-r3",
+    "m1-nokeycache-r3-rerun1"
    ],
-   "started_utc": "2026-11-13T20:45:00.895Z",
+   "started_utc": "2026-11-13T22:15:43.475Z",
    "success": {
     "succeeded": 3001,
     "total": 3001
    },
-   "used": "m1-nokeycache-r3"
+   "used": "m1-nokeycache-r3-rerun1"
   },
   "m2-r1": {
    "before_auth": {},
    "dropped_iterations": 0,
    "error_rate": 0.0,
-   "git_commit": "65b043ab00926bab33661884906df27d6b11f77e",
+   "git_commit": "11b53af76d658b34ad3cc8adce36dd991e6acd77",
    "id": "m2-r1",
    "k6_messages": [],
    "latency": {
-    "count": 6971,
+    "count": 29348,
     "failed": 0,
-    "p50": 391.349465,
-    "p95": 690.434789,
-    "p99": 948.079737
+    "p50": 88.505207,
+    "p95": 179.862811,
+    "p99": 238.712644
    },
    "measurement": 2,
-   "power_events": null,
+   "power_events": [],
    "produced": [
-    "m2-r1"
+    "m2-r1",
+    "m2-r1-rerun1"
    ],
-   "started_utc": "2026-11-13T20:46:54.698Z",
+   "started_utc": "2026-11-13T22:17:10.519Z",
    "success": {
-    "succeeded": 6971,
-    "total": 6971
+    "succeeded": 29348,
+    "total": 29348
    },
-   "throughput_rps": 116.18333333333334,
-   "used": "m2-r1"
+   "throughput_rps": 489.1333333333333,
+   "used": "m2-r1-rerun1"
   },
   "m2-r2": {
    "before_auth": {},
    "dropped_iterations": 0,
    "error_rate": 0.0,
-   "git_commit": "65b043ab00926bab33661884906df27d6b11f77e",
+   "git_commit": "11b53af76d658b34ad3cc8adce36dd991e6acd77",
    "id": "m2-r2",
    "k6_messages": [],
    "latency": {
-    "count": 7043,
+    "count": 30559,
     "failed": 0,
-    "p50": 385.211401,
-    "p95": 672.036621,
-    "p99": 974.211558
+    "p50": 88.649441,
+    "p95": 155.142972,
+    "p99": 203.231091
    },
    "measurement": 2,
-   "power_events": null,
+   "power_events": [],
    "produced": [
-    "m2-r2"
+    "m2-r2",
+    "m2-r2-rerun1"
    ],
-   "started_utc": "2026-11-13T20:48:47.630Z",
+   "started_utc": "2026-11-13T22:18:39.799Z",
    "success": {
-    "succeeded": 7043,
-    "total": 7043
+    "succeeded": 30559,
+    "total": 30559
    },
-   "throughput_rps": 117.38333333333334,
-   "used": "m2-r2"
+   "throughput_rps": 509.31666666666666,
+   "used": "m2-r2-rerun1"
   },
   "m2-r3": {
    "before_auth": {},
    "dropped_iterations": 0,
    "error_rate": 0.0,
-   "git_commit": "65b043ab00926bab33661884906df27d6b11f77e",
+   "git_commit": "11b53af76d658b34ad3cc8adce36dd991e6acd77",
    "id": "m2-r3",
    "k6_messages": [],
    "latency": {
-    "count": 6789,
+    "count": 32220,
     "failed": 0,
-    "p50": 396.86896,
-    "p95": 751.315422,
-    "p99": 1005.599244
+    "p50": 81.771138,
+    "p95": 143.145428,
+    "p99": 200.602051
    },
    "measurement": 2,
-   "power_events": null,
+   "power_events": [],
    "produced": [
-    "m2-r3"
+    "m2-r3",
+    "m2-r3-rerun1"
    ],
-   "started_utc": "2026-11-13T20:50:41.923Z",
+   "started_utc": "2026-11-13T22:20:09.677Z",
    "success": {
-    "succeeded": 6789,
-    "total": 6789
+    "succeeded": 32220,
+    "total": 32220
    },
-   "throughput_rps": 113.15,
-   "used": "m2-r3"
+   "throughput_rps": 537.0,
+   "used": "m2-r3-rerun1"
   },
   "m3-r1": {
    "before_auth": {},
@@ -409,45 +394,46 @@
     "hit": {
      "count": 2390,
      "failed": 0,
-     "p50": 11.536067,
-     "p95": 70.345773,
-     "p99": 100.161379
+     "p50": 2.225723,
+     "p95": 3.255393,
+     "p99": 4.255256
     },
     "hit_rate": 0.7964011996001333,
     "hits": 2390,
     "miss": {
      "count": 611,
      "failed": 0,
-     "p50": 40.564893,
-     "p95": 137.680831,
-     "p99": 191.451122
+     "p50": 23.779114,
+     "p95": 25.472029,
+     "p99": 26.601696
     },
     "misses": 611,
     "other": 0,
     "total": 3001
    },
    "dropped_iterations": 0,
-   "git_commit": "65b043ab00926bab33661884906df27d6b11f77e",
+   "git_commit": "11b53af76d658b34ad3cc8adce36dd991e6acd77",
    "id": "m3-r1",
    "k6_messages": [],
    "latency": {
     "count": 3001,
     "failed": 0,
-    "p50": 14.585236,
-    "p95": 80.830788,
-    "p99": 137.680831
+    "p50": 2.364636,
+    "p95": 24.251891,
+    "p99": 25.472029
    },
    "measurement": 3,
-   "power_events": null,
+   "power_events": [],
    "produced": [
-    "m3-r1"
+    "m3-r1",
+    "m3-r1-rerun1"
    ],
-   "started_utc": "2026-11-13T20:52:33.752Z",
+   "started_utc": "2026-11-13T22:21:38.400Z",
    "success": {
     "succeeded": 3001,
     "total": 3001
    },
-   "used": "m3-r1"
+   "used": "m3-r1-rerun1"
   },
   "m3-r2": {
    "before_auth": {},
@@ -455,45 +441,46 @@
     "hit": {
      "count": 2390,
      "failed": 0,
-     "p50": 10.420142,
-     "p95": 81.945176,
-     "p99": 174.245949
+     "p50": 2.937475,
+     "p95": 5.298515,
+     "p99": 6.651698
     },
     "hit_rate": 0.7964011996001333,
     "hits": 2390,
     "miss": {
      "count": 611,
      "failed": 0,
-     "p50": 37.886278,
-     "p95": 157.170595,
-     "p99": 275.331756
+     "p50": 24.920839,
+     "p95": 27.830206,
+     "p99": 30.909239
     },
     "misses": 611,
     "other": 0,
     "total": 3001
    },
    "dropped_iterations": 0,
-   "git_commit": "65b043ab00926bab33661884906df27d6b11f77e",
+   "git_commit": "11b53af76d658b34ad3cc8adce36dd991e6acd77",
    "id": "m3-r2",
    "k6_messages": [],
    "latency": {
     "count": 3001,
     "failed": 0,
-    "p50": 11.959402,
-    "p95": 90.943859,
-    "p99": 201.521201
+    "p50": 3.239785,
+    "p95": 25.999801,
+    "p99": 27.830206
    },
    "measurement": 3,
-   "power_events": null,
+   "power_events": [],
    "produced": [
-    "m3-r2"
+    "m3-r2",
+    "m3-r2-rerun1"
    ],
-   "started_utc": "2026-11-13T20:54:25.863Z",
+   "started_utc": "2026-11-13T22:23:04.737Z",
    "success": {
     "succeeded": 3001,
     "total": 3001
    },
-   "used": "m3-r2"
+   "used": "m3-r2-rerun1"
   },
   "m3-r3": {
    "before_auth": {},
@@ -501,45 +488,46 @@
     "hit": {
      "count": 2390,
      "failed": 0,
-     "p50": 10.053507,
-     "p95": 36.822531,
-     "p99": 63.126278
+     "p50": 2.808265,
+     "p95": 4.960877,
+     "p99": 6.936104
     },
     "hit_rate": 0.7964011996001333,
     "hits": 2390,
     "miss": {
      "count": 611,
      "failed": 0,
-     "p50": 37.907786,
-     "p95": 73.598269,
-     "p99": 126.805931
+     "p50": 25.426334,
+     "p95": 27.927783,
+     "p99": 29.676067
     },
     "misses": 611,
     "other": 0,
     "total": 3001
    },
    "dropped_iterations": 0,
-   "git_commit": "65b043ab00926bab33661884906df27d6b11f77e",
+   "git_commit": "11b53af76d658b34ad3cc8adce36dd991e6acd77",
    "id": "m3-r3",
    "k6_messages": [],
    "latency": {
     "count": 3001,
     "failed": 0,
-    "p50": 11.178526,
-    "p95": 48.654169,
-    "p99": 92.608483
+    "p50": 3.070574,
+    "p95": 26.43669,
+    "p99": 27.927783
    },
    "measurement": 3,
-   "power_events": null,
+   "power_events": [],
    "produced": [
-    "m3-r3"
+    "m3-r3",
+    "m3-r3-rerun1"
    ],
-   "started_utc": "2026-11-13T20:56:17.750Z",
+   "started_utc": "2026-11-13T22:24:30.849Z",
    "success": {
     "succeeded": 3001,
     "total": 3001
    },
-   "used": "m3-r3"
+   "used": "m3-r3-rerun1"
   },
   "m4-off-r1": {
    "before_auth": {},
@@ -548,41 +536,42 @@
    "dropped_iterations": 0,
    "gateway": {
     "by_status": {
-     "200": 2919,
-     "502": 82
+     "200": 2916,
+     "502": 84
     },
-    "failed_attempts": 1255,
+    "failed_attempts": 1254,
     "fallbacks": 0
    },
-   "git_commit": "65b043ab00926bab33661884906df27d6b11f77e",
+   "git_commit": "11b53af76d658b34ad3cc8adce36dd991e6acd77",
    "id": "m4-off-r1",
    "k6_messages": [],
    "measurement": 4,
-   "power_events": null,
+   "power_events": [],
    "produced": [
-    "m4-off-r1"
+    "m4-off-r1",
+    "m4-off-r1-rerun1"
    ],
    "served_by": {
-    "mock-primary": 2919
+    "mock-primary": 2916
    },
-   "started_utc": "2026-11-13T20:58:10.477Z",
+   "started_utc": "2026-11-13T22:25:58.632Z",
    "success": {
-    "succeeded": 2919,
-    "total": 3001
+    "succeeded": 2916,
+    "total": 3000
    },
-   "success_rate": 0.9726757747417527,
+   "success_rate": 0.972,
    "usage": {
     "abandoned": 0,
     "by_instance": {
      "mock-primary": {
-      "failed": 1255,
-      "success": 2919
+      "failed": 1254,
+      "success": 2916
      }
     },
-    "failed": 1255,
-    "success": 2919
+    "failed": 1254,
+    "success": 2916
    },
-   "used": "m4-off-r1"
+   "used": "m4-off-r1-rerun1"
   },
   "m4-off-r2": {
    "before_auth": {},
@@ -591,41 +580,42 @@
    "dropped_iterations": 0,
    "gateway": {
     "by_status": {
-     "200": 2919,
-     "502": 81
+     "200": 2907,
+     "502": 94
     },
-    "failed_attempts": 1255,
+    "failed_attempts": 1251,
     "fallbacks": 0
    },
-   "git_commit": "65b043ab00926bab33661884906df27d6b11f77e",
+   "git_commit": "11b53af76d658b34ad3cc8adce36dd991e6acd77",
    "id": "m4-off-r2",
    "k6_messages": [],
    "measurement": 4,
-   "power_events": null,
+   "power_events": [],
    "produced": [
-    "m4-off-r2"
+    "m4-off-r2",
+    "m4-off-r2-rerun1"
    ],
    "served_by": {
-    "mock-primary": 2919
+    "mock-primary": 2907
    },
-   "started_utc": "2026-11-13T21:01:38.026Z",
+   "started_utc": "2026-11-13T22:28:34.754Z",
    "success": {
-    "succeeded": 2919,
-    "total": 3000
+    "succeeded": 2907,
+    "total": 3001
    },
-   "success_rate": 0.973,
+   "success_rate": 0.9686771076307897,
    "usage": {
     "abandoned": 0,
     "by_instance": {
      "mock-primary": {
-      "failed": 1255,
-      "success": 2919
+      "failed": 1251,
+      "success": 2907
      }
     },
-    "failed": 1255,
-    "success": 2919
+    "failed": 1251,
+    "success": 2907
    },
-   "used": "m4-off-r2"
+   "used": "m4-off-r2-rerun1"
   },
   "m4-off-r3": {
    "before_auth": {},
@@ -634,41 +624,42 @@
    "dropped_iterations": 0,
    "gateway": {
     "by_status": {
-     "200": 2914,
-     "502": 87
+     "200": 2922,
+     "502": 78
     },
-    "failed_attempts": 1254,
+    "failed_attempts": 1256,
     "fallbacks": 0
    },
-   "git_commit": "65b043ab00926bab33661884906df27d6b11f77e",
+   "git_commit": "11b53af76d658b34ad3cc8adce36dd991e6acd77",
    "id": "m4-off-r3",
    "k6_messages": [],
    "measurement": 4,
-   "power_events": null,
+   "power_events": [],
    "produced": [
-    "m4-off-r3"
+    "m4-off-r3",
+    "m4-off-r3-rerun1"
    ],
    "served_by": {
-    "mock-primary": 2914
+    "mock-primary": 2922
    },
-   "started_utc": "2026-11-13T21:05:09.853Z",
+   "started_utc": "2026-11-13T22:31:08.021Z",
    "success": {
-    "succeeded": 2914,
-    "total": 3001
+    "succeeded": 2922,
+    "total": 3000
    },
-   "success_rate": 0.9710096634455182,
+   "success_rate": 0.974,
    "usage": {
     "abandoned": 0,
     "by_instance": {
      "mock-primary": {
-      "failed": 1254,
-      "success": 2914
+      "failed": 1256,
+      "success": 2922
      }
     },
-    "failed": 1254,
-    "success": 2914
+    "failed": 1256,
+    "success": 2922
    },
-   "used": "m4-off-r3"
+   "used": "m4-off-r3-rerun1"
   },
   "m4-on-r1": {
    "before_auth": {},
@@ -679,22 +670,23 @@
     "by_status": {
      "200": 3001
     },
-    "failed_attempts": 1256,
-    "fallbacks": 79
+    "failed_attempts": 1255,
+    "fallbacks": 83
    },
-   "git_commit": "65b043ab00926bab33661884906df27d6b11f77e",
+   "git_commit": "11b53af76d658b34ad3cc8adce36dd991e6acd77",
    "id": "m4-on-r1",
    "k6_messages": [],
    "measurement": 4,
-   "power_events": null,
+   "power_events": [],
    "produced": [
-    "m4-on-r1"
+    "m4-on-r1",
+    "m4-on-r1-rerun1"
    ],
    "served_by": {
-    "mock-primary": 2922,
-    "mock-secondary": 79
+    "mock-primary": 2918,
+    "mock-secondary": 83
    },
-   "started_utc": "2026-11-13T20:59:53.744Z",
+   "started_utc": "2026-11-13T22:27:17.709Z",
    "success": {
     "succeeded": 3001,
     "total": 3001
@@ -704,19 +696,66 @@
     "abandoned": 0,
     "by_instance": {
      "mock-primary": {
-      "failed": 1256,
-      "success": 2922
+      "failed": 1255,
+      "success": 2918
      },
      "mock-secondary": {
-      "success": 79
+      "success": 83
      }
     },
-    "failed": 1256,
+    "failed": 1255,
     "success": 3001
    },
-   "used": "m4-on-r1"
+   "used": "m4-on-r1-rerun1"
   },
   "m4-on-r2": {
+   "before_auth": {},
+   "breaker": [],
+   "cross_check": [],
+   "dropped_iterations": 0,
+   "gateway": {
+    "by_status": {
+     "200": 3000
+    },
+    "failed_attempts": 1255,
+    "fallbacks": 82
+   },
+   "git_commit": "11b53af76d658b34ad3cc8adce36dd991e6acd77",
+   "id": "m4-on-r2",
+   "k6_messages": [],
+   "measurement": 4,
+   "power_events": [],
+   "produced": [
+    "m4-on-r2",
+    "m4-on-r2-rerun1"
+   ],
+   "served_by": {
+    "mock-primary": 2918,
+    "mock-secondary": 82
+   },
+   "started_utc": "2026-11-13T22:29:51.371Z",
+   "success": {
+    "succeeded": 3000,
+    "total": 3000
+   },
+   "success_rate": 1.0,
+   "usage": {
+    "abandoned": 0,
+    "by_instance": {
+     "mock-primary": {
+      "failed": 1255,
+      "success": 2918
+     },
+     "mock-secondary": {
+      "success": 82
+     }
+    },
+    "failed": 1255,
+    "success": 3000
+   },
+   "used": "m4-on-r2-rerun1"
+  },
+  "m4-on-r3": {
    "before_auth": {},
    "breaker": [],
    "cross_check": [],
@@ -726,21 +765,22 @@
      "200": 3001
     },
     "failed_attempts": 1256,
-    "fallbacks": 72
+    "fallbacks": 78
    },
-   "git_commit": "65b043ab00926bab33661884906df27d6b11f77e",
-   "id": "m4-on-r2",
+   "git_commit": "11b53af76d658b34ad3cc8adce36dd991e6acd77",
+   "id": "m4-on-r3",
    "k6_messages": [],
    "measurement": 4,
-   "power_events": null,
+   "power_events": [],
    "produced": [
-    "m4-on-r2"
+    "m4-on-r3",
+    "m4-on-r3-rerun1"
    ],
    "served_by": {
-    "mock-primary": 2929,
-    "mock-secondary": 72
+    "mock-primary": 2923,
+    "mock-secondary": 78
    },
-   "started_utc": "2026-11-13T21:03:24.622Z",
+   "started_utc": "2026-11-13T22:32:24.962Z",
    "success": {
     "succeeded": 3001,
     "total": 3001
@@ -751,70 +791,22 @@
     "by_instance": {
      "mock-primary": {
       "failed": 1256,
-      "success": 2929
+      "success": 2923
      },
      "mock-secondary": {
-      "success": 72
+      "success": 78
      }
     },
     "failed": 1256,
     "success": 3001
    },
-   "used": "m4-on-r2"
-  },
-  "m4-on-r3": {
-   "before_auth": {
-    "503": 14
-   },
-   "breaker": [],
-   "cross_check": [],
-   "dropped_iterations": 1,
-   "gateway": {
-    "by_status": {
-     "200": 2985
-    },
-    "failed_attempts": 1249,
-    "fallbacks": 90
-   },
-   "git_commit": "65b043ab00926bab33661884906df27d6b11f77e",
-   "id": "m4-on-r3",
-   "k6_messages": [],
-   "measurement": 4,
-   "power_events": null,
-   "produced": [
-    "m4-on-r3"
-   ],
-   "served_by": {
-    "mock-primary": 2895,
-    "mock-secondary": 90
-   },
-   "started_utc": "2026-11-13T21:06:53.244Z",
-   "success": {
-    "succeeded": 2985,
-    "total": 2999
-   },
-   "success_rate": 0.9953317772590864,
-   "usage": {
-    "abandoned": 0,
-    "by_instance": {
-     "mock-primary": {
-      "failed": 1249,
-      "success": 2895
-     },
-     "mock-secondary": {
-      "success": 90
-     }
-    },
-    "failed": 1249,
-    "success": 2985
-   },
-   "used": "m4-on-r3"
+   "used": "m4-on-r3-rerun1"
   },
   "m5-r1": {
    "before_auth": {},
    "burst": {
-    "allowed_at_most": 21,
-    "length_s": 1.381251953125,
+    "allowed_at_most": 20,
+    "length_s": 0.293378173828125,
     "limited": 80,
     "limited_with_retry_after": 80,
     "ok": 20,
@@ -823,26 +815,27 @@
    },
    "correct": true,
    "dropped_iterations": 0,
-   "git_commit": "65b043ab00926bab33661884906df27d6b11f77e",
+   "git_commit": "11b53af76d658b34ad3cc8adce36dd991e6acd77",
    "id": "m5-r1",
    "k6_messages": [],
    "measurement": 5,
    "paced": {
-    "ok": 10,
-    "requests": 10
+    "ok": 11,
+    "requests": 11
    },
-   "power_events": null,
+   "power_events": [],
    "produced": [
-    "m5-r1"
+    "m5-r1",
+    "m5-r1-rerun1"
    ],
-   "started_utc": "2026-11-13T21:08:39.408Z",
-   "used": "m5-r1"
+   "started_utc": "2026-11-13T22:33:42.629Z",
+   "used": "m5-r1-rerun1"
   },
   "m5-r2": {
    "before_auth": {},
    "burst": {
-    "allowed_at_most": 21,
-    "length_s": 1.460542724609375,
+    "allowed_at_most": 20,
+    "length_s": 0.48192041015625,
     "limited": 80,
     "limited_with_retry_after": 80,
     "ok": 20,
@@ -851,7 +844,7 @@
    },
    "correct": true,
    "dropped_iterations": 0,
-   "git_commit": "65b043ab00926bab33661884906df27d6b11f77e",
+   "git_commit": "11b53af76d658b34ad3cc8adce36dd991e6acd77",
    "id": "m5-r2",
    "k6_messages": [],
    "measurement": 5,
@@ -859,27 +852,28 @@
     "ok": 11,
     "requests": 11
    },
-   "power_events": null,
+   "power_events": [],
    "produced": [
-    "m5-r2"
+    "m5-r2",
+    "m5-r2-rerun1"
    ],
-   "started_utc": "2026-11-13T21:10:22.422Z",
-   "used": "m5-r2"
+   "started_utc": "2026-11-13T22:34:58.795Z",
+   "used": "m5-r2-rerun1"
   },
   "m5-r3": {
    "before_auth": {},
    "burst": {
-    "allowed_at_most": 21,
-    "length_s": 1.697280517578125,
-    "limited": 79,
-    "limited_with_retry_after": 79,
-    "ok": 21,
+    "allowed_at_most": 20,
+    "length_s": 0.28384716796875,
+    "limited": 80,
+    "limited_with_retry_after": 80,
+    "ok": 20,
     "other": 0,
     "requests": 100
    },
    "correct": true,
    "dropped_iterations": 0,
-   "git_commit": "65b043ab00926bab33661884906df27d6b11f77e",
+   "git_commit": "11b53af76d658b34ad3cc8adce36dd991e6acd77",
    "id": "m5-r3",
    "k6_messages": [],
    "measurement": 5,
@@ -887,66 +881,67 @@
     "ok": 10,
     "requests": 10
    },
-   "power_events": null,
+   "power_events": [],
    "produced": [
-    "m5-r3"
+    "m5-r3",
+    "m5-r3-rerun1"
    ],
-   "started_utc": "2026-11-13T21:12:02.533Z",
-   "used": "m5-r3"
+   "started_utc": "2026-11-13T22:36:16.321Z",
+   "used": "m5-r3-rerun1"
   },
   "m8-off-r1": {
    "before_auth": {},
    "breaker": [
     {
-     "at_s": 60.861,
+     "at_s": 60.216,
      "from_state": "closed",
      "provider": "mock-outage",
      "reason": "threshold_hit",
      "to_state": "open",
-     "ts_ms": 1794604521576
+     "ts_ms": 1794609522213
     },
     {
-     "at_s": 90.859,
+     "at_s": 90.216,
      "from_state": "open",
      "provider": "mock-outage",
      "reason": "cooldown_over",
      "to_state": "half_open",
-     "ts_ms": 1794604551574
+     "ts_ms": 1794609552213
     },
     {
-     "at_s": 90.881,
+     "at_s": 90.236,
      "from_state": "half_open",
      "provider": "mock-outage",
      "reason": "probe_passed",
      "to_state": "closed",
-     "ts_ms": 1794604551596
+     "ts_ms": 1794609552233
     }
    ],
    "cross_check": [],
    "dropped_iterations": 0,
    "gateway": {
     "by_status": {
-     "200": 5973,
-     "502": 26,
-     "503": 1502
+     "200": 5989,
+     "502": 10,
+     "503": 1501
     },
-    "failed_attempts": 32,
+    "failed_attempts": 17,
     "fallbacks": 0
    },
-   "git_commit": "65b043ab00926bab33661884906df27d6b11f77e",
+   "git_commit": "11b53af76d658b34ad3cc8adce36dd991e6acd77",
    "id": "m8-off-r1",
    "k6_messages": [],
    "measurement": 8,
    "per_second": [
     {
      "second": 0,
-     "sent": 50,
-     "succeeded": 50
+     "sent": 51,
+     "succeeded": 51
     },
     {
      "second": 1,
-     "sent": 51,
-     "succeeded": 51
+     "sent": 50,
+     "succeeded": 50
     },
     {
      "second": 2,
@@ -1185,13 +1180,13 @@
     },
     {
      "second": 49,
-     "sent": 51,
-     "succeeded": 51
+     "sent": 50,
+     "succeeded": 50
     },
     {
      "second": 50,
-     "sent": 49,
-     "succeeded": 49
+     "sent": 50,
+     "succeeded": 50
     },
     {
      "second": 51,
@@ -1215,23 +1210,23 @@
     },
     {
      "second": 55,
-     "sent": 51,
-     "succeeded": 51
+     "sent": 50,
+     "succeeded": 50
     },
     {
      "second": 56,
-     "sent": 49,
-     "succeeded": 49
+     "sent": 50,
+     "succeeded": 50
     },
     {
      "second": 57,
-     "sent": 51,
-     "succeeded": 51
+     "sent": 50,
+     "succeeded": 50
     },
     {
      "second": 58,
-     "sent": 49,
-     "succeeded": 49
+     "sent": 50,
+     "succeeded": 50
     },
     {
      "second": 59,
@@ -1241,7 +1236,7 @@
     {
      "second": 60,
      "sent": 50,
-     "succeeded": 16
+     "succeeded": 0
     },
     {
      "second": 61,
@@ -1300,12 +1295,12 @@
     },
     {
      "second": 72,
-     "sent": 51,
+     "sent": 50,
      "succeeded": 0
     },
     {
      "second": 73,
-     "sent": 49,
+     "sent": 50,
      "succeeded": 0
     },
     {
@@ -1315,7 +1310,7 @@
     },
     {
      "second": 75,
-     "sent": 51,
+     "sent": 50,
      "succeeded": 0
     },
     {
@@ -1360,12 +1355,12 @@
     },
     {
      "second": 84,
-     "sent": 49,
+     "sent": 50,
      "succeeded": 0
     },
     {
      "second": 85,
-     "sent": 51,
+     "sent": 50,
      "succeeded": 0
     },
     {
@@ -1391,7 +1386,7 @@
     {
      "second": 90,
      "sent": 50,
-     "succeeded": 7
+     "succeeded": 39
     },
     {
      "second": 91,
@@ -1689,73 +1684,74 @@
      "succeeded": 49
     }
    ],
-   "power_events": null,
+   "power_events": [],
    "produced": [
-    "m8-off-r1"
+    "m8-off-r1",
+    "m8-off-r1-rerun1"
    ],
    "served_by": {
-    "mock-outage": 5973
+    "mock-outage": 5989
    },
-   "started_utc": "2026-11-13T21:13:44.638Z",
+   "started_utc": "2026-11-13T22:37:32.318Z",
    "success": {
-    "succeeded": 5973,
-    "total": 7501
+    "succeeded": 5989,
+    "total": 7500
    },
-   "success_rate": 0.796293827489668,
+   "success_rate": 0.7985333333333333,
    "usage": {
     "abandoned": 0,
     "by_instance": {
      "mock-outage": {
-      "failed": 32,
-      "success": 5973
+      "failed": 17,
+      "success": 5989
      }
     },
-    "failed": 32,
-    "success": 5973
+    "failed": 17,
+    "success": 5989
    },
-   "used": "m8-off-r1",
-   "window_success_rate": 0.010659560293137908
+   "used": "m8-off-r1-rerun1",
+   "window_success_rate": 0.0
   },
   "m8-off-r2": {
    "before_auth": {},
    "breaker": [
     {
-     "at_s": 60.43,
+     "at_s": 60.236,
      "from_state": "closed",
      "provider": "mock-outage",
      "reason": "threshold_hit",
      "to_state": "open",
-     "ts_ms": 1794604914034
+     "ts_ms": 1794609855108
     },
     {
-     "at_s": 90.438,
+     "at_s": 90.235,
      "from_state": "open",
      "provider": "mock-outage",
      "reason": "cooldown_over",
      "to_state": "half_open",
-     "ts_ms": 1794604944042
+     "ts_ms": 1794609885107
     },
     {
-     "at_s": 90.462,
+     "at_s": 90.256,
      "from_state": "half_open",
      "provider": "mock-outage",
      "reason": "probe_passed",
      "to_state": "closed",
-     "ts_ms": 1794604944066
+     "ts_ms": 1794609885128
     }
    ],
    "cross_check": [],
    "dropped_iterations": 0,
    "gateway": {
     "by_status": {
-     "200": 5986,
-     "502": 13,
+     "200": 5989,
+     "502": 11,
      "503": 1501
     },
     "failed_attempts": 17,
     "fallbacks": 0
    },
-   "git_commit": "65b043ab00926bab33661884906df27d6b11f77e",
+   "git_commit": "11b53af76d658b34ad3cc8adce36dd991e6acd77",
    "id": "m8-off-r2",
    "k6_messages": [],
    "measurement": 8,
@@ -1977,8 +1973,8 @@
     },
     {
      "second": 43,
-     "sent": 51,
-     "succeeded": 51
+     "sent": 50,
+     "succeeded": 50
     },
     {
      "second": 44,
@@ -2042,13 +2038,13 @@
     },
     {
      "second": 56,
-     "sent": 49,
-     "succeeded": 49
+     "sent": 50,
+     "succeeded": 50
     },
     {
      "second": 57,
-     "sent": 51,
-     "succeeded": 51
+     "sent": 50,
+     "succeeded": 50
     },
     {
      "second": 58,
@@ -2063,7 +2059,7 @@
     {
      "second": 60,
      "sent": 50,
-     "succeeded": 8
+     "succeeded": 0
     },
     {
      "second": 61,
@@ -2213,7 +2209,7 @@
     {
      "second": 90,
      "sent": 50,
-     "succeeded": 28
+     "succeeded": 38
     },
     {
      "second": 91,
@@ -2427,8 +2423,8 @@
     },
     {
      "second": 133,
-     "sent": 51,
-     "succeeded": 51
+     "sent": 50,
+     "succeeded": 50
     },
     {
      "second": 134,
@@ -2442,13 +2438,13 @@
     },
     {
      "second": 136,
-     "sent": 49,
-     "succeeded": 49
+     "sent": 50,
+     "succeeded": 50
     },
     {
      "second": 137,
-     "sent": 51,
-     "succeeded": 51
+     "sent": 50,
+     "succeeded": 50
     },
     {
      "second": 138,
@@ -2462,13 +2458,13 @@
     },
     {
      "second": 140,
-     "sent": 49,
-     "succeeded": 49
+     "sent": 50,
+     "succeeded": 50
     },
     {
      "second": 141,
-     "sent": 51,
-     "succeeded": 51
+     "sent": 50,
+     "succeeded": 50
     },
     {
      "second": 142,
@@ -2482,8 +2478,8 @@
     },
     {
      "second": 144,
-     "sent": 49,
-     "succeeded": 49
+     "sent": 50,
+     "succeeded": 50
     },
     {
      "second": 145,
@@ -2492,8 +2488,8 @@
     },
     {
      "second": 146,
-     "sent": 51,
-     "succeeded": 51
+     "sent": 50,
+     "succeeded": 50
     },
     {
      "second": 147,
@@ -2502,82 +2498,83 @@
     },
     {
      "second": 148,
-     "sent": 49,
-     "succeeded": 49
+     "sent": 50,
+     "succeeded": 50
     },
     {
      "second": 149,
-     "sent": 48,
-     "succeeded": 48
+     "sent": 50,
+     "succeeded": 50
     }
    ],
-   "power_events": null,
+   "power_events": [],
    "produced": [
-    "m8-off-r2"
+    "m8-off-r2",
+    "m8-off-r2-rerun1"
    ],
    "served_by": {
-    "mock-outage": 5986
+    "mock-outage": 5989
    },
-   "started_utc": "2026-11-13T21:20:21.976Z",
+   "started_utc": "2026-11-13T22:43:05.344Z",
    "success": {
-    "succeeded": 5986,
-    "total": 7500
+    "succeeded": 5989,
+    "total": 7501
    },
-   "success_rate": 0.7981333333333334,
+   "success_rate": 0.7984268764164778,
    "usage": {
     "abandoned": 0,
     "by_instance": {
      "mock-outage": {
       "failed": 17,
-      "success": 5986
+      "success": 5989
      }
     },
     "failed": 17,
-    "success": 5986
+    "success": 5989
    },
-   "used": "m8-off-r2",
-   "window_success_rate": 0.005333333333333333
+   "used": "m8-off-r2-rerun1",
+   "window_success_rate": 0.0
   },
   "m8-off-r3": {
    "before_auth": {},
    "breaker": [
     {
-     "at_s": 60.627,
+     "at_s": 60.198,
      "from_state": "closed",
      "provider": "mock-outage",
      "reason": "threshold_hit",
      "to_state": "open",
-     "ts_ms": 1794605306598
+     "ts_ms": 1794610189087
     },
     {
-     "at_s": 90.638,
+     "at_s": 90.216,
      "from_state": "open",
      "provider": "mock-outage",
      "reason": "cooldown_over",
      "to_state": "half_open",
-     "ts_ms": 1794605336609
+     "ts_ms": 1794610219105
     },
     {
-     "at_s": 90.661,
+     "at_s": 90.236,
      "from_state": "half_open",
      "provider": "mock-outage",
      "reason": "probe_passed",
      "to_state": "closed",
-     "ts_ms": 1794605336632
+     "ts_ms": 1794610219125
     }
    ],
    "cross_check": [],
    "dropped_iterations": 0,
    "gateway": {
     "by_status": {
-     "200": 5986,
-     "502": 13,
+     "200": 5989,
+     "502": 11,
      "503": 1501
     },
-    "failed_attempts": 17,
+    "failed_attempts": 16,
     "fallbacks": 0
    },
-   "git_commit": "65b043ab00926bab33661884906df27d6b11f77e",
+   "git_commit": "11b53af76d658b34ad3cc8adce36dd991e6acd77",
    "id": "m8-off-r3",
    "k6_messages": [],
    "measurement": 8,
@@ -2789,8 +2786,8 @@
     },
     {
      "second": 41,
-     "sent": 51,
-     "succeeded": 51
+     "sent": 50,
+     "succeeded": 50
     },
     {
      "second": 42,
@@ -2880,12 +2877,12 @@
     {
      "second": 59,
      "sent": 50,
-     "succeeded": 50
+     "succeeded": 49
     },
     {
      "second": 60,
      "sent": 50,
-     "succeeded": 18
+     "succeeded": 0
     },
     {
      "second": 61,
@@ -3035,7 +3032,7 @@
     {
      "second": 90,
      "sent": 50,
-     "succeeded": 18
+     "succeeded": 39
     },
     {
      "second": 91,
@@ -3329,75 +3326,76 @@
     },
     {
      "second": 149,
-     "sent": 48,
-     "succeeded": 48
+     "sent": 50,
+     "succeeded": 50
     }
    ],
-   "power_events": null,
+   "power_events": [],
    "produced": [
-    "m8-off-r3"
+    "m8-off-r3",
+    "m8-off-r3-rerun1"
    ],
    "served_by": {
-    "mock-outage": 5986
+    "mock-outage": 5989
    },
-   "started_utc": "2026-11-13T21:26:53.288Z",
+   "started_utc": "2026-11-13T22:48:39.390Z",
    "success": {
-    "succeeded": 5986,
-    "total": 7500
+    "succeeded": 5989,
+    "total": 7501
    },
-   "success_rate": 0.7981333333333334,
+   "success_rate": 0.7984268764164778,
    "usage": {
     "abandoned": 0,
     "by_instance": {
      "mock-outage": {
-      "failed": 17,
-      "success": 5986
+      "failed": 16,
+      "success": 5989
      }
     },
-    "failed": 17,
-    "success": 5986
+    "failed": 16,
+    "success": 5989
    },
-   "used": "m8-off-r3",
-   "window_success_rate": 0.012
+   "used": "m8-off-r3-rerun1",
+   "window_success_rate": 0.0
   },
   "m8-on-r1": {
    "before_auth": {},
    "breaker": [
     {
-     "at_s": 60.634,
+     "at_s": 60.237,
      "from_state": "closed",
      "provider": "mock-outage",
      "reason": "threshold_hit",
      "to_state": "open",
-     "ts_ms": 1794604720600
+     "ts_ms": 1794609688871
     },
     {
-     "at_s": 90.639,
+     "at_s": 90.254,
      "from_state": "open",
      "provider": "mock-outage",
      "reason": "cooldown_over",
      "to_state": "half_open",
-     "ts_ms": 1794604750605
+     "ts_ms": 1794609718888
     },
     {
-     "at_s": 90.663,
+     "at_s": 90.274,
      "from_state": "half_open",
      "provider": "mock-outage",
      "reason": "probe_passed",
      "to_state": "closed",
-     "ts_ms": 1794604750629
+     "ts_ms": 1794609718908
     }
    ],
    "cross_check": [],
    "dropped_iterations": 0,
    "gateway": {
     "by_status": {
-     "200": 7500
+     "200": 7501
     },
-    "failed_attempts": 23,
-    "fallbacks": 1518
+    "failed_attempts": 16,
+    "fallbacks": 1513
    },
-   "git_commit": "65b043ab00926bab33661884906df27d6b11f77e",
+   "git_commit": "11b53af76d658b34ad3cc8adce36dd991e6acd77",
    "id": "m8-on-r1",
    "k6_messages": [],
    "measurement": 8,
@@ -3689,8 +3687,8 @@
     },
     {
      "second": 57,
-     "sent": 51,
-     "succeeded": 51
+     "sent": 50,
+     "succeeded": 50
     },
     {
      "second": 58,
@@ -3754,13 +3752,13 @@
     },
     {
      "second": 70,
-     "sent": 49,
-     "succeeded": 49
+     "sent": 50,
+     "succeeded": 50
     },
     {
      "second": 71,
-     "sent": 51,
-     "succeeded": 51
+     "sent": 50,
+     "succeeded": 50
     },
     {
      "second": 72,
@@ -3794,13 +3792,13 @@
     },
     {
      "second": 78,
-     "sent": 49,
-     "succeeded": 49
+     "sent": 50,
+     "succeeded": 50
     },
     {
      "second": 79,
-     "sent": 51,
-     "succeeded": 51
+     "sent": 50,
+     "succeeded": 50
     },
     {
      "second": 80,
@@ -3949,13 +3947,13 @@
     },
     {
      "second": 109,
-     "sent": 49,
-     "succeeded": 49
+     "sent": 50,
+     "succeeded": 50
     },
     {
      "second": 110,
-     "sent": 51,
-     "succeeded": 51
+     "sent": 50,
+     "succeeded": 50
     },
     {
      "second": 111,
@@ -4144,72 +4142,73 @@
     },
     {
      "second": 148,
-     "sent": 51,
-     "succeeded": 51
+     "sent": 50,
+     "succeeded": 50
     },
     {
      "second": 149,
-     "sent": 47,
-     "succeeded": 47
+     "sent": 50,
+     "succeeded": 50
     }
    ],
-   "power_events": null,
+   "power_events": [],
    "produced": [
-    "m8-on-r1"
+    "m8-on-r1",
+    "m8-on-r1-rerun1"
    ],
    "served_by": {
-    "mock-outage": 5982,
-    "mock-secondary": 1518
+    "mock-outage": 5988,
+    "mock-secondary": 1513
    },
-   "started_utc": "2026-11-13T21:17:04.056Z",
+   "started_utc": "2026-11-13T22:40:18.667Z",
    "success": {
-    "succeeded": 7500,
-    "total": 7500
+    "succeeded": 7501,
+    "total": 7501
    },
    "success_rate": 1.0,
    "usage": {
     "abandoned": 0,
     "by_instance": {
      "mock-outage": {
-      "failed": 23,
-      "success": 5982
+      "failed": 16,
+      "success": 5988
      },
      "mock-secondary": {
-      "success": 1518
+      "success": 1513
      }
     },
-    "failed": 23,
-    "success": 7500
+    "failed": 16,
+    "success": 7501
    },
-   "used": "m8-on-r1",
+   "used": "m8-on-r1-rerun1",
    "window_success_rate": 1.0
   },
   "m8-on-r2": {
    "before_auth": {},
    "breaker": [
     {
-     "at_s": 60.586,
+     "at_s": 60.229,
      "from_state": "closed",
      "provider": "mock-outage",
      "reason": "threshold_hit",
      "to_state": "open",
-     "ts_ms": 1794605110653
+     "ts_ms": 1794610022956
     },
     {
-     "at_s": 90.598,
+     "at_s": 90.233,
      "from_state": "open",
      "provider": "mock-outage",
      "reason": "cooldown_over",
      "to_state": "half_open",
-     "ts_ms": 1794605140665
+     "ts_ms": 1794610052960
     },
     {
-     "at_s": 90.625,
+     "at_s": 90.253,
      "from_state": "half_open",
      "provider": "mock-outage",
      "reason": "probe_passed",
      "to_state": "closed",
-     "ts_ms": 1794605140692
+     "ts_ms": 1794610052980
     }
    ],
    "cross_check": [],
@@ -4218,10 +4217,10 @@
     "by_status": {
      "200": 7501
     },
-    "failed_attempts": 21,
-    "fallbacks": 1517
+    "failed_attempts": 18,
+    "fallbacks": 1512
    },
-   "git_commit": "65b043ab00926bab33661884906df27d6b11f77e",
+   "git_commit": "11b53af76d658b34ad3cc8adce36dd991e6acd77",
    "id": "m8-on-r2",
    "k6_messages": [],
    "measurement": 8,
@@ -4513,8 +4512,8 @@
     },
     {
      "second": 57,
-     "sent": 51,
-     "succeeded": 51
+     "sent": 50,
+     "succeeded": 50
     },
     {
      "second": 58,
@@ -4628,13 +4627,13 @@
     },
     {
      "second": 80,
-     "sent": 49,
-     "succeeded": 49
+     "sent": 50,
+     "succeeded": 50
     },
     {
      "second": 81,
-     "sent": 51,
-     "succeeded": 51
+     "sent": 50,
+     "succeeded": 50
     },
     {
      "second": 82,
@@ -4748,13 +4747,13 @@
     },
     {
      "second": 104,
-     "sent": 49,
-     "succeeded": 49
+     "sent": 50,
+     "succeeded": 50
     },
     {
      "second": 105,
-     "sent": 51,
-     "succeeded": 51
+     "sent": 50,
+     "succeeded": 50
     },
     {
      "second": 106,
@@ -4973,19 +4972,20 @@
     },
     {
      "second": 149,
-     "sent": 49,
-     "succeeded": 49
+     "sent": 50,
+     "succeeded": 50
     }
    ],
-   "power_events": null,
+   "power_events": [],
    "produced": [
-    "m8-on-r2"
+    "m8-on-r2",
+    "m8-on-r2-rerun1"
    ],
    "served_by": {
-    "mock-outage": 5984,
-    "mock-secondary": 1517
+    "mock-outage": 5989,
+    "mock-secondary": 1512
    },
-   "started_utc": "2026-11-13T21:23:35.457Z",
+   "started_utc": "2026-11-13T22:45:51.851Z",
    "success": {
     "succeeded": 7501,
     "total": 7501
@@ -4995,45 +4995,45 @@
     "abandoned": 0,
     "by_instance": {
      "mock-outage": {
-      "failed": 21,
-      "success": 5984
+      "failed": 18,
+      "success": 5989
      },
      "mock-secondary": {
-      "success": 1517
+      "success": 1512
      }
     },
-    "failed": 21,
+    "failed": 18,
     "success": 7501
    },
-   "used": "m8-on-r2",
+   "used": "m8-on-r2-rerun1",
    "window_success_rate": 1.0
   },
   "m8-on-r3": {
    "before_auth": {},
    "breaker": [
     {
-     "at_s": 60.721,
+     "at_s": 60.196,
      "from_state": "closed",
      "provider": "mock-outage",
      "reason": "threshold_hit",
      "to_state": "open",
-     "ts_ms": 1794605502688
+     "ts_ms": 1794610355905
     },
     {
-     "at_s": 90.721,
+     "at_s": 90.195,
      "from_state": "open",
      "provider": "mock-outage",
      "reason": "cooldown_over",
      "to_state": "half_open",
-     "ts_ms": 1794605532688
+     "ts_ms": 1794610385904
     },
     {
-     "at_s": 90.747,
+     "at_s": 90.216,
      "from_state": "half_open",
      "provider": "mock-outage",
      "reason": "probe_passed",
      "to_state": "closed",
-     "ts_ms": 1794605532714
+     "ts_ms": 1794610385925
     }
    ],
    "cross_check": [],
@@ -5042,10 +5042,10 @@
     "by_status": {
      "200": 7501
     },
-    "failed_attempts": 21,
-    "fallbacks": 1519
+    "failed_attempts": 15,
+    "fallbacks": 1510
    },
-   "git_commit": "65b043ab00926bab33661884906df27d6b11f77e",
+   "git_commit": "11b53af76d658b34ad3cc8adce36dd991e6acd77",
    "id": "m8-on-r3",
    "k6_messages": [],
    "measurement": 8,
@@ -5477,8 +5477,8 @@
     },
     {
      "second": 85,
-     "sent": 51,
-     "succeeded": 51
+     "sent": 50,
+     "succeeded": 50
     },
     {
      "second": 86,
@@ -5797,19 +5797,20 @@
     },
     {
      "second": 149,
-     "sent": 49,
-     "succeeded": 49
+     "sent": 50,
+     "succeeded": 50
     }
    ],
-   "power_events": null,
+   "power_events": [],
    "produced": [
-    "m8-on-r3"
+    "m8-on-r3",
+    "m8-on-r3-rerun1"
    ],
    "served_by": {
-    "mock-outage": 5982,
-    "mock-secondary": 1519
+    "mock-outage": 5991,
+    "mock-secondary": 1510
    },
-   "started_utc": "2026-11-13T21:30:07.983Z",
+   "started_utc": "2026-11-13T22:51:25.725Z",
    "success": {
     "succeeded": 7501,
     "total": 7501
@@ -5819,17 +5820,17 @@
     "abandoned": 0,
     "by_instance": {
      "mock-outage": {
-      "failed": 21,
-      "success": 5982
+      "failed": 15,
+      "success": 5991
      },
      "mock-secondary": {
-      "success": 1519
+      "success": 1510
      }
     },
-    "failed": 21,
+    "failed": 15,
     "success": 7501
    },
-   "used": "m8-on-r3",
+   "used": "m8-on-r3-rerun1",
    "window_success_rate": 1.0
   }
  },

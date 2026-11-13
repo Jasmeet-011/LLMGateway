@@ -1,0 +1,252 @@
+INFO:     Started server process [1]
+INFO:     Waiting for application startup.
+2026-11-13T22:36:20.249+00:00 INFO llmgateway.ratelimit ratelimit_warm opened=50 of=50
+2026-11-13T22:36:20.389+00:00 INFO llmgateway.cache cache_warm opened=50 of=50
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     127.0.0.1:57114 - "GET /healthz HTTP/1.1" 200 OK
+2026-11-13T22:36:23.541+00:00 INFO llmgateway.request request_id=gw_adf51d4f51924100952e5fd2e51da2a5 tenant=- key_id=- provider=- model=- status=200 latency_ms=1.6 provider_model=-
+INFO:     172.21.0.6:42324 - "POST /v1/chat HTTP/1.1" 429 Too Many Requests
+2026-11-13T22:36:26.504+00:00 INFO llmgateway.request request_id=gw_6e2897bc820b45d7a68a1ae2d0077dbe tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=- model=- status=429 latency_ms=75.2 provider_model=-
+INFO:     172.21.0.6:42328 - "POST /v1/chat HTTP/1.1" 429 Too Many Requests
+2026-11-13T22:36:26.505+00:00 INFO llmgateway.request request_id=gw_d49b21992347419ab21e26339efd8927 tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=- model=- status=429 latency_ms=75.8 provider_model=-
+INFO:     172.21.0.6:42330 - "POST /v1/chat HTTP/1.1" 429 Too Many Requests
+2026-11-13T22:36:26.506+00:00 INFO llmgateway.request request_id=gw_f89317b814d2443f9426651ca6bf15f6 tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=- model=- status=429 latency_ms=76.4 provider_model=-
+INFO:     172.21.0.6:42342 - "POST /v1/chat HTTP/1.1" 429 Too Many Requests
+2026-11-13T22:36:26.506+00:00 INFO llmgateway.request request_id=gw_9482e4dcdb9344ea882c402766218a35 tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=- model=- status=429 latency_ms=77.0 provider_model=-
+INFO:     172.21.0.6:42358 - "POST /v1/chat HTTP/1.1" 429 Too Many Requests
+2026-11-13T22:36:26.508+00:00 INFO llmgateway.request request_id=gw_e7227ec9e6f848f09ad7cfafcd3721a1 tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=- model=- status=429 latency_ms=78.7 provider_model=-
+INFO:     172.21.0.6:42188 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T22:36:26.509+00:00 INFO llmgateway.request request_id=gw_353d125ba16948409a385fc5fdf252f6 tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=mock-steady model='steady' status=200 latency_ms=101.7 provider_model='mock-a'
+INFO:     172.21.0.6:42206 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T22:36:26.510+00:00 INFO llmgateway.request request_id=gw_85c4a09da5034ff988c5fafa4247e527 tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=mock-steady model='steady' status=200 latency_ms=95.8 provider_model='mock-a'
+INFO:     172.21.0.6:42192 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T22:36:26.511+00:00 INFO llmgateway.request request_id=gw_fac8d24717d9471c94786d658076d4f6 tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=mock-steady model='steady' status=200 latency_ms=100.2 provider_model='mock-a'
+INFO:     172.21.0.6:42208 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T22:36:26.512+00:00 INFO llmgateway.request request_id=gw_9bf85372e57449589a8bb1eda40607fe tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=mock-steady model='steady' status=200 latency_ms=95.7 provider_model='mock-a'
+INFO:     172.21.0.6:42202 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T22:36:26.513+00:00 INFO llmgateway.request request_id=gw_a26a3d3c02bc469aa76bc412bfa7c432 tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=mock-steady model='steady' status=200 latency_ms=100.1 provider_model='mock-a'
+INFO:     172.21.0.6:42364 - "POST /v1/chat HTTP/1.1" 429 Too Many Requests
+2026-11-13T22:36:26.518+00:00 INFO llmgateway.request request_id=gw_bc42ba9ac95a4cdba9ecd6f1cdf04ddf tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=- model=- status=429 latency_ms=88.1 provider_model=-
+INFO:     172.21.0.6:42220 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T22:36:26.520+00:00 INFO llmgateway.request request_id=gw_c8cad71c93294f6d8ed2e0e83656682e tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=mock-steady model='steady' status=200 latency_ms=96.0 provider_model='mock-a'
+INFO:     172.21.0.6:42234 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T22:36:26.521+00:00 INFO llmgateway.request request_id=gw_25e8835c5b294ab497125d85caab7b23 tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=mock-steady model='steady' status=200 latency_ms=93.6 provider_model='mock-a'
+INFO:     172.21.0.6:42238 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T22:36:26.522+00:00 INFO llmgateway.request request_id=gw_299cd8ba1741466caefc1f43c115e765 tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=mock-steady model='steady' status=200 latency_ms=94.2 provider_model='mock-a'
+INFO:     172.21.0.6:42148 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T22:36:26.522+00:00 INFO llmgateway.request request_id=gw_e35149f930d24a97a6a7abaf8ed6e98c tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=mock-steady model='steady' status=200 latency_ms=104.3 provider_model='mock-a'
+INFO:     172.21.0.6:42384 - "POST /v1/chat HTTP/1.1" 429 Too Many Requests
+2026-11-13T22:36:26.524+00:00 INFO llmgateway.request request_id=gw_b4b971cfb02c40879c353c87560c279d tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=- model=- status=429 latency_ms=94.3 provider_model=-
+INFO:     172.21.0.6:42370 - "POST /v1/chat HTTP/1.1" 429 Too Many Requests
+2026-11-13T22:36:26.525+00:00 INFO llmgateway.request request_id=gw_8ab1ac8be5c042048f03824ffd2b1490 tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=- model=- status=429 latency_ms=95.1 provider_model=-
+INFO:     172.21.0.6:42392 - "POST /v1/chat HTTP/1.1" 429 Too Many Requests
+2026-11-13T22:36:26.525+00:00 INFO llmgateway.request request_id=gw_d891d52dbdcb4dbdb9b3c2697c8cf38a tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=- model=- status=429 latency_ms=95.5 provider_model=-
+INFO:     172.21.0.6:42146 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T22:36:26.526+00:00 INFO llmgateway.request request_id=gw_a6217fbec86645a59156795beee55ffc tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=mock-steady model='steady' status=200 latency_ms=103.7 provider_model='mock-a'
+INFO:     172.21.0.6:42246 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T22:36:26.527+00:00 INFO llmgateway.request request_id=gw_c00edb85f86b412cb9a368afe84c8e80 tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=mock-steady model='steady' status=200 latency_ms=99.3 provider_model='mock-a'
+INFO:     172.21.0.6:42150 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T22:36:26.527+00:00 INFO llmgateway.request request_id=gw_0bc00375f9d3463199150a733557fb59 tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=mock-steady model='steady' status=200 latency_ms=107.3 provider_model='mock-a'
+INFO:     172.21.0.6:42260 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T22:36:26.528+00:00 INFO llmgateway.request request_id=gw_e0c39dcbe98a40eaa9f6872844596c96 tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=mock-steady model='steady' status=200 latency_ms=100.6 provider_model='mock-a'
+INFO:     172.21.0.6:42270 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T22:36:26.529+00:00 INFO llmgateway.request request_id=gw_69c3baa8e9f343cdbfc3a6b6f7c16e9d tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=mock-steady model='steady' status=200 latency_ms=101.3 provider_model='mock-a'
+INFO:     172.21.0.6:42212 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T22:36:26.530+00:00 INFO llmgateway.request request_id=gw_b120bf496309410f880ca4c690d434ef tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=mock-steady model='steady' status=200 latency_ms=103.9 provider_model='mock-a'
+INFO:     172.21.0.6:42398 - "POST /v1/chat HTTP/1.1" 429 Too Many Requests
+2026-11-13T22:36:26.531+00:00 INFO llmgateway.request request_id=gw_84e5e69d62de4eaaa5b865f9e5bc2a8e tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=- model=- status=429 latency_ms=101.5 provider_model=-
+INFO:     172.21.0.6:42406 - "POST /v1/chat HTTP/1.1" 429 Too Many Requests
+2026-11-13T22:36:26.532+00:00 INFO llmgateway.request request_id=gw_d12ad7e19c05402b8debb489ddad4a73 tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=- model=- status=429 latency_ms=102.0 provider_model=-
+INFO:     172.21.0.6:42408 - "POST /v1/chat HTTP/1.1" 429 Too Many Requests
+2026-11-13T22:36:26.533+00:00 INFO llmgateway.request request_id=gw_113a45f43ebf4024824483e1ed5decd4 tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=- model=- status=429 latency_ms=103.2 provider_model=-
+INFO:     172.21.0.6:42420 - "POST /v1/chat HTTP/1.1" 429 Too Many Requests
+2026-11-13T22:36:26.534+00:00 INFO llmgateway.request request_id=gw_52e3d250a0cb409ea29dd26c23c1985f tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=- model=- status=429 latency_ms=103.7 provider_model=-
+INFO:     172.21.0.6:42424 - "POST /v1/chat HTTP/1.1" 429 Too Many Requests
+2026-11-13T22:36:26.534+00:00 INFO llmgateway.request request_id=gw_f29d628c69ba4622988a974901c237f0 tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=- model=- status=429 latency_ms=104.2 provider_model=-
+INFO:     172.21.0.6:42278 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T22:36:26.535+00:00 INFO llmgateway.request request_id=gw_1bc95aba4cf446ffbc0b011ee512f716 tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=mock-steady model='steady' status=200 latency_ms=107.2 provider_model='mock-a'
+INFO:     172.21.0.6:42290 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T22:36:26.536+00:00 INFO llmgateway.request request_id=gw_60b8d93cad7a4bbab3d9939c03e8768a tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=mock-steady model='steady' status=200 latency_ms=107.9 provider_model='mock-a'
+INFO:     172.21.0.6:42296 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T22:36:26.536+00:00 INFO llmgateway.request request_id=gw_ac381e477f0342a58132e55e256dcc13 tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=mock-steady model='steady' status=200 latency_ms=108.5 provider_model='mock-a'
+INFO:     172.21.0.6:42302 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T22:36:26.537+00:00 INFO llmgateway.request request_id=gw_d79e356e5ffd4f199286d3a424893e4b tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=mock-steady model='steady' status=200 latency_ms=109.2 provider_model='mock-a'
+INFO:     172.21.0.6:42312 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T22:36:26.538+00:00 INFO llmgateway.request request_id=gw_70b59f6401324fb1bbc29d3422da1aad tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=mock-steady model='steady' status=200 latency_ms=109.5 provider_model='mock-a'
+INFO:     172.21.0.6:42428 - "POST /v1/chat HTTP/1.1" 429 Too Many Requests
+2026-11-13T22:36:26.540+00:00 INFO llmgateway.request request_id=gw_c9f62b2044ad4ecf96e2056bfa1f97b6 tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=- model=- status=429 latency_ms=109.7 provider_model=-
+INFO:     172.21.0.6:42438 - "POST /v1/chat HTTP/1.1" 429 Too Many Requests
+2026-11-13T22:36:26.542+00:00 INFO llmgateway.request request_id=gw_e75ce6151db34d479f7b6063708540d1 tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=- model=- status=429 latency_ms=112.0 provider_model=-
+INFO:     172.21.0.6:42444 - "POST /v1/chat HTTP/1.1" 429 Too Many Requests
+2026-11-13T22:36:26.545+00:00 INFO llmgateway.request request_id=gw_2936831cb3e14a6eb481ce361df13967 tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=- model=- status=429 latency_ms=114.7 provider_model=-
+INFO:     172.21.0.6:42450 - "POST /v1/chat HTTP/1.1" 429 Too Many Requests
+2026-11-13T22:36:26.545+00:00 INFO llmgateway.request request_id=gw_6b28252facaa4e9b905fa2c02cd31924 tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=- model=- status=429 latency_ms=115.1 provider_model=-
+INFO:     172.21.0.6:42464 - "POST /v1/chat HTTP/1.1" 429 Too Many Requests
+2026-11-13T22:36:26.546+00:00 INFO llmgateway.request request_id=gw_106e318bfe17463db9742186f7edc405 tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=- model=- status=429 latency_ms=115.6 provider_model=-
+INFO:     172.21.0.6:42470 - "POST /v1/chat HTTP/1.1" 429 Too Many Requests
+2026-11-13T22:36:26.548+00:00 INFO llmgateway.request request_id=gw_1054dd15e9ed4ed9803e5051b8544e2c tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=- model=- status=429 latency_ms=117.5 provider_model=-
+INFO:     172.21.0.6:42474 - "POST /v1/chat HTTP/1.1" 429 Too Many Requests
+2026-11-13T22:36:26.549+00:00 INFO llmgateway.request request_id=gw_ad9fa9f4ccb447f8a067a010d5998d12 tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=- model=- status=429 latency_ms=118.3 provider_model=-
+INFO:     172.21.0.6:42482 - "POST /v1/chat HTTP/1.1" 429 Too Many Requests
+2026-11-13T22:36:26.550+00:00 INFO llmgateway.request request_id=gw_c4d67048cc3e4cc7b1e4e38b216da507 tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=- model=- status=429 latency_ms=119.0 provider_model=-
+INFO:     172.21.0.6:42494 - "POST /v1/chat HTTP/1.1" 429 Too Many Requests
+2026-11-13T22:36:26.551+00:00 INFO llmgateway.request request_id=gw_72d8878108a54f58824e7ffb2502c15a tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=- model=- status=429 latency_ms=119.8 provider_model=-
+INFO:     172.21.0.6:42498 - "POST /v1/chat HTTP/1.1" 429 Too Many Requests
+2026-11-13T22:36:26.551+00:00 INFO llmgateway.request request_id=gw_3d3de507e1184f4aaeee30ea8b5a6211 tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=- model=- status=429 latency_ms=120.4 provider_model=-
+INFO:     172.21.0.6:42506 - "POST /v1/chat HTTP/1.1" 429 Too Many Requests
+2026-11-13T22:36:26.553+00:00 INFO llmgateway.request request_id=gw_06168049a7f04826b374ac5324283085 tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=- model=- status=429 latency_ms=122.3 provider_model=-
+INFO:     172.21.0.6:42520 - "POST /v1/chat HTTP/1.1" 429 Too Many Requests
+2026-11-13T22:36:26.559+00:00 INFO llmgateway.request request_id=gw_aa75f80882314175bf4ba60d40d7e96e tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=- model=- status=429 latency_ms=127.9 provider_model=-
+INFO:     172.21.0.6:42530 - "POST /v1/chat HTTP/1.1" 429 Too Many Requests
+2026-11-13T22:36:26.563+00:00 INFO llmgateway.request request_id=gw_26913c0e61334668947d1fd3a0cb5398 tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=- model=- status=429 latency_ms=131.4 provider_model=-
+INFO:     172.21.0.6:42536 - "POST /v1/chat HTTP/1.1" 429 Too Many Requests
+2026-11-13T22:36:26.563+00:00 INFO llmgateway.request request_id=gw_ce6b3dbdf56d445aa5296cea2254cc16 tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=- model=- status=429 latency_ms=131.9 provider_model=-
+INFO:     172.21.0.6:42540 - "POST /v1/chat HTTP/1.1" 429 Too Many Requests
+2026-11-13T22:36:26.564+00:00 INFO llmgateway.request request_id=gw_30e1d4ce3a754b3493bcc6475df2569d tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=- model=- status=429 latency_ms=132.5 provider_model=-
+INFO:     172.21.0.6:42556 - "POST /v1/chat HTTP/1.1" 429 Too Many Requests
+INFO:     172.21.0.6:42560 - "POST /v1/chat HTTP/1.1" 429 Too Many Requests
+2026-11-13T22:36:26.567+00:00 INFO llmgateway.request request_id=gw_45a1f6891d5f4e089638fc38a40e1ede tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=- model=- status=429 latency_ms=135.5 provider_model=-
+2026-11-13T22:36:26.568+00:00 INFO llmgateway.request request_id=gw_520fa1d0448444809e9ade7ec7461bcd tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=- model=- status=429 latency_ms=136.2 provider_model=-
+INFO:     172.21.0.6:42576 - "POST /v1/chat HTTP/1.1" 429 Too Many Requests
+2026-11-13T22:36:26.569+00:00 INFO llmgateway.request request_id=gw_699cadd7e8a74e96a3a69821c0ce1016 tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=- model=- status=429 latency_ms=137.6 provider_model=-
+INFO:     172.21.0.6:42584 - "POST /v1/chat HTTP/1.1" 429 Too Many Requests
+2026-11-13T22:36:26.570+00:00 INFO llmgateway.request request_id=gw_1aff6607fcae4822835ef0b4e830416c tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=- model=- status=429 latency_ms=138.8 provider_model=-
+INFO:     172.21.0.6:42586 - "POST /v1/chat HTTP/1.1" 429 Too Many Requests
+2026-11-13T22:36:26.571+00:00 INFO llmgateway.request request_id=gw_c29b91b14ba44e25badf30982766d35d tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=- model=- status=429 latency_ms=139.6 provider_model=-
+INFO:     172.21.0.6:42594 - "POST /v1/chat HTTP/1.1" 429 Too Many Requests
+2026-11-13T22:36:26.573+00:00 INFO llmgateway.request request_id=gw_d720ea0dd3c04884b1e42a567294a3b5 tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=- model=- status=429 latency_ms=141.6 provider_model=-
+INFO:     172.21.0.6:42610 - "POST /v1/chat HTTP/1.1" 429 Too Many Requests
+2026-11-13T22:36:26.576+00:00 INFO llmgateway.request request_id=gw_55f94d1a2c8546978fa03ed3518297d0 tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=- model=- status=429 latency_ms=144.4 provider_model=-
+INFO:     172.21.0.6:42624 - "POST /v1/chat HTTP/1.1" 429 Too Many Requests
+2026-11-13T22:36:26.579+00:00 INFO llmgateway.request request_id=gw_7f76a240db6b4aeb950c0d7b48589f6b tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=- model=- status=429 latency_ms=147.1 provider_model=-
+INFO:     172.21.0.6:42636 - "POST /v1/chat HTTP/1.1" 429 Too Many Requests
+2026-11-13T22:36:26.580+00:00 INFO llmgateway.request request_id=gw_04d9a928b2e044559d8cbb8bb1569810 tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=- model=- status=429 latency_ms=147.7 provider_model=-
+INFO:     172.21.0.6:42640 - "POST /v1/chat HTTP/1.1" 429 Too Many Requests
+2026-11-13T22:36:26.580+00:00 INFO llmgateway.request request_id=gw_cc090571770e4cb3980d7f02e16e5251 tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=- model=- status=429 latency_ms=148.2 provider_model=-
+INFO:     172.21.0.6:42634 - "POST /v1/chat HTTP/1.1" 429 Too Many Requests
+2026-11-13T22:36:26.582+00:00 INFO llmgateway.request request_id=gw_9c82c08bf82d45e28e7324b5b32da165 tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=- model=- status=429 latency_ms=150.0 provider_model=-
+INFO:     172.21.0.6:42644 - "POST /v1/chat HTTP/1.1" 429 Too Many Requests
+2026-11-13T22:36:26.583+00:00 INFO llmgateway.request request_id=gw_af1f5de459b345758adf40019c4abd79 tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=- model=- status=429 latency_ms=150.5 provider_model=-
+INFO:     172.21.0.6:42642 - "POST /v1/chat HTTP/1.1" 429 Too Many Requests
+2026-11-13T22:36:26.583+00:00 INFO llmgateway.request request_id=gw_006306b4d9aa4cf8a9a54f624a4120d4 tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=- model=- status=429 latency_ms=151.1 provider_model=-
+INFO:     172.21.0.6:42630 - "POST /v1/chat HTTP/1.1" 429 Too Many Requests
+2026-11-13T22:36:26.584+00:00 INFO llmgateway.request request_id=gw_381be352a68b4618a70c186c899867ea tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=- model=- status=429 latency_ms=151.7 provider_model=-
+INFO:     172.21.0.6:42638 - "POST /v1/chat HTTP/1.1" 429 Too Many Requests
+2026-11-13T22:36:26.585+00:00 INFO llmgateway.request request_id=gw_f19a5add43cc4137822c4e383751c61e tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=- model=- status=429 latency_ms=152.2 provider_model=-
+INFO:     172.21.0.6:42632 - "POST /v1/chat HTTP/1.1" 429 Too Many Requests
+2026-11-13T22:36:26.587+00:00 INFO llmgateway.request request_id=gw_7d19024ed9e644ad9e9ed453f146b051 tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=- model=- status=429 latency_ms=154.2 provider_model=-
+INFO:     172.21.0.6:42710 - "POST /v1/chat HTTP/1.1" 429 Too Many Requests
+2026-11-13T22:36:26.589+00:00 INFO llmgateway.request request_id=gw_96d2a502aa0e4a27bdc1e27c7e8ec1e4 tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=- model=- status=429 latency_ms=156.5 provider_model=-
+INFO:     172.21.0.6:42734 - "POST /v1/chat HTTP/1.1" 429 Too Many Requests
+2026-11-13T22:36:26.592+00:00 INFO llmgateway.request request_id=gw_002a90fab0c74f04ac9a8ff696e56065 tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=- model=- status=429 latency_ms=159.3 provider_model=-
+INFO:     172.21.0.6:42742 - "POST /v1/chat HTTP/1.1" 429 Too Many Requests
+2026-11-13T22:36:26.593+00:00 INFO llmgateway.request request_id=gw_24b050c441384f6ebc89b9a22111aa03 tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=- model=- status=429 latency_ms=160.0 provider_model=-
+INFO:     172.21.0.6:42756 - "POST /v1/chat HTTP/1.1" 429 Too Many Requests
+2026-11-13T22:36:26.594+00:00 INFO llmgateway.request request_id=gw_f9a3b6ec742f4fbc8630c05a2a6d92d7 tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=- model=- status=429 latency_ms=150.1 provider_model=-
+INFO:     172.21.0.6:42758 - "POST /v1/chat HTTP/1.1" 429 Too Many Requests
+2026-11-13T22:36:26.596+00:00 INFO llmgateway.request request_id=gw_727179be9a7d4cbd932f55caf878f19d tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=- model=- status=429 latency_ms=152.2 provider_model=-
+INFO:     172.21.0.6:42760 - "POST /v1/chat HTTP/1.1" 429 Too Many Requests
+2026-11-13T22:36:26.597+00:00 INFO llmgateway.request request_id=gw_5cca590481db49e88a123374730bb93a tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=- model=- status=429 latency_ms=152.8 provider_model=-
+INFO:     172.21.0.6:42762 - "POST /v1/chat HTTP/1.1" 429 Too Many Requests
+2026-11-13T22:36:26.598+00:00 INFO llmgateway.request request_id=gw_85cfceac43094c92b2973a7cb73a7a6c tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=- model=- status=429 latency_ms=153.9 provider_model=-
+INFO:     172.21.0.6:42764 - "POST /v1/chat HTTP/1.1" 429 Too Many Requests
+2026-11-13T22:36:26.599+00:00 INFO llmgateway.request request_id=gw_1edeec243728406c92ee168fcfd3a7c8 tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=- model=- status=429 latency_ms=154.9 provider_model=-
+INFO:     172.21.0.6:42766 - "POST /v1/chat HTTP/1.1" 429 Too Many Requests
+2026-11-13T22:36:26.599+00:00 INFO llmgateway.request request_id=gw_73efbb00f5d24ff78db4a7fbf3cf187a tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=- model=- status=429 latency_ms=155.5 provider_model=-
+INFO:     172.21.0.6:42768 - "POST /v1/chat HTTP/1.1" 429 Too Many Requests
+2026-11-13T22:36:26.601+00:00 INFO llmgateway.request request_id=gw_f704b8a058434cee8b854fc3b1984c01 tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=- model=- status=429 latency_ms=157.4 provider_model=-
+INFO:     172.21.0.6:42772 - "POST /v1/chat HTTP/1.1" 429 Too Many Requests
+2026-11-13T22:36:26.605+00:00 INFO llmgateway.request request_id=gw_08cc589a2478471c8607b2f431987a00 tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=- model=- status=429 latency_ms=160.9 provider_model=-
+INFO:     172.21.0.6:42770 - "POST /v1/chat HTTP/1.1" 429 Too Many Requests
+2026-11-13T22:36:26.608+00:00 INFO llmgateway.request request_id=gw_e99a8f469af34d99b3550573f1601dd3 tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=- model=- status=429 latency_ms=164.3 provider_model=-
+INFO:     172.21.0.6:42774 - "POST /v1/chat HTTP/1.1" 429 Too Many Requests
+2026-11-13T22:36:26.609+00:00 INFO llmgateway.request request_id=gw_492904d373c04390818e779f628b3a68 tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=- model=- status=429 latency_ms=165.2 provider_model=-
+INFO:     172.21.0.6:42776 - "POST /v1/chat HTTP/1.1" 429 Too Many Requests
+2026-11-13T22:36:26.610+00:00 INFO llmgateway.request request_id=gw_c2333fcf2dda4e568587ba23da52fe21 tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=- model=- status=429 latency_ms=166.3 provider_model=-
+INFO:     172.21.0.6:42914 - "POST /v1/chat HTTP/1.1" 429 Too Many Requests
+2026-11-13T22:36:26.613+00:00 INFO llmgateway.request request_id=gw_4c45b6f60f754d3f87ce5f55871cacb2 tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=- model=- status=429 latency_ms=168.7 provider_model=-
+INFO:     172.21.0.6:42928 - "POST /v1/chat HTTP/1.1" 429 Too Many Requests
+2026-11-13T22:36:26.614+00:00 INFO llmgateway.request request_id=gw_ada911573a1f4b7aad1b913983b86b5b tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=- model=- status=429 latency_ms=169.6 provider_model=-
+INFO:     172.21.0.6:42936 - "POST /v1/chat HTTP/1.1" 429 Too Many Requests
+2026-11-13T22:36:26.615+00:00 INFO llmgateway.request request_id=gw_c4cb98db66c2467a93ea4d19bd16e2f9 tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=- model=- status=429 latency_ms=170.4 provider_model=-
+INFO:     172.21.0.6:42946 - "POST /v1/chat HTTP/1.1" 429 Too Many Requests
+2026-11-13T22:36:26.617+00:00 INFO llmgateway.request request_id=gw_b18668ddedb44f1fbf4451be79f58cfd tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=- model=- status=429 latency_ms=172.9 provider_model=-
+INFO:     172.21.0.6:42954 - "POST /v1/chat HTTP/1.1" 429 Too Many Requests
+2026-11-13T22:36:26.618+00:00 INFO llmgateway.request request_id=gw_b962552ddff74cc4942a4a21945ec304 tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=- model=- status=429 latency_ms=174.0 provider_model=-
+INFO:     172.21.0.6:42968 - "POST /v1/chat HTTP/1.1" 429 Too Many Requests
+2026-11-13T22:36:26.621+00:00 INFO llmgateway.request request_id=gw_cdd0295b95a4495589bab7a3f92babd9 tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=- model=- status=429 latency_ms=177.1 provider_model=-
+INFO:     172.21.0.6:42974 - "POST /v1/chat HTTP/1.1" 429 Too Many Requests
+2026-11-13T22:36:26.625+00:00 INFO llmgateway.request request_id=gw_ff72f6e5cef940c4bb8486b91c637159 tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=- model=- status=429 latency_ms=180.7 provider_model=-
+INFO:     172.21.0.6:42984 - "POST /v1/chat HTTP/1.1" 429 Too Many Requests
+2026-11-13T22:36:26.629+00:00 INFO llmgateway.request request_id=gw_a6a3293fb60440e2bf4d32227a3487a0 tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=- model=- status=429 latency_ms=184.3 provider_model=-
+INFO:     172.21.0.6:42988 - "POST /v1/chat HTTP/1.1" 429 Too Many Requests
+2026-11-13T22:36:26.629+00:00 INFO llmgateway.request request_id=gw_df3e19d03bfb47b4b0d7e55f8fc83610 tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=- model=- status=429 latency_ms=184.9 provider_model=-
+INFO:     172.21.0.6:42998 - "POST /v1/chat HTTP/1.1" 429 Too Many Requests
+2026-11-13T22:36:26.630+00:00 INFO llmgateway.request request_id=gw_6f309cdd40ef4843b53625bdc0067595 tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=- model=- status=429 latency_ms=185.9 provider_model=-
+INFO:     172.21.0.6:43012 - "POST /v1/chat HTTP/1.1" 429 Too Many Requests
+2026-11-13T22:36:26.632+00:00 INFO llmgateway.request request_id=gw_c7416b979f99494d989f1baa17fdebbb tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=- model=- status=429 latency_ms=187.9 provider_model=-
+INFO:     172.21.0.6:43016 - "POST /v1/chat HTTP/1.1" 429 Too Many Requests
+2026-11-13T22:36:26.633+00:00 INFO llmgateway.request request_id=gw_c1aef5c3ea854731bb110c97ae44add3 tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=- model=- status=429 latency_ms=188.5 provider_model=-
+INFO:     172.21.0.6:43032 - "POST /v1/chat HTTP/1.1" 429 Too Many Requests
+2026-11-13T22:36:26.634+00:00 INFO llmgateway.request request_id=gw_50b6f48283354d0cac924f4943b8fcf9 tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=- model=- status=429 latency_ms=189.2 provider_model=-
+INFO:     172.21.0.6:43034 - "POST /v1/chat HTTP/1.1" 429 Too Many Requests
+2026-11-13T22:36:26.634+00:00 INFO llmgateway.request request_id=gw_a6f4f2655e754c7dae474f5b7e38fd81 tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=- model=- status=429 latency_ms=189.9 provider_model=-
+INFO:     172.21.0.6:43042 - "POST /v1/chat HTTP/1.1" 429 Too Many Requests
+2026-11-13T22:36:26.635+00:00 INFO llmgateway.request request_id=gw_a04edf53115640e4a666687295270590 tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=- model=- status=429 latency_ms=190.5 provider_model=-
+INFO:     172.21.0.6:43054 - "POST /v1/chat HTTP/1.1" 429 Too Many Requests
+2026-11-13T22:36:26.637+00:00 INFO llmgateway.request request_id=gw_727aa00f4d09461da7ae95f24c1b7578 tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=- model=- status=429 latency_ms=192.7 provider_model=-
+INFO:     172.21.0.6:43064 - "POST /v1/chat HTTP/1.1" 429 Too Many Requests
+2026-11-13T22:36:26.640+00:00 INFO llmgateway.request request_id=gw_9a38e3c1e86b4885a3d6d01318811379 tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=- model=- status=429 latency_ms=194.9 provider_model=-
+INFO:     172.21.0.6:43072 - "POST /v1/chat HTTP/1.1" 429 Too Many Requests
+2026-11-13T22:36:26.642+00:00 INFO llmgateway.request request_id=gw_446c6c8bb3b04ba6a402283d511a61e2 tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=- model=- status=429 latency_ms=197.0 provider_model=-
+INFO:     172.21.0.6:43078 - "POST /v1/chat HTTP/1.1" 429 Too Many Requests
+2026-11-13T22:36:26.643+00:00 INFO llmgateway.request request_id=gw_bb104df85dda42c0990cd830726b4ab8 tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=- model=- status=429 latency_ms=197.9 provider_model=-
+INFO:     172.21.0.6:43076 - "POST /v1/chat HTTP/1.1" 429 Too Many Requests
+2026-11-13T22:36:26.644+00:00 INFO llmgateway.request request_id=gw_a7274abdbc454cff8ba44ac3b6cb0585 tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=- model=- status=429 latency_ms=198.8 provider_model=-
+INFO:     172.21.0.6:43092 - "POST /v1/chat HTTP/1.1" 429 Too Many Requests
+2026-11-13T22:36:26.645+00:00 INFO llmgateway.request request_id=gw_86d77cbf839b406b97e12e0ff0db8593 tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=- model=- status=429 latency_ms=199.9 provider_model=-
+INFO:     127.0.0.1:45848 - "GET /healthz HTTP/1.1" 200 OK
+2026-11-13T22:36:28.975+00:00 INFO llmgateway.request request_id=gw_89016d24e6ec4d8eb8b1e2aa533a4300 tenant=- key_id=- provider=- model=- status=200 latency_ms=0.5 provider_model=-
+INFO:     127.0.0.1:45856 - "GET /healthz HTTP/1.1" 200 OK
+2026-11-13T22:36:34.350+00:00 INFO llmgateway.request request_id=gw_00662b4404ac479bbc398c76e5718076 tenant=- key_id=- provider=- model=- status=200 latency_ms=0.6 provider_model=-
+INFO:     127.0.0.1:40740 - "GET /healthz HTTP/1.1" 200 OK
+2026-11-13T22:36:39.736+00:00 INFO llmgateway.request request_id=gw_ae487817046d49ab85119c30b3d28a22 tenant=- key_id=- provider=- model=- status=200 latency_ms=0.9 provider_model=-
+INFO:     127.0.0.1:40760 - "GET /healthz HTTP/1.1" 200 OK
+2026-11-13T22:36:45.092+00:00 INFO llmgateway.request request_id=gw_91a006e7ba1f4dc4b39f02d8046fd74a tenant=- key_id=- provider=- model=- status=200 latency_ms=0.7 provider_model=-
+INFO:     127.0.0.1:39202 - "GET /healthz HTTP/1.1" 200 OK
+2026-11-13T22:36:50.450+00:00 INFO llmgateway.request request_id=gw_254f8164645645e3a18861bd87df25be tenant=- key_id=- provider=- model=- status=200 latency_ms=0.8 provider_model=-
+INFO:     127.0.0.1:39220 - "GET /healthz HTTP/1.1" 200 OK
+2026-11-13T22:36:55.848+00:00 INFO llmgateway.request request_id=gw_341a648c39cb44ea9f8d713b543c734d tenant=- key_id=- provider=- model=- status=200 latency_ms=0.6 provider_model=-
+INFO:     127.0.0.1:38020 - "GET /healthz HTTP/1.1" 200 OK
+2026-11-13T22:37:01.233+00:00 INFO llmgateway.request request_id=gw_4835e805f18e489a8a194f84ecb42612 tenant=- key_id=- provider=- model=- status=200 latency_ms=0.6 provider_model=-
+INFO:     172.21.0.6:39414 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T22:37:06.384+00:00 INFO llmgateway.request request_id=gw_831cc0bdc526473eaf6e2aedbbc4ba66 tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=mock-steady model='steady' status=200 latency_ms=23.4 provider_model='mock-a'
+INFO:     127.0.0.1:38042 - "GET /healthz HTTP/1.1" 200 OK
+2026-11-13T22:37:06.677+00:00 INFO llmgateway.request request_id=gw_0af13f5d16754ed69ce8a807b3295958 tenant=- key_id=- provider=- model=- status=200 latency_ms=0.6 provider_model=-
+INFO:     172.21.0.6:40860 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T22:37:08.382+00:00 INFO llmgateway.request request_id=gw_f97a7ea91ea34c878dff2552f939509c tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=mock-steady model='steady' status=200 latency_ms=22.2 provider_model='mock-a'
+INFO:     172.21.0.6:39414 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T22:37:10.382+00:00 INFO llmgateway.request request_id=gw_097f2666cb334fc985020138b18880c7 tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=mock-steady model='steady' status=200 latency_ms=22.3 provider_model='mock-a'
+INFO:     127.0.0.1:46322 - "GET /healthz HTTP/1.1" 200 OK
+2026-11-13T22:37:12.055+00:00 INFO llmgateway.request request_id=gw_feed6ef32a6c44b6a3434a2a385faacf tenant=- key_id=- provider=- model=- status=200 latency_ms=0.7 provider_model=-
+INFO:     172.21.0.6:40860 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T22:37:12.381+00:00 INFO llmgateway.request request_id=gw_8e1b11a269c6401cbf630592901d5776 tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=mock-steady model='steady' status=200 latency_ms=21.9 provider_model='mock-a'
+INFO:     172.21.0.6:39414 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T22:37:14.381+00:00 INFO llmgateway.request request_id=gw_b266797c7a95403580ebbb68072f7906 tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=mock-steady model='steady' status=200 latency_ms=22.1 provider_model='mock-a'
+INFO:     172.21.0.6:40860 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T22:37:16.382+00:00 INFO llmgateway.request request_id=gw_7c0ef57c9f384760a22ec71de900d294 tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=mock-steady model='steady' status=200 latency_ms=22.0 provider_model='mock-a'
+INFO:     127.0.0.1:58866 - "GET /healthz HTTP/1.1" 200 OK
+2026-11-13T22:37:17.475+00:00 INFO llmgateway.request request_id=gw_ff6f4855800843809178dfc7495165f9 tenant=- key_id=- provider=- model=- status=200 latency_ms=0.7 provider_model=-
+INFO:     172.21.0.6:39414 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T22:37:18.382+00:00 INFO llmgateway.request request_id=gw_23b9bf34c7ea4f49af63033ac9c81277 tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=mock-steady model='steady' status=200 latency_ms=22.7 provider_model='mock-a'
+INFO:     172.21.0.6:40860 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T22:37:20.381+00:00 INFO llmgateway.request request_id=gw_f015ddfdb7334585a7b614981eb3ecb4 tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=mock-steady model='steady' status=200 latency_ms=21.7 provider_model='mock-a'
+INFO:     172.21.0.6:39414 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T22:37:22.380+00:00 INFO llmgateway.request request_id=gw_8905f15889974f1cb444b69cb4e0aa85 tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=mock-steady model='steady' status=200 latency_ms=21.6 provider_model='mock-a'
+INFO:     127.0.0.1:58896 - "GET /healthz HTTP/1.1" 200 OK
+2026-11-13T22:37:22.872+00:00 INFO llmgateway.request request_id=gw_100f65fd7ea14e82b0412f78d9fade42 tenant=- key_id=- provider=- model=- status=200 latency_ms=0.6 provider_model=-
+INFO:     172.21.0.6:40860 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T22:37:24.381+00:00 INFO llmgateway.request request_id=gw_75fd22d087cb40f4b1a27e0014fb4be3 tenant=m5-r3-rerun1 key_id=dd908195af2f0a25 provider=mock-steady model='steady' status=200 latency_ms=21.6 provider_model='mock-a'
+INFO:     127.0.0.1:35464 - "GET /healthz HTTP/1.1" 200 OK
+2026-11-13T22:37:28.251+00:00 INFO llmgateway.request request_id=gw_3387a731344c4e0791ca02fd95f48e9d tenant=- key_id=- provider=- model=- status=200 latency_ms=0.6 provider_model=-

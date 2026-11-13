@@ -1,0 +1,5875 @@
+{
+ "overhead_gateway": {
+  "p50": {
+   "differences": [
+    0.9329169999999998,
+    8.749316,
+    4.854223000000001
+   ],
+   "spread": [
+    4.854223000000001,
+    0.9329169999999998,
+    8.749316
+   ]
+  },
+  "p95": {
+   "differences": [
+    1.8059410000000007,
+    -24076.634320999998,
+    26.926371
+   ],
+   "spread": [
+    1.8059410000000007,
+    -24076.634320999998,
+    26.926371
+   ]
+  },
+  "p99": {
+   "differences": [
+    2.2690850000000005,
+    -28866.848316000003,
+    64.99828399999998
+   ],
+   "spread": [
+    2.2690850000000005,
+    -28866.848316000003,
+    64.99828399999998
+   ]
+  }
+ },
+ "overhead_nokeycache": {
+  "p50": {
+   "differences": [
+    1.514089000000002,
+    12.876773,
+    9.474432999999998
+   ],
+   "spread": [
+    9.474432999999998,
+    1.514089000000002,
+    12.876773
+   ]
+  },
+  "p95": {
+   "differences": [
+    2.6044069999999984,
+    -23982.699345999998,
+    63.778324999999995
+   ],
+   "spread": [
+    2.6044069999999984,
+    -23982.699345999998,
+    63.778324999999995
+   ]
+  },
+  "p99": {
+   "differences": [
+    3.092931,
+    -28670.843233000003,
+    219.03894599999998
+   ],
+   "spread": [
+    3.092931,
+    -28670.843233000003,
+    219.03894599999998
+   ]
+  }
+ },
+ "runs": {
+  "m1-direct-r1": {
+   "dropped_iterations": 0,
+   "git_commit": "65b043ab00926bab33661884906df27d6b11f77e",
+   "id": "m1-direct-r1",
+   "k6_messages": [],
+   "latency": {
+    "count": 3001,
+    "failed": 0,
+    "p50": 21.685077,
+    "p95": 22.223199,
+    "p99": 22.50298
+   },
+   "measurement": 1,
+   "power_events": null,
+   "produced": [
+    "m1-direct-r1"
+   ],
+   "started_utc": "2026-11-13T20:31:01.691Z",
+   "success": {
+    "succeeded": 3001,
+    "total": 3001
+   },
+   "used": "m1-direct-r1"
+  },
+  "m1-direct-r2": {
+   "dropped_iterations": 1212,
+   "git_commit": "65b043ab00926bab33661884906df27d6b11f77e",
+   "id": "m1-direct-r2",
+   "k6_messages": [
+    "Request Failed",
+    "Request Failed",
+    "Request Failed",
+    "Request Failed",
+    "Request Failed",
+    "Request Failed",
+    "Request Failed",
+    "Request Failed",
+    "Request Failed",
+    "Request Failed",
+    "Request Failed",
+    "Request Failed",
+    "Request Failed",
+    "Request Failed",
+    "Request Failed",
+    "Request Failed",
+    "Request Failed",
+    "Request Failed",
+    "Request Failed",
+    "Request Failed",
+    "Request Failed",
+    "Request Failed",
+    "Request Failed"
+   ],
+   "latency": {
+    "count": 1766,
+    "failed": 23,
+    "p50": 21.787937,
+    "p95": 24155.576092,
+    "p99": 29006.305477
+   },
+   "measurement": 1,
+   "power_events": null,
+   "produced": [
+    "m1-direct-r2",
+    "m1-direct-r2-rerun1"
+   ],
+   "started_utc": "2026-11-13T20:35:16.902Z",
+   "success": {
+    "succeeded": 1766,
+    "total": 1789
+   },
+   "used": "m1-direct-r2"
+  },
+  "m1-direct-r3": {
+   "dropped_iterations": 0,
+   "git_commit": "65b043ab00926bab33661884906df27d6b11f77e",
+   "id": "m1-direct-r3",
+   "k6_messages": [],
+   "latency": {
+    "count": 3001,
+    "failed": 0,
+    "p50": 25.063598,
+    "p95": 29.762834,
+    "p99": 37.278336
+   },
+   "measurement": 1,
+   "power_events": null,
+   "produced": [
+    "m1-direct-r3",
+    "m1-direct-r3-rerun1"
+   ],
+   "started_utc": "2026-11-13T20:41:24.859Z",
+   "success": {
+    "succeeded": 3001,
+    "total": 3001
+   },
+   "used": "m1-direct-r3"
+  },
+  "m1-gateway-r1": {
+   "before_auth": {},
+   "dropped_iterations": 0,
+   "git_commit": "65b043ab00926bab33661884906df27d6b11f77e",
+   "id": "m1-gateway-r1",
+   "k6_messages": [],
+   "latency": {
+    "count": 3001,
+    "failed": 0,
+    "p50": 22.617994,
+    "p95": 24.02914,
+    "p99": 24.772065
+   },
+   "measurement": 1,
+   "power_events": null,
+   "produced": [
+    "m1-gateway-r1"
+   ],
+   "started_utc": "2026-11-13T20:32:25.636Z",
+   "success": {
+    "succeeded": 3001,
+    "total": 3001
+   },
+   "used": "m1-gateway-r1"
+  },
+  "m1-gateway-r2": {
+   "before_auth": {},
+   "dropped_iterations": 0,
+   "git_commit": "65b043ab00926bab33661884906df27d6b11f77e",
+   "id": "m1-gateway-r2",
+   "k6_messages": [],
+   "latency": {
+    "count": 3001,
+    "failed": 0,
+    "p50": 30.537253,
+    "p95": 78.941771,
+    "p99": 139.457161
+   },
+   "measurement": 1,
+   "power_events": null,
+   "produced": [
+    "m1-gateway-r2",
+    "m1-gateway-r2-rerun1"
+   ],
+   "started_utc": "2026-11-13T20:37:17.525Z",
+   "success": {
+    "succeeded": 3001,
+    "total": 3001
+   },
+   "used": "m1-gateway-r2"
+  },
+  "m1-gateway-r3": {
+   "before_auth": {},
+   "dropped_iterations": 0,
+   "git_commit": "65b043ab00926bab33661884906df27d6b11f77e",
+   "id": "m1-gateway-r3",
+   "k6_messages": [],
+   "latency": {
+    "count": 3000,
+    "failed": 0,
+    "p50": 29.917821,
+    "p95": 56.689205,
+    "p99": 102.27662
+   },
+   "measurement": 1,
+   "power_events": null,
+   "produced": [
+    "m1-gateway-r3",
+    "m1-gateway-r3-rerun1"
+   ],
+   "started_utc": "2026-11-13T20:43:08.730Z",
+   "success": {
+    "succeeded": 3000,
+    "total": 3000
+   },
+   "used": "m1-gateway-r3"
+  },
+  "m1-nokeycache-r1": {
+   "before_auth": {},
+   "dropped_iterations": 0,
+   "git_commit": "65b043ab00926bab33661884906df27d6b11f77e",
+   "id": "m1-nokeycache-r1",
+   "k6_messages": [],
+   "latency": {
+    "count": 3001,
+    "failed": 0,
+    "p50": 23.199166,
+    "p95": 24.827606,
+    "p99": 25.595911
+   },
+   "measurement": 1,
+   "power_events": null,
+   "produced": [
+    "m1-nokeycache-r1"
+   ],
+   "started_utc": "2026-11-13T20:33:51.320Z",
+   "success": {
+    "succeeded": 3001,
+    "total": 3001
+   },
+   "used": "m1-nokeycache-r1"
+  },
+  "m1-nokeycache-r2": {
+   "before_auth": {},
+   "dropped_iterations": 0,
+   "git_commit": "65b043ab00926bab33661884906df27d6b11f77e",
+   "id": "m1-nokeycache-r2",
+   "k6_messages": [],
+   "latency": {
+    "count": 3001,
+    "failed": 0,
+    "p50": 34.66471,
+    "p95": 172.876746,
+    "p99": 335.462244
+   },
+   "measurement": 1,
+   "power_events": null,
+   "produced": [
+    "m1-nokeycache-r2",
+    "m1-nokeycache-r2-rerun1"
+   ],
+   "started_utc": "2026-11-13T20:39:28.996Z",
+   "success": {
+    "succeeded": 3001,
+    "total": 3001
+   },
+   "used": "m1-nokeycache-r2"
+  },
+  "m1-nokeycache-r3": {
+   "before_auth": {},
+   "dropped_iterations": 0,
+   "git_commit": "65b043ab00926bab33661884906df27d6b11f77e",
+   "id": "m1-nokeycache-r3",
+   "k6_messages": [],
+   "latency": {
+    "count": 3001,
+    "failed": 0,
+    "p50": 34.538031,
+    "p95": 93.541159,
+    "p99": 256.317282
+   },
+   "measurement": 1,
+   "power_events": null,
+   "produced": [
+    "m1-nokeycache-r3",
+    "m1-nokeycache-r3-rerun1"
+   ],
+   "started_utc": "2026-11-13T20:45:00.895Z",
+   "success": {
+    "succeeded": 3001,
+    "total": 3001
+   },
+   "used": "m1-nokeycache-r3"
+  },
+  "m2-r1": {
+   "before_auth": {},
+   "dropped_iterations": 0,
+   "error_rate": 0.0,
+   "git_commit": "65b043ab00926bab33661884906df27d6b11f77e",
+   "id": "m2-r1",
+   "k6_messages": [],
+   "latency": {
+    "count": 6971,
+    "failed": 0,
+    "p50": 391.349465,
+    "p95": 690.434789,
+    "p99": 948.079737
+   },
+   "measurement": 2,
+   "power_events": null,
+   "produced": [
+    "m2-r1",
+    "m2-r1-rerun1"
+   ],
+   "started_utc": "2026-11-13T20:46:54.698Z",
+   "success": {
+    "succeeded": 6971,
+    "total": 6971
+   },
+   "throughput_rps": 116.18333333333334,
+   "used": "m2-r1"
+  },
+  "m2-r2": {
+   "before_auth": {},
+   "dropped_iterations": 0,
+   "error_rate": 0.0,
+   "git_commit": "65b043ab00926bab33661884906df27d6b11f77e",
+   "id": "m2-r2",
+   "k6_messages": [],
+   "latency": {
+    "count": 7043,
+    "failed": 0,
+    "p50": 385.211401,
+    "p95": 672.036621,
+    "p99": 974.211558
+   },
+   "measurement": 2,
+   "power_events": null,
+   "produced": [
+    "m2-r2",
+    "m2-r2-rerun1"
+   ],
+   "started_utc": "2026-11-13T20:48:47.630Z",
+   "success": {
+    "succeeded": 7043,
+    "total": 7043
+   },
+   "throughput_rps": 117.38333333333334,
+   "used": "m2-r2"
+  },
+  "m2-r3": {
+   "before_auth": {},
+   "dropped_iterations": 0,
+   "error_rate": 0.0,
+   "git_commit": "65b043ab00926bab33661884906df27d6b11f77e",
+   "id": "m2-r3",
+   "k6_messages": [],
+   "latency": {
+    "count": 6789,
+    "failed": 0,
+    "p50": 396.86896,
+    "p95": 751.315422,
+    "p99": 1005.599244
+   },
+   "measurement": 2,
+   "power_events": null,
+   "produced": [
+    "m2-r3",
+    "m2-r3-rerun1"
+   ],
+   "started_utc": "2026-11-13T20:50:41.923Z",
+   "success": {
+    "succeeded": 6789,
+    "total": 6789
+   },
+   "throughput_rps": 113.15,
+   "used": "m2-r3"
+  },
+  "m3-r1": {
+   "before_auth": {},
+   "cache": {
+    "hit": {
+     "count": 2390,
+     "failed": 0,
+     "p50": 11.536067,
+     "p95": 70.345773,
+     "p99": 100.161379
+    },
+    "hit_rate": 0.7964011996001333,
+    "hits": 2390,
+    "miss": {
+     "count": 611,
+     "failed": 0,
+     "p50": 40.564893,
+     "p95": 137.680831,
+     "p99": 191.451122
+    },
+    "misses": 611,
+    "other": 0,
+    "total": 3001
+   },
+   "dropped_iterations": 0,
+   "git_commit": "65b043ab00926bab33661884906df27d6b11f77e",
+   "id": "m3-r1",
+   "k6_messages": [],
+   "latency": {
+    "count": 3001,
+    "failed": 0,
+    "p50": 14.585236,
+    "p95": 80.830788,
+    "p99": 137.680831
+   },
+   "measurement": 3,
+   "power_events": null,
+   "produced": [
+    "m3-r1",
+    "m3-r1-rerun1"
+   ],
+   "started_utc": "2026-11-13T20:52:33.752Z",
+   "success": {
+    "succeeded": 3001,
+    "total": 3001
+   },
+   "used": "m3-r1"
+  },
+  "m3-r2": {
+   "before_auth": {},
+   "cache": {
+    "hit": {
+     "count": 2390,
+     "failed": 0,
+     "p50": 10.420142,
+     "p95": 81.945176,
+     "p99": 174.245949
+    },
+    "hit_rate": 0.7964011996001333,
+    "hits": 2390,
+    "miss": {
+     "count": 611,
+     "failed": 0,
+     "p50": 37.886278,
+     "p95": 157.170595,
+     "p99": 275.331756
+    },
+    "misses": 611,
+    "other": 0,
+    "total": 3001
+   },
+   "dropped_iterations": 0,
+   "git_commit": "65b043ab00926bab33661884906df27d6b11f77e",
+   "id": "m3-r2",
+   "k6_messages": [],
+   "latency": {
+    "count": 3001,
+    "failed": 0,
+    "p50": 11.959402,
+    "p95": 90.943859,
+    "p99": 201.521201
+   },
+   "measurement": 3,
+   "power_events": null,
+   "produced": [
+    "m3-r2",
+    "m3-r2-rerun1"
+   ],
+   "started_utc": "2026-11-13T20:54:25.863Z",
+   "success": {
+    "succeeded": 3001,
+    "total": 3001
+   },
+   "used": "m3-r2"
+  },
+  "m3-r3": {
+   "before_auth": {},
+   "cache": {
+    "hit": {
+     "count": 2390,
+     "failed": 0,
+     "p50": 10.053507,
+     "p95": 36.822531,
+     "p99": 63.126278
+    },
+    "hit_rate": 0.7964011996001333,
+    "hits": 2390,
+    "miss": {
+     "count": 611,
+     "failed": 0,
+     "p50": 37.907786,
+     "p95": 73.598269,
+     "p99": 126.805931
+    },
+    "misses": 611,
+    "other": 0,
+    "total": 3001
+   },
+   "dropped_iterations": 0,
+   "git_commit": "65b043ab00926bab33661884906df27d6b11f77e",
+   "id": "m3-r3",
+   "k6_messages": [],
+   "latency": {
+    "count": 3001,
+    "failed": 0,
+    "p50": 11.178526,
+    "p95": 48.654169,
+    "p99": 92.608483
+   },
+   "measurement": 3,
+   "power_events": null,
+   "produced": [
+    "m3-r3",
+    "m3-r3-rerun1"
+   ],
+   "started_utc": "2026-11-13T20:56:17.750Z",
+   "success": {
+    "succeeded": 3001,
+    "total": 3001
+   },
+   "used": "m3-r3"
+  },
+  "m4-off-r1": {
+   "before_auth": {},
+   "breaker": [],
+   "cross_check": [],
+   "dropped_iterations": 0,
+   "gateway": {
+    "by_status": {
+     "200": 2919,
+     "502": 82
+    },
+    "failed_attempts": 1255,
+    "fallbacks": 0
+   },
+   "git_commit": "65b043ab00926bab33661884906df27d6b11f77e",
+   "id": "m4-off-r1",
+   "k6_messages": [],
+   "measurement": 4,
+   "power_events": null,
+   "produced": [
+    "m4-off-r1",
+    "m4-off-r1-rerun1"
+   ],
+   "served_by": {
+    "mock-primary": 2919
+   },
+   "started_utc": "2026-11-13T20:58:10.477Z",
+   "success": {
+    "succeeded": 2919,
+    "total": 3001
+   },
+   "success_rate": 0.9726757747417527,
+   "usage": {
+    "abandoned": 0,
+    "by_instance": {
+     "mock-primary": {
+      "failed": 1255,
+      "success": 2919
+     }
+    },
+    "failed": 1255,
+    "success": 2919
+   },
+   "used": "m4-off-r1"
+  },
+  "m4-off-r2": {
+   "before_auth": {},
+   "breaker": [],
+   "cross_check": [],
+   "dropped_iterations": 0,
+   "gateway": {
+    "by_status": {
+     "200": 2919,
+     "502": 81
+    },
+    "failed_attempts": 1255,
+    "fallbacks": 0
+   },
+   "git_commit": "65b043ab00926bab33661884906df27d6b11f77e",
+   "id": "m4-off-r2",
+   "k6_messages": [],
+   "measurement": 4,
+   "power_events": null,
+   "produced": [
+    "m4-off-r2",
+    "m4-off-r2-rerun1"
+   ],
+   "served_by": {
+    "mock-primary": 2919
+   },
+   "started_utc": "2026-11-13T21:01:38.026Z",
+   "success": {
+    "succeeded": 2919,
+    "total": 3000
+   },
+   "success_rate": 0.973,
+   "usage": {
+    "abandoned": 0,
+    "by_instance": {
+     "mock-primary": {
+      "failed": 1255,
+      "success": 2919
+     }
+    },
+    "failed": 1255,
+    "success": 2919
+   },
+   "used": "m4-off-r2"
+  },
+  "m4-off-r3": {
+   "before_auth": {},
+   "breaker": [],
+   "cross_check": [],
+   "dropped_iterations": 0,
+   "gateway": {
+    "by_status": {
+     "200": 2914,
+     "502": 87
+    },
+    "failed_attempts": 1254,
+    "fallbacks": 0
+   },
+   "git_commit": "65b043ab00926bab33661884906df27d6b11f77e",
+   "id": "m4-off-r3",
+   "k6_messages": [],
+   "measurement": 4,
+   "power_events": null,
+   "produced": [
+    "m4-off-r3",
+    "m4-off-r3-rerun1"
+   ],
+   "served_by": {
+    "mock-primary": 2914
+   },
+   "started_utc": "2026-11-13T21:05:09.853Z",
+   "success": {
+    "succeeded": 2914,
+    "total": 3001
+   },
+   "success_rate": 0.9710096634455182,
+   "usage": {
+    "abandoned": 0,
+    "by_instance": {
+     "mock-primary": {
+      "failed": 1254,
+      "success": 2914
+     }
+    },
+    "failed": 1254,
+    "success": 2914
+   },
+   "used": "m4-off-r3"
+  },
+  "m4-on-r1": {
+   "before_auth": {},
+   "breaker": [],
+   "cross_check": [],
+   "dropped_iterations": 0,
+   "gateway": {
+    "by_status": {
+     "200": 3001
+    },
+    "failed_attempts": 1256,
+    "fallbacks": 79
+   },
+   "git_commit": "65b043ab00926bab33661884906df27d6b11f77e",
+   "id": "m4-on-r1",
+   "k6_messages": [],
+   "measurement": 4,
+   "power_events": null,
+   "produced": [
+    "m4-on-r1",
+    "m4-on-r1-rerun1"
+   ],
+   "served_by": {
+    "mock-primary": 2922,
+    "mock-secondary": 79
+   },
+   "started_utc": "2026-11-13T20:59:53.744Z",
+   "success": {
+    "succeeded": 3001,
+    "total": 3001
+   },
+   "success_rate": 1.0,
+   "usage": {
+    "abandoned": 0,
+    "by_instance": {
+     "mock-primary": {
+      "failed": 1256,
+      "success": 2922
+     },
+     "mock-secondary": {
+      "success": 79
+     }
+    },
+    "failed": 1256,
+    "success": 3001
+   },
+   "used": "m4-on-r1"
+  },
+  "m4-on-r2": {
+   "before_auth": {},
+   "breaker": [],
+   "cross_check": [],
+   "dropped_iterations": 0,
+   "gateway": {
+    "by_status": {
+     "200": 3001
+    },
+    "failed_attempts": 1256,
+    "fallbacks": 72
+   },
+   "git_commit": "65b043ab00926bab33661884906df27d6b11f77e",
+   "id": "m4-on-r2",
+   "k6_messages": [],
+   "measurement": 4,
+   "power_events": null,
+   "produced": [
+    "m4-on-r2",
+    "m4-on-r2-rerun1"
+   ],
+   "served_by": {
+    "mock-primary": 2929,
+    "mock-secondary": 72
+   },
+   "started_utc": "2026-11-13T21:03:24.622Z",
+   "success": {
+    "succeeded": 3001,
+    "total": 3001
+   },
+   "success_rate": 1.0,
+   "usage": {
+    "abandoned": 0,
+    "by_instance": {
+     "mock-primary": {
+      "failed": 1256,
+      "success": 2929
+     },
+     "mock-secondary": {
+      "success": 72
+     }
+    },
+    "failed": 1256,
+    "success": 3001
+   },
+   "used": "m4-on-r2"
+  },
+  "m4-on-r3": {
+   "before_auth": {
+    "503": 14
+   },
+   "breaker": [],
+   "cross_check": [],
+   "dropped_iterations": 1,
+   "gateway": {
+    "by_status": {
+     "200": 2985
+    },
+    "failed_attempts": 1249,
+    "fallbacks": 90
+   },
+   "git_commit": "65b043ab00926bab33661884906df27d6b11f77e",
+   "id": "m4-on-r3",
+   "k6_messages": [],
+   "measurement": 4,
+   "power_events": null,
+   "produced": [
+    "m4-on-r3",
+    "m4-on-r3-rerun1"
+   ],
+   "served_by": {
+    "mock-primary": 2895,
+    "mock-secondary": 90
+   },
+   "started_utc": "2026-11-13T21:06:53.244Z",
+   "success": {
+    "succeeded": 2985,
+    "total": 2999
+   },
+   "success_rate": 0.9953317772590864,
+   "usage": {
+    "abandoned": 0,
+    "by_instance": {
+     "mock-primary": {
+      "failed": 1249,
+      "success": 2895
+     },
+     "mock-secondary": {
+      "success": 90
+     }
+    },
+    "failed": 1249,
+    "success": 2985
+   },
+   "used": "m4-on-r3"
+  },
+  "m5-r1": {
+   "before_auth": {},
+   "burst": {
+    "allowed_at_most": 21,
+    "length_s": 1.381251953125,
+    "limited": 80,
+    "limited_with_retry_after": 80,
+    "ok": 20,
+    "other": 0,
+    "requests": 100
+   },
+   "correct": true,
+   "dropped_iterations": 0,
+   "git_commit": "65b043ab00926bab33661884906df27d6b11f77e",
+   "id": "m5-r1",
+   "k6_messages": [],
+   "measurement": 5,
+   "paced": {
+    "ok": 10,
+    "requests": 10
+   },
+   "power_events": null,
+   "produced": [
+    "m5-r1",
+    "m5-r1-rerun1"
+   ],
+   "started_utc": "2026-11-13T21:08:39.408Z",
+   "used": "m5-r1"
+  },
+  "m5-r2": {
+   "before_auth": {},
+   "burst": {
+    "allowed_at_most": 21,
+    "length_s": 1.460542724609375,
+    "limited": 80,
+    "limited_with_retry_after": 80,
+    "ok": 20,
+    "other": 0,
+    "requests": 100
+   },
+   "correct": true,
+   "dropped_iterations": 0,
+   "git_commit": "65b043ab00926bab33661884906df27d6b11f77e",
+   "id": "m5-r2",
+   "k6_messages": [],
+   "measurement": 5,
+   "paced": {
+    "ok": 11,
+    "requests": 11
+   },
+   "power_events": null,
+   "produced": [
+    "m5-r2",
+    "m5-r2-rerun1"
+   ],
+   "started_utc": "2026-11-13T21:10:22.422Z",
+   "used": "m5-r2"
+  },
+  "m5-r3": {
+   "before_auth": {},
+   "burst": {
+    "allowed_at_most": 21,
+    "length_s": 1.697280517578125,
+    "limited": 79,
+    "limited_with_retry_after": 79,
+    "ok": 21,
+    "other": 0,
+    "requests": 100
+   },
+   "correct": true,
+   "dropped_iterations": 0,
+   "git_commit": "65b043ab00926bab33661884906df27d6b11f77e",
+   "id": "m5-r3",
+   "k6_messages": [],
+   "measurement": 5,
+   "paced": {
+    "ok": 10,
+    "requests": 10
+   },
+   "power_events": null,
+   "produced": [
+    "m5-r3",
+    "m5-r3-rerun1"
+   ],
+   "started_utc": "2026-11-13T21:12:02.533Z",
+   "used": "m5-r3"
+  },
+  "m8-off-r1": {
+   "before_auth": {},
+   "breaker": [
+    {
+     "at_s": 60.861,
+     "from_state": "closed",
+     "provider": "mock-outage",
+     "reason": "threshold_hit",
+     "to_state": "open",
+     "ts_ms": 1794604521576
+    },
+    {
+     "at_s": 90.859,
+     "from_state": "open",
+     "provider": "mock-outage",
+     "reason": "cooldown_over",
+     "to_state": "half_open",
+     "ts_ms": 1794604551574
+    },
+    {
+     "at_s": 90.881,
+     "from_state": "half_open",
+     "provider": "mock-outage",
+     "reason": "probe_passed",
+     "to_state": "closed",
+     "ts_ms": 1794604551596
+    }
+   ],
+   "cross_check": [],
+   "dropped_iterations": 0,
+   "gateway": {
+    "by_status": {
+     "200": 5973,
+     "502": 26,
+     "503": 1502
+    },
+    "failed_attempts": 32,
+    "fallbacks": 0
+   },
+   "git_commit": "65b043ab00926bab33661884906df27d6b11f77e",
+   "id": "m8-off-r1",
+   "k6_messages": [],
+   "measurement": 8,
+   "per_second": [
+    {
+     "second": 0,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 1,
+     "sent": 51,
+     "succeeded": 51
+    },
+    {
+     "second": 2,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 3,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 4,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 5,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 6,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 7,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 8,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 9,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 10,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 11,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 12,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 13,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 14,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 15,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 16,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 17,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 18,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 19,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 20,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 21,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 22,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 23,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 24,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 25,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 26,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 27,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 28,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 29,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 30,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 31,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 32,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 33,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 34,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 35,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 36,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 37,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 38,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 39,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 40,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 41,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 42,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 43,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 44,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 45,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 46,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 47,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 48,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 49,
+     "sent": 51,
+     "succeeded": 51
+    },
+    {
+     "second": 50,
+     "sent": 49,
+     "succeeded": 49
+    },
+    {
+     "second": 51,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 52,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 53,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 54,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 55,
+     "sent": 51,
+     "succeeded": 51
+    },
+    {
+     "second": 56,
+     "sent": 49,
+     "succeeded": 49
+    },
+    {
+     "second": 57,
+     "sent": 51,
+     "succeeded": 51
+    },
+    {
+     "second": 58,
+     "sent": 49,
+     "succeeded": 49
+    },
+    {
+     "second": 59,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 60,
+     "sent": 50,
+     "succeeded": 16
+    },
+    {
+     "second": 61,
+     "sent": 50,
+     "succeeded": 0
+    },
+    {
+     "second": 62,
+     "sent": 50,
+     "succeeded": 0
+    },
+    {
+     "second": 63,
+     "sent": 50,
+     "succeeded": 0
+    },
+    {
+     "second": 64,
+     "sent": 50,
+     "succeeded": 0
+    },
+    {
+     "second": 65,
+     "sent": 50,
+     "succeeded": 0
+    },
+    {
+     "second": 66,
+     "sent": 50,
+     "succeeded": 0
+    },
+    {
+     "second": 67,
+     "sent": 50,
+     "succeeded": 0
+    },
+    {
+     "second": 68,
+     "sent": 50,
+     "succeeded": 0
+    },
+    {
+     "second": 69,
+     "sent": 50,
+     "succeeded": 0
+    },
+    {
+     "second": 70,
+     "sent": 50,
+     "succeeded": 0
+    },
+    {
+     "second": 71,
+     "sent": 50,
+     "succeeded": 0
+    },
+    {
+     "second": 72,
+     "sent": 51,
+     "succeeded": 0
+    },
+    {
+     "second": 73,
+     "sent": 49,
+     "succeeded": 0
+    },
+    {
+     "second": 74,
+     "sent": 50,
+     "succeeded": 0
+    },
+    {
+     "second": 75,
+     "sent": 51,
+     "succeeded": 0
+    },
+    {
+     "second": 76,
+     "sent": 50,
+     "succeeded": 0
+    },
+    {
+     "second": 77,
+     "sent": 50,
+     "succeeded": 0
+    },
+    {
+     "second": 78,
+     "sent": 50,
+     "succeeded": 0
+    },
+    {
+     "second": 79,
+     "sent": 50,
+     "succeeded": 0
+    },
+    {
+     "second": 80,
+     "sent": 50,
+     "succeeded": 0
+    },
+    {
+     "second": 81,
+     "sent": 50,
+     "succeeded": 0
+    },
+    {
+     "second": 82,
+     "sent": 50,
+     "succeeded": 0
+    },
+    {
+     "second": 83,
+     "sent": 50,
+     "succeeded": 0
+    },
+    {
+     "second": 84,
+     "sent": 49,
+     "succeeded": 0
+    },
+    {
+     "second": 85,
+     "sent": 51,
+     "succeeded": 0
+    },
+    {
+     "second": 86,
+     "sent": 50,
+     "succeeded": 0
+    },
+    {
+     "second": 87,
+     "sent": 50,
+     "succeeded": 0
+    },
+    {
+     "second": 88,
+     "sent": 50,
+     "succeeded": 0
+    },
+    {
+     "second": 89,
+     "sent": 50,
+     "succeeded": 0
+    },
+    {
+     "second": 90,
+     "sent": 50,
+     "succeeded": 7
+    },
+    {
+     "second": 91,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 92,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 93,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 94,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 95,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 96,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 97,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 98,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 99,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 100,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 101,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 102,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 103,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 104,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 105,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 106,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 107,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 108,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 109,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 110,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 111,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 112,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 113,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 114,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 115,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 116,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 117,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 118,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 119,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 120,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 121,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 122,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 123,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 124,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 125,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 126,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 127,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 128,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 129,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 130,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 131,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 132,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 133,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 134,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 135,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 136,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 137,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 138,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 139,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 140,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 141,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 142,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 143,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 144,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 145,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 146,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 147,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 148,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 149,
+     "sent": 49,
+     "succeeded": 49
+    }
+   ],
+   "power_events": null,
+   "produced": [
+    "m8-off-r1",
+    "m8-off-r1-rerun1"
+   ],
+   "served_by": {
+    "mock-outage": 5973
+   },
+   "started_utc": "2026-11-13T21:13:44.638Z",
+   "success": {
+    "succeeded": 5973,
+    "total": 7501
+   },
+   "success_rate": 0.796293827489668,
+   "usage": {
+    "abandoned": 0,
+    "by_instance": {
+     "mock-outage": {
+      "failed": 32,
+      "success": 5973
+     }
+    },
+    "failed": 32,
+    "success": 5973
+   },
+   "used": "m8-off-r1",
+   "window_success_rate": 0.010659560293137908
+  },
+  "m8-off-r2": {
+   "before_auth": {},
+   "breaker": [
+    {
+     "at_s": 60.43,
+     "from_state": "closed",
+     "provider": "mock-outage",
+     "reason": "threshold_hit",
+     "to_state": "open",
+     "ts_ms": 1794604914034
+    },
+    {
+     "at_s": 90.438,
+     "from_state": "open",
+     "provider": "mock-outage",
+     "reason": "cooldown_over",
+     "to_state": "half_open",
+     "ts_ms": 1794604944042
+    },
+    {
+     "at_s": 90.462,
+     "from_state": "half_open",
+     "provider": "mock-outage",
+     "reason": "probe_passed",
+     "to_state": "closed",
+     "ts_ms": 1794604944066
+    }
+   ],
+   "cross_check": [],
+   "dropped_iterations": 0,
+   "gateway": {
+    "by_status": {
+     "200": 5986,
+     "502": 13,
+     "503": 1501
+    },
+    "failed_attempts": 17,
+    "fallbacks": 0
+   },
+   "git_commit": "65b043ab00926bab33661884906df27d6b11f77e",
+   "id": "m8-off-r2",
+   "k6_messages": [],
+   "measurement": 8,
+   "per_second": [
+    {
+     "second": 0,
+     "sent": 51,
+     "succeeded": 51
+    },
+    {
+     "second": 1,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 2,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 3,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 4,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 5,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 6,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 7,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 8,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 9,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 10,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 11,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 12,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 13,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 14,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 15,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 16,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 17,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 18,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 19,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 20,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 21,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 22,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 23,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 24,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 25,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 26,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 27,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 28,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 29,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 30,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 31,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 32,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 33,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 34,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 35,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 36,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 37,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 38,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 39,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 40,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 41,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 42,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 43,
+     "sent": 51,
+     "succeeded": 51
+    },
+    {
+     "second": 44,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 45,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 46,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 47,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 48,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 49,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 50,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 51,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 52,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 53,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 54,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 55,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 56,
+     "sent": 49,
+     "succeeded": 49
+    },
+    {
+     "second": 57,
+     "sent": 51,
+     "succeeded": 51
+    },
+    {
+     "second": 58,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 59,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 60,
+     "sent": 50,
+     "succeeded": 8
+    },
+    {
+     "second": 61,
+     "sent": 50,
+     "succeeded": 0
+    },
+    {
+     "second": 62,
+     "sent": 50,
+     "succeeded": 0
+    },
+    {
+     "second": 63,
+     "sent": 50,
+     "succeeded": 0
+    },
+    {
+     "second": 64,
+     "sent": 50,
+     "succeeded": 0
+    },
+    {
+     "second": 65,
+     "sent": 50,
+     "succeeded": 0
+    },
+    {
+     "second": 66,
+     "sent": 50,
+     "succeeded": 0
+    },
+    {
+     "second": 67,
+     "sent": 50,
+     "succeeded": 0
+    },
+    {
+     "second": 68,
+     "sent": 50,
+     "succeeded": 0
+    },
+    {
+     "second": 69,
+     "sent": 50,
+     "succeeded": 0
+    },
+    {
+     "second": 70,
+     "sent": 50,
+     "succeeded": 0
+    },
+    {
+     "second": 71,
+     "sent": 50,
+     "succeeded": 0
+    },
+    {
+     "second": 72,
+     "sent": 50,
+     "succeeded": 0
+    },
+    {
+     "second": 73,
+     "sent": 50,
+     "succeeded": 0
+    },
+    {
+     "second": 74,
+     "sent": 50,
+     "succeeded": 0
+    },
+    {
+     "second": 75,
+     "sent": 50,
+     "succeeded": 0
+    },
+    {
+     "second": 76,
+     "sent": 50,
+     "succeeded": 0
+    },
+    {
+     "second": 77,
+     "sent": 50,
+     "succeeded": 0
+    },
+    {
+     "second": 78,
+     "sent": 50,
+     "succeeded": 0
+    },
+    {
+     "second": 79,
+     "sent": 50,
+     "succeeded": 0
+    },
+    {
+     "second": 80,
+     "sent": 50,
+     "succeeded": 0
+    },
+    {
+     "second": 81,
+     "sent": 50,
+     "succeeded": 0
+    },
+    {
+     "second": 82,
+     "sent": 50,
+     "succeeded": 0
+    },
+    {
+     "second": 83,
+     "sent": 50,
+     "succeeded": 0
+    },
+    {
+     "second": 84,
+     "sent": 50,
+     "succeeded": 0
+    },
+    {
+     "second": 85,
+     "sent": 50,
+     "succeeded": 0
+    },
+    {
+     "second": 86,
+     "sent": 50,
+     "succeeded": 0
+    },
+    {
+     "second": 87,
+     "sent": 50,
+     "succeeded": 0
+    },
+    {
+     "second": 88,
+     "sent": 50,
+     "succeeded": 0
+    },
+    {
+     "second": 89,
+     "sent": 50,
+     "succeeded": 0
+    },
+    {
+     "second": 90,
+     "sent": 50,
+     "succeeded": 28
+    },
+    {
+     "second": 91,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 92,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 93,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 94,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 95,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 96,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 97,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 98,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 99,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 100,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 101,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 102,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 103,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 104,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 105,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 106,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 107,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 108,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 109,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 110,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 111,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 112,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 113,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 114,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 115,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 116,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 117,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 118,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 119,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 120,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 121,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 122,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 123,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 124,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 125,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 126,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 127,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 128,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 129,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 130,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 131,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 132,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 133,
+     "sent": 51,
+     "succeeded": 51
+    },
+    {
+     "second": 134,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 135,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 136,
+     "sent": 49,
+     "succeeded": 49
+    },
+    {
+     "second": 137,
+     "sent": 51,
+     "succeeded": 51
+    },
+    {
+     "second": 138,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 139,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 140,
+     "sent": 49,
+     "succeeded": 49
+    },
+    {
+     "second": 141,
+     "sent": 51,
+     "succeeded": 51
+    },
+    {
+     "second": 142,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 143,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 144,
+     "sent": 49,
+     "succeeded": 49
+    },
+    {
+     "second": 145,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 146,
+     "sent": 51,
+     "succeeded": 51
+    },
+    {
+     "second": 147,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 148,
+     "sent": 49,
+     "succeeded": 49
+    },
+    {
+     "second": 149,
+     "sent": 48,
+     "succeeded": 48
+    }
+   ],
+   "power_events": null,
+   "produced": [
+    "m8-off-r2",
+    "m8-off-r2-rerun1"
+   ],
+   "served_by": {
+    "mock-outage": 5986
+   },
+   "started_utc": "2026-11-13T21:20:21.976Z",
+   "success": {
+    "succeeded": 5986,
+    "total": 7500
+   },
+   "success_rate": 0.7981333333333334,
+   "usage": {
+    "abandoned": 0,
+    "by_instance": {
+     "mock-outage": {
+      "failed": 17,
+      "success": 5986
+     }
+    },
+    "failed": 17,
+    "success": 5986
+   },
+   "used": "m8-off-r2",
+   "window_success_rate": 0.005333333333333333
+  },
+  "m8-off-r3": {
+   "before_auth": {},
+   "breaker": [
+    {
+     "at_s": 60.627,
+     "from_state": "closed",
+     "provider": "mock-outage",
+     "reason": "threshold_hit",
+     "to_state": "open",
+     "ts_ms": 1794605306598
+    },
+    {
+     "at_s": 90.638,
+     "from_state": "open",
+     "provider": "mock-outage",
+     "reason": "cooldown_over",
+     "to_state": "half_open",
+     "ts_ms": 1794605336609
+    },
+    {
+     "at_s": 90.661,
+     "from_state": "half_open",
+     "provider": "mock-outage",
+     "reason": "probe_passed",
+     "to_state": "closed",
+     "ts_ms": 1794605336632
+    }
+   ],
+   "cross_check": [],
+   "dropped_iterations": 0,
+   "gateway": {
+    "by_status": {
+     "200": 5986,
+     "502": 13,
+     "503": 1501
+    },
+    "failed_attempts": 17,
+    "fallbacks": 0
+   },
+   "git_commit": "65b043ab00926bab33661884906df27d6b11f77e",
+   "id": "m8-off-r3",
+   "k6_messages": [],
+   "measurement": 8,
+   "per_second": [
+    {
+     "second": 0,
+     "sent": 51,
+     "succeeded": 51
+    },
+    {
+     "second": 1,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 2,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 3,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 4,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 5,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 6,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 7,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 8,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 9,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 10,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 11,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 12,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 13,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 14,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 15,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 16,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 17,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 18,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 19,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 20,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 21,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 22,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 23,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 24,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 25,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 26,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 27,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 28,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 29,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 30,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 31,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 32,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 33,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 34,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 35,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 36,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 37,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 38,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 39,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 40,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 41,
+     "sent": 51,
+     "succeeded": 51
+    },
+    {
+     "second": 42,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 43,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 44,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 45,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 46,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 47,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 48,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 49,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 50,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 51,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 52,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 53,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 54,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 55,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 56,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 57,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 58,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 59,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 60,
+     "sent": 50,
+     "succeeded": 18
+    },
+    {
+     "second": 61,
+     "sent": 50,
+     "succeeded": 0
+    },
+    {
+     "second": 62,
+     "sent": 50,
+     "succeeded": 0
+    },
+    {
+     "second": 63,
+     "sent": 50,
+     "succeeded": 0
+    },
+    {
+     "second": 64,
+     "sent": 50,
+     "succeeded": 0
+    },
+    {
+     "second": 65,
+     "sent": 50,
+     "succeeded": 0
+    },
+    {
+     "second": 66,
+     "sent": 50,
+     "succeeded": 0
+    },
+    {
+     "second": 67,
+     "sent": 50,
+     "succeeded": 0
+    },
+    {
+     "second": 68,
+     "sent": 50,
+     "succeeded": 0
+    },
+    {
+     "second": 69,
+     "sent": 50,
+     "succeeded": 0
+    },
+    {
+     "second": 70,
+     "sent": 50,
+     "succeeded": 0
+    },
+    {
+     "second": 71,
+     "sent": 50,
+     "succeeded": 0
+    },
+    {
+     "second": 72,
+     "sent": 50,
+     "succeeded": 0
+    },
+    {
+     "second": 73,
+     "sent": 50,
+     "succeeded": 0
+    },
+    {
+     "second": 74,
+     "sent": 50,
+     "succeeded": 0
+    },
+    {
+     "second": 75,
+     "sent": 50,
+     "succeeded": 0
+    },
+    {
+     "second": 76,
+     "sent": 50,
+     "succeeded": 0
+    },
+    {
+     "second": 77,
+     "sent": 50,
+     "succeeded": 0
+    },
+    {
+     "second": 78,
+     "sent": 50,
+     "succeeded": 0
+    },
+    {
+     "second": 79,
+     "sent": 50,
+     "succeeded": 0
+    },
+    {
+     "second": 80,
+     "sent": 50,
+     "succeeded": 0
+    },
+    {
+     "second": 81,
+     "sent": 50,
+     "succeeded": 0
+    },
+    {
+     "second": 82,
+     "sent": 50,
+     "succeeded": 0
+    },
+    {
+     "second": 83,
+     "sent": 50,
+     "succeeded": 0
+    },
+    {
+     "second": 84,
+     "sent": 50,
+     "succeeded": 0
+    },
+    {
+     "second": 85,
+     "sent": 50,
+     "succeeded": 0
+    },
+    {
+     "second": 86,
+     "sent": 50,
+     "succeeded": 0
+    },
+    {
+     "second": 87,
+     "sent": 50,
+     "succeeded": 0
+    },
+    {
+     "second": 88,
+     "sent": 50,
+     "succeeded": 0
+    },
+    {
+     "second": 89,
+     "sent": 50,
+     "succeeded": 0
+    },
+    {
+     "second": 90,
+     "sent": 50,
+     "succeeded": 18
+    },
+    {
+     "second": 91,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 92,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 93,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 94,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 95,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 96,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 97,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 98,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 99,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 100,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 101,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 102,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 103,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 104,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 105,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 106,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 107,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 108,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 109,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 110,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 111,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 112,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 113,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 114,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 115,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 116,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 117,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 118,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 119,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 120,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 121,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 122,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 123,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 124,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 125,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 126,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 127,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 128,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 129,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 130,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 131,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 132,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 133,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 134,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 135,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 136,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 137,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 138,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 139,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 140,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 141,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 142,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 143,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 144,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 145,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 146,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 147,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 148,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 149,
+     "sent": 48,
+     "succeeded": 48
+    }
+   ],
+   "power_events": null,
+   "produced": [
+    "m8-off-r3",
+    "m8-off-r3-rerun1"
+   ],
+   "served_by": {
+    "mock-outage": 5986
+   },
+   "started_utc": "2026-11-13T21:26:53.288Z",
+   "success": {
+    "succeeded": 5986,
+    "total": 7500
+   },
+   "success_rate": 0.7981333333333334,
+   "usage": {
+    "abandoned": 0,
+    "by_instance": {
+     "mock-outage": {
+      "failed": 17,
+      "success": 5986
+     }
+    },
+    "failed": 17,
+    "success": 5986
+   },
+   "used": "m8-off-r3",
+   "window_success_rate": 0.012
+  },
+  "m8-on-r1": {
+   "before_auth": {},
+   "breaker": [
+    {
+     "at_s": 60.634,
+     "from_state": "closed",
+     "provider": "mock-outage",
+     "reason": "threshold_hit",
+     "to_state": "open",
+     "ts_ms": 1794604720600
+    },
+    {
+     "at_s": 90.639,
+     "from_state": "open",
+     "provider": "mock-outage",
+     "reason": "cooldown_over",
+     "to_state": "half_open",
+     "ts_ms": 1794604750605
+    },
+    {
+     "at_s": 90.663,
+     "from_state": "half_open",
+     "provider": "mock-outage",
+     "reason": "probe_passed",
+     "to_state": "closed",
+     "ts_ms": 1794604750629
+    }
+   ],
+   "cross_check": [],
+   "dropped_iterations": 0,
+   "gateway": {
+    "by_status": {
+     "200": 7500
+    },
+    "failed_attempts": 23,
+    "fallbacks": 1518
+   },
+   "git_commit": "65b043ab00926bab33661884906df27d6b11f77e",
+   "id": "m8-on-r1",
+   "k6_messages": [],
+   "measurement": 8,
+   "per_second": [
+    {
+     "second": 0,
+     "sent": 51,
+     "succeeded": 51
+    },
+    {
+     "second": 1,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 2,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 3,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 4,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 5,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 6,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 7,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 8,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 9,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 10,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 11,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 12,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 13,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 14,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 15,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 16,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 17,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 18,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 19,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 20,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 21,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 22,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 23,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 24,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 25,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 26,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 27,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 28,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 29,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 30,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 31,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 32,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 33,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 34,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 35,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 36,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 37,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 38,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 39,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 40,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 41,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 42,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 43,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 44,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 45,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 46,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 47,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 48,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 49,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 50,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 51,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 52,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 53,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 54,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 55,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 56,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 57,
+     "sent": 51,
+     "succeeded": 51
+    },
+    {
+     "second": 58,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 59,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 60,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 61,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 62,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 63,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 64,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 65,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 66,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 67,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 68,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 69,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 70,
+     "sent": 49,
+     "succeeded": 49
+    },
+    {
+     "second": 71,
+     "sent": 51,
+     "succeeded": 51
+    },
+    {
+     "second": 72,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 73,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 74,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 75,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 76,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 77,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 78,
+     "sent": 49,
+     "succeeded": 49
+    },
+    {
+     "second": 79,
+     "sent": 51,
+     "succeeded": 51
+    },
+    {
+     "second": 80,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 81,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 82,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 83,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 84,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 85,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 86,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 87,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 88,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 89,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 90,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 91,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 92,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 93,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 94,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 95,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 96,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 97,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 98,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 99,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 100,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 101,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 102,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 103,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 104,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 105,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 106,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 107,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 108,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 109,
+     "sent": 49,
+     "succeeded": 49
+    },
+    {
+     "second": 110,
+     "sent": 51,
+     "succeeded": 51
+    },
+    {
+     "second": 111,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 112,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 113,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 114,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 115,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 116,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 117,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 118,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 119,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 120,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 121,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 122,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 123,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 124,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 125,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 126,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 127,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 128,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 129,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 130,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 131,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 132,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 133,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 134,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 135,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 136,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 137,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 138,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 139,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 140,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 141,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 142,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 143,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 144,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 145,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 146,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 147,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 148,
+     "sent": 51,
+     "succeeded": 51
+    },
+    {
+     "second": 149,
+     "sent": 47,
+     "succeeded": 47
+    }
+   ],
+   "power_events": null,
+   "produced": [
+    "m8-on-r1",
+    "m8-on-r1-rerun1"
+   ],
+   "served_by": {
+    "mock-outage": 5982,
+    "mock-secondary": 1518
+   },
+   "started_utc": "2026-11-13T21:17:04.056Z",
+   "success": {
+    "succeeded": 7500,
+    "total": 7500
+   },
+   "success_rate": 1.0,
+   "usage": {
+    "abandoned": 0,
+    "by_instance": {
+     "mock-outage": {
+      "failed": 23,
+      "success": 5982
+     },
+     "mock-secondary": {
+      "success": 1518
+     }
+    },
+    "failed": 23,
+    "success": 7500
+   },
+   "used": "m8-on-r1",
+   "window_success_rate": 1.0
+  },
+  "m8-on-r2": {
+   "before_auth": {},
+   "breaker": [
+    {
+     "at_s": 60.586,
+     "from_state": "closed",
+     "provider": "mock-outage",
+     "reason": "threshold_hit",
+     "to_state": "open",
+     "ts_ms": 1794605110653
+    },
+    {
+     "at_s": 90.598,
+     "from_state": "open",
+     "provider": "mock-outage",
+     "reason": "cooldown_over",
+     "to_state": "half_open",
+     "ts_ms": 1794605140665
+    },
+    {
+     "at_s": 90.625,
+     "from_state": "half_open",
+     "provider": "mock-outage",
+     "reason": "probe_passed",
+     "to_state": "closed",
+     "ts_ms": 1794605140692
+    }
+   ],
+   "cross_check": [],
+   "dropped_iterations": 0,
+   "gateway": {
+    "by_status": {
+     "200": 7501
+    },
+    "failed_attempts": 21,
+    "fallbacks": 1517
+   },
+   "git_commit": "65b043ab00926bab33661884906df27d6b11f77e",
+   "id": "m8-on-r2",
+   "k6_messages": [],
+   "measurement": 8,
+   "per_second": [
+    {
+     "second": 0,
+     "sent": 51,
+     "succeeded": 51
+    },
+    {
+     "second": 1,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 2,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 3,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 4,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 5,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 6,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 7,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 8,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 9,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 10,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 11,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 12,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 13,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 14,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 15,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 16,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 17,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 18,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 19,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 20,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 21,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 22,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 23,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 24,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 25,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 26,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 27,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 28,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 29,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 30,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 31,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 32,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 33,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 34,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 35,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 36,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 37,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 38,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 39,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 40,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 41,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 42,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 43,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 44,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 45,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 46,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 47,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 48,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 49,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 50,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 51,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 52,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 53,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 54,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 55,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 56,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 57,
+     "sent": 51,
+     "succeeded": 51
+    },
+    {
+     "second": 58,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 59,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 60,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 61,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 62,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 63,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 64,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 65,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 66,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 67,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 68,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 69,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 70,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 71,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 72,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 73,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 74,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 75,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 76,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 77,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 78,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 79,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 80,
+     "sent": 49,
+     "succeeded": 49
+    },
+    {
+     "second": 81,
+     "sent": 51,
+     "succeeded": 51
+    },
+    {
+     "second": 82,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 83,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 84,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 85,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 86,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 87,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 88,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 89,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 90,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 91,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 92,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 93,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 94,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 95,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 96,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 97,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 98,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 99,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 100,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 101,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 102,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 103,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 104,
+     "sent": 49,
+     "succeeded": 49
+    },
+    {
+     "second": 105,
+     "sent": 51,
+     "succeeded": 51
+    },
+    {
+     "second": 106,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 107,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 108,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 109,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 110,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 111,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 112,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 113,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 114,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 115,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 116,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 117,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 118,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 119,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 120,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 121,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 122,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 123,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 124,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 125,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 126,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 127,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 128,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 129,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 130,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 131,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 132,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 133,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 134,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 135,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 136,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 137,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 138,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 139,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 140,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 141,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 142,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 143,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 144,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 145,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 146,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 147,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 148,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 149,
+     "sent": 49,
+     "succeeded": 49
+    }
+   ],
+   "power_events": null,
+   "produced": [
+    "m8-on-r2",
+    "m8-on-r2-rerun1"
+   ],
+   "served_by": {
+    "mock-outage": 5984,
+    "mock-secondary": 1517
+   },
+   "started_utc": "2026-11-13T21:23:35.457Z",
+   "success": {
+    "succeeded": 7501,
+    "total": 7501
+   },
+   "success_rate": 1.0,
+   "usage": {
+    "abandoned": 0,
+    "by_instance": {
+     "mock-outage": {
+      "failed": 21,
+      "success": 5984
+     },
+     "mock-secondary": {
+      "success": 1517
+     }
+    },
+    "failed": 21,
+    "success": 7501
+   },
+   "used": "m8-on-r2",
+   "window_success_rate": 1.0
+  },
+  "m8-on-r3": {
+   "before_auth": {},
+   "breaker": [
+    {
+     "at_s": 60.721,
+     "from_state": "closed",
+     "provider": "mock-outage",
+     "reason": "threshold_hit",
+     "to_state": "open",
+     "ts_ms": 1794605502688
+    },
+    {
+     "at_s": 90.721,
+     "from_state": "open",
+     "provider": "mock-outage",
+     "reason": "cooldown_over",
+     "to_state": "half_open",
+     "ts_ms": 1794605532688
+    },
+    {
+     "at_s": 90.747,
+     "from_state": "half_open",
+     "provider": "mock-outage",
+     "reason": "probe_passed",
+     "to_state": "closed",
+     "ts_ms": 1794605532714
+    }
+   ],
+   "cross_check": [],
+   "dropped_iterations": 0,
+   "gateway": {
+    "by_status": {
+     "200": 7501
+    },
+    "failed_attempts": 21,
+    "fallbacks": 1519
+   },
+   "git_commit": "65b043ab00926bab33661884906df27d6b11f77e",
+   "id": "m8-on-r3",
+   "k6_messages": [],
+   "measurement": 8,
+   "per_second": [
+    {
+     "second": 0,
+     "sent": 51,
+     "succeeded": 51
+    },
+    {
+     "second": 1,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 2,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 3,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 4,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 5,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 6,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 7,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 8,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 9,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 10,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 11,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 12,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 13,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 14,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 15,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 16,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 17,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 18,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 19,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 20,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 21,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 22,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 23,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 24,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 25,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 26,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 27,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 28,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 29,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 30,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 31,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 32,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 33,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 34,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 35,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 36,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 37,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 38,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 39,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 40,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 41,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 42,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 43,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 44,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 45,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 46,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 47,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 48,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 49,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 50,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 51,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 52,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 53,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 54,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 55,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 56,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 57,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 58,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 59,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 60,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 61,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 62,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 63,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 64,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 65,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 66,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 67,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 68,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 69,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 70,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 71,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 72,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 73,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 74,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 75,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 76,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 77,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 78,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 79,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 80,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 81,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 82,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 83,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 84,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 85,
+     "sent": 51,
+     "succeeded": 51
+    },
+    {
+     "second": 86,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 87,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 88,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 89,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 90,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 91,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 92,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 93,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 94,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 95,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 96,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 97,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 98,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 99,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 100,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 101,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 102,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 103,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 104,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 105,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 106,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 107,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 108,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 109,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 110,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 111,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 112,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 113,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 114,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 115,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 116,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 117,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 118,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 119,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 120,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 121,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 122,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 123,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 124,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 125,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 126,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 127,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 128,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 129,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 130,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 131,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 132,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 133,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 134,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 135,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 136,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 137,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 138,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 139,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 140,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 141,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 142,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 143,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 144,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 145,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 146,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 147,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 148,
+     "sent": 50,
+     "succeeded": 50
+    },
+    {
+     "second": 149,
+     "sent": 49,
+     "succeeded": 49
+    }
+   ],
+   "power_events": null,
+   "produced": [
+    "m8-on-r3",
+    "m8-on-r3-rerun1"
+   ],
+   "served_by": {
+    "mock-outage": 5982,
+    "mock-secondary": 1519
+   },
+   "started_utc": "2026-11-13T21:30:07.983Z",
+   "success": {
+    "succeeded": 7501,
+    "total": 7501
+   },
+   "success_rate": 1.0,
+   "usage": {
+    "abandoned": 0,
+    "by_instance": {
+     "mock-outage": {
+      "failed": 21,
+      "success": 5982
+     },
+     "mock-secondary": {
+      "success": 1519
+     }
+    },
+    "failed": 21,
+    "success": 7501
+   },
+   "used": "m8-on-r3",
+   "window_success_rate": 1.0
+  }
+ },
+ "smoke_runs": [
+  "smoke-m1-direct-r1-200627",
+  "smoke-m1-gateway-r1-200534",
+  "smoke-m1-gateway-r1-202010",
+  "smoke-m1-nokeycache-r1-200646",
+  "smoke-m2-r1-200707",
+  "smoke-m3-r1-200727",
+  "smoke-m4-off-r1-200748",
+  "smoke-m4-on-r1-200809",
+  "smoke-m5-r1-200830",
+  "smoke-m8-on-r1-200850"
+ ]
+}
