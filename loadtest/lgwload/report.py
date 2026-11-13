@@ -443,7 +443,7 @@ def chart(summary: dict[str, Any]) -> str:
         seconds = per_second(summary["_records"][rid], "measure")
         runs.append(
             OutageRun(
-                label=rid,
+                label=info["used"],
                 variant="off" if "-off-" in rid else "on",
                 seconds=seconds,
                 breaker=[(e["at_s"], e["to_state"]) for e in info["breaker"]],

@@ -98,7 +98,8 @@ def outage_svg(runs: Sequence[OutageRun], window_start_s: float, window_length_s
     def y(rate: float) -> float:
         return bottom - rate * PLOT_HEIGHT
 
-    lanes_top = bottom + 56
+    # Room for the tick labels (bottom + 18), the axis title (bottom + 36) and the lanes' caption.
+    lanes_top = bottom + 72
     height = lanes_top + len(runs) * (LANE_HEIGHT + LANE_GAP) + 40
     out: list[str] = [
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{WIDTH}" height="{height}" '
@@ -163,14 +164,22 @@ def outage_svg(runs: Sequence[OutageRun], window_start_s: float, window_length_s
                 f'fill="none" stroke="{color}" stroke-width="2" stroke-opacity="0.8">'
                 f"<title>{escape(run.label)}</title></polyline>"
             )
+    # Direct labels in the middle of the window, where the variants part; at the run's end both
+    # are usually back at 100% and the two labels would overlap.
+    middle_s = int(window_start_s + window_length_s / 2)
     for variant, name in (("on", "fallback on"), ("off", "fallback off")):
         chosen = [run for run in runs if run.variant == variant and run.seconds]
         if chosen:
-            last = chosen[0].seconds[-1]
-            rate = last.succeeded / last.sent if last.sent else 0.0
+            at = next((s for s in chosen[0].seconds if s.second == middle_s), None)
+            if at is None or at.sent == 0:
+                at, at_x = chosen[0].seconds[-1], x(len(chosen[0].seconds)) - 4
+                anchor = "end"
+            else:
+                at_x, anchor = x(middle_s + 0.5), "middle"
+            rate = at.succeeded / at.sent if at.sent else 0.0
             out.append(
-                f'<text x="{_n(x(len(chosen[0].seconds)) - 4)}" y="{_n(y(rate) - 6)}" '
-                f'text-anchor="end" fill="{TEXT}">{name}</text>'
+                f'<text x="{_n(at_x)}" y="{_n(y(rate) - 6)}" '
+                f'text-anchor="{anchor}" fill="{TEXT}">{name}</text>'
             )
 
     out.append(
