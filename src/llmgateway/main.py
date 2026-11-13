@@ -30,6 +30,9 @@ Key design choices:
   lifespan opens the pool and loads the script before serving.
   `LLMGATEWAY_RATE_LIMIT_BURST` and `LLMGATEWAY_RATE_LIMIT_PER_SECOND` set every key's
   bucket (D-105), and `LLMGATEWAY_MAX_BODY_BYTES` the body size limit (D-108).
+- The response cache uses the same Redis URL with its own client, pool and breaker
+  (D-114). It has no settings of its own: clients opt in per request (D-111). Built after
+  the limiter, and warmed after it at startup.
 - Bad configuration stops the process at import, before uvicorn serves anything,
   with a `SystemExit` message and no traceback. The messages never echo the
   values that were set, so a key pasted into the wrong variable is not printed.
@@ -44,6 +47,7 @@ from datetime import UTC, datetime
 from llmgateway import keystore, usagestore
 from llmgateway.app import create_app
 from llmgateway.auth import Authenticator
+from llmgateway.cache import RedisResponseCache, cache_client
 from llmgateway.config import (
     ConfigError,
     GatewayConfig,
@@ -83,6 +87,11 @@ def recorder_from_env(environ: Mapping[str, str], prices: PriceTable) -> UsageRe
     return UsageRecorder(usagestore.PostgresUsageStore(database_url(environ)), prices)
 
 
+def cache_from_env(environ: Mapping[str, str]) -> RedisResponseCache:
+    # The same Redis as the limiter, with its own client, pool and breaker (D-114).
+    return RedisResponseCache(cache_client(redis_url(environ)))
+
+
 def limiter_from_env(environ: Mapping[str, str]) -> RedisRateLimiter:
     # The URL first, then the bucket's settings, as D-108 orders them. No connection yet.
     client = redis_client(redis_url(environ))
@@ -110,6 +119,7 @@ try:
     _recorder = recorder_from_env(os.environ, _prices)
     # Then the limiter's Redis and the body limit (D-106, D-108).
     _limiter = limiter_from_env(os.environ)
+    _cache = cache_from_env(os.environ)
     _max_body_bytes = max_body_bytes(os.environ)
 except ConfigError as exc:
     raise SystemExit(f"llmgateway: configuration error: {exc}") from None
@@ -119,5 +129,6 @@ app = create_app(
     authenticator=_authenticator,
     recorder=_recorder,
     limiter=_limiter,
+    cache=_cache,
     max_body_bytes=_max_body_bytes,
 )

@@ -36,13 +36,21 @@ Key design choices:
   router makes into a usage record with this key's tenant and key id (D-095). Recording
   only queues the record; the database write happens on the recorder's own task, so it
   never adds to a response's latency or fails it. Without one, nothing is recorded.
+- With a `cache` (D-110 to D-117), a request that opts in with `x-gateway-cache: use`, is
+  not a stream and has temperature 0 is looked up by a key that covers its tenant, alias,
+  the alias's routes and every field that changes the answer. A hit calls no provider and
+  writes one zero-cost usage row with `cache_hit`; a miss is served and, if the first
+  entry gave a complete answer, stored. Every 200 from `/v1/chat` says `hit`, `miss` or
+  `bypass` in `x-gateway-cache`; an error says nothing. A cache that fails or is slow is
+  bypassed and logged, never an error (D-114).
 - On startup the lifespan awaits `limiter.warm()`, which loads the script and opens the
-  Redis pool before anything is served and never raises (D-106).
-- The app owns its router, recorder, limiter and authenticator: on shutdown its lifespan
-  calls `router.aclose()`, which closes each adapter's HTTP client, then
-  `recorder.aclose()`, which drains the queue for a few seconds, then `limiter.aclose()`,
-  which closes the Redis pool, then `authenticator.aclose()`, which closes the key store's
-  pool; each still runs if an earlier one raises.
+  Redis pool, then `cache.warm()`, which opens the cache's own pool, before anything is
+  served; neither raises (D-106, D-114).
+- The app owns its router, recorder, limiter, cache and authenticator: on shutdown its
+  lifespan calls `router.aclose()`, which closes each adapter's HTTP client, then
+  `recorder.aclose()`, which drains the queue for a few seconds, then `limiter.aclose()`
+  and `cache.aclose()`, which close their Redis pools, then `authenticator.aclose()`,
+  which closes the key store's pool; each still runs if an earlier one raises.
 - A small pure ASGI middleware, not `BaseHTTPMiddleware`, assigns the request ID,
   adds `x-request-id` to every response, writes one log line per request, and turns
   unexpected exceptions into the standard 500 body. It handles those itself
@@ -50,7 +58,8 @@ Key design choices:
   request ID header would not be added.
 - Log lines contain only the request ID, tenant and key id of a verified key,
   provider instance, model, status, latency and provider model (D-026, D-045,
-  D-092). The model is client text, so it is logged with `repr`. Unexpected
+  D-092); a cache failure's line adds the operation, a reason and a class name, never
+  the key. The model is client text, so it is logged with `repr`. Unexpected
   exceptions are logged by type name only, since their messages can contain
   request or provider content.
 - FastAPI's built-in OpenTelemetry instrumentation is turned off (D-026).
@@ -70,6 +79,15 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from llmgateway.auth import Authenticator, AuthMiddleware, Principal
 from llmgateway.bodylimit import DEFAULT_MAX_BODY_BYTES, BodyLimitMiddleware
+from llmgateway.cache import (
+    CACHE_HEADER,
+    CachedAnswer,
+    CacheUnavailable,
+    ResponseCache,
+    cache_key,
+    cacheable,
+    storable,
+)
 from llmgateway.config import DEFAULT_CONFIG, parse_config
 from llmgateway.errors import (
     GatewayError,
@@ -85,9 +103,10 @@ from llmgateway.ratelimit import RateLimiter, RateLimitMiddleware
 from llmgateway.router import ClientDisconnected, Router, UnknownAlias, build_router
 from llmgateway.schema import ChatRequest, ChatResponse
 from llmgateway.streaming import open_event_stream
-from llmgateway.usage import UsageRecorder
+from llmgateway.usage import AttemptUsage, UsageRecorder
 
 logger = logging.getLogger("llmgateway.request")
+cache_logger = logging.getLogger("llmgateway.cache")
 
 REQUEST_ID_HEADER = "x-request-id"
 
@@ -158,6 +177,17 @@ class RequestContextMiddleware:
                 logger.error(line + " error=%s", *args, error_type)
 
 
+def _log_cache_unavailable(request_id: str, op: str, exc: CacheUnavailable) -> None:
+    # Fixed fields only: never the key, the URL or a message (D-114).
+    cache_logger.warning(
+        "cache_unavailable request_id=%s op=%s reason=%s error=%s",
+        request_id,
+        op,
+        exc.reason,
+        exc.error_type,
+    )
+
+
 def create_app(
     router: Router | None = None,
     id_factory: Callable[[], str] | None = None,
@@ -166,15 +196,18 @@ def create_app(
     recorder: UsageRecorder | None = None,
     limiter: RateLimiter | None = None,
     max_body_bytes: int = DEFAULT_MAX_BODY_BYTES,
+    cache: ResponseCache | None = None,
 ) -> FastAPI:
     gateway = router if router is not None else build_router(parse_config(DEFAULT_CONFIG), {})
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        # Open the Redis pool before serving, so a first burst does not spend its budget
-        # connecting (D-106). It never raises: Redis down at startup leaves the pool cold.
+        # Open the Redis pools before serving, so a first burst does not spend its budget
+        # connecting (D-106, D-114). Neither raises: Redis down at startup leaves them cold.
         if limiter is not None:
             await limiter.warm()
+        if cache is not None:
+            await cache.warm()
         yield
         # The router first, so a stream it closes is still recorded (D-099).
         try:
@@ -188,7 +221,11 @@ def create_app(
                     if limiter is not None:
                         await limiter.aclose()
                 finally:
-                    await authenticator.aclose()
+                    try:
+                        if cache is not None:
+                            await cache.aclose()
+                    finally:
+                        await authenticator.aclose()
 
     app = FastAPI(
         title="LLMGateway",
@@ -212,8 +249,48 @@ def create_app(
     async def healthz() -> dict[str, str]:
         return {"status": "ok"}
 
+    def _hit(request: Request, response: Response, cached: CachedAnswer) -> ChatResponse:
+        # No router, so no provider call and no breaker outcome; one zero-cost row (D-113).
+        request.state.provider = cached.provider_instance
+        request.state.provider_model = cached.model
+        if recorder is not None:
+            meter = recorder.meter(
+                request_id=request_id_of(request),
+                principal=request.state.principal,
+                alias=request.state.model,
+            )
+            meter(
+                AttemptUsage(
+                    provider_instance=cached.provider_instance,
+                    provider_type=cached.provider,
+                    model=cached.model,
+                    stream=False,
+                    attempt=1,
+                    outcome="success",
+                    reason=None,
+                    provider_status=None,
+                    partial=False,
+                    usage=cached.usage,
+                    delivered_chars=None,
+                    cache_hit=True,
+                )
+            )
+        response.headers[CACHE_HEADER] = "hit"
+        return ChatResponse(
+            id=request_id_of(request),
+            provider=cached.provider,
+            provider_instance=cached.provider_instance,
+            model=cached.model,
+            content=cached.content,
+            finish_reason=cached.finish_reason,
+            usage=cached.usage,
+            provider_response_id=cached.provider_response_id,
+        )
+
     @app.post("/v1/chat", response_model=ChatResponse)
-    async def chat(body: ChatRequest, request: Request) -> ChatResponse | Response:
+    async def chat(
+        body: ChatRequest, request: Request, response: Response
+    ) -> ChatResponse | Response:
         request.state.model = body.model
         try:
             first = gateway.select(body.model)
@@ -224,6 +301,26 @@ def create_app(
             ) from None
         request.state.provider = first.provider
         request.state.provider_model = first.model
+        principal = request.state.principal
+        # Only on a 200: an error raised below never carries this header (D-116).
+        response.headers[CACHE_HEADER] = "bypass"
+        key: str | None = None
+        if cache is not None and cacheable(body, request.headers.getlist(CACHE_HEADER)):
+            routes = [(route.provider, route.model) for route in gateway.routes(body.model)]
+            candidate = cache_key(principal.tenant_id, body.model, routes, body)
+            try:
+                cached = await cache.get(candidate)
+            except CacheUnavailable as exc:
+                _log_cache_unavailable(request_id_of(request), "get", exc)
+                # A bad entry was read, so this is a miss and may be stored over (D-114).
+                if exc.reason == "bad_entry":
+                    key = candidate
+                    response.headers[CACHE_HEADER] = "miss"
+            else:
+                if cached is not None:
+                    return _hit(request, response, cached)
+                key = candidate
+                response.headers[CACHE_HEADER] = "miss"
         # One usage record per attempt, with this key's tenant (D-095, D-099).
         meter = (
             None
@@ -241,6 +338,8 @@ def create_app(
                 raise GatewayError(499, "client_disconnected", "The client disconnected.") from None
             request.state.provider = stream.route.provider
             request.state.provider_model = stream.route.model
+            # Streams are never cached (D-111); the injected `response` is not this one.
+            stream.headers[CACHE_HEADER] = "bypass"
             return stream
         # The router retries and falls back (D-050, D-060), and logs both with this ID.
         try:
@@ -256,6 +355,21 @@ def create_app(
         result = served.result
         request.state.provider = route.provider
         request.state.provider_model = route.model
+        if key is not None and cache is not None and storable(result, first_entry=route == first):
+            answer = CachedAnswer(
+                provider=route.adapter.name,
+                provider_instance=route.provider,
+                model=route.model,
+                content=result.content,
+                finish_reason=result.finish_reason,
+                usage=result.usage,
+                provider_response_id=result.provider_response_id,
+            )
+            try:
+                await cache.put(key, answer)
+            except CacheUnavailable as exc:
+                # The answer is still returned; only the store is lost (D-114).
+                _log_cache_unavailable(request_id_of(request), "set", exc)
         return ChatResponse(
             id=request_id_of(request),
             provider=route.adapter.name,

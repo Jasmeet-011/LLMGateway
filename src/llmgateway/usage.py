@@ -26,6 +26,9 @@ Key design choices:
   token count from them, in their own fields (D-101). They are estimates for an operator:
   never added to the provider's counts and never priced, so the cost stays a lower bound
   from what the provider reported.
+- A cache hit is reported like an attempt, with `cache_hit` set, and costs 0 without
+  asking the price table: it made no provider call (D-012, D-113). Its counts are the
+  cached answer's, not tokens billed.
 - `aclose` drains the queue for a few seconds at shutdown, then gives up and says how
   many records were lost. Records still queued when the process dies are lost too, so
   spend summed from the table is a lower bound whenever a drop or failure was logged.
@@ -66,6 +69,8 @@ class AttemptUsage:
     # Characters of delta text sent to the client: an int for every stream attempt that
     # did not reach its end, else None (D-101).
     delivered_chars: int | None
+    # A cache hit: no provider call, so the meter costs it 0 (D-113).
+    cache_hit: bool = False
 
 
 Meter = Callable[[AttemptUsage], None]
@@ -106,6 +111,8 @@ class UsageRecord:
     # Estimates for a stream cut short, never billed or added to the counts (D-101).
     delivered_chars: int | None
     estimated_output_tokens: int | None
+    # True for a cache hit, which cost nothing (D-113).
+    cache_hit: bool
 
 
 class UsageStoreUnavailable(Exception):
@@ -153,6 +160,8 @@ class UsageRecorder:
             cost = (
                 None
                 if usage is None
+                else 0
+                if attempt.cache_hit
                 else self._prices.cost_nanousd(
                     attempt.provider_type, attempt.model, usage, recorded_at.date()
                 )
@@ -182,6 +191,7 @@ class UsageRecorder:
                         if delivered is None
                         else estimate_output_tokens(attempt.provider_type, delivered)
                     ),
+                    cache_hit=attempt.cache_hit,
                 )
             )
 

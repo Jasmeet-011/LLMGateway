@@ -74,6 +74,9 @@ services:
   # the script with `docker compose exec redis redis-cli` (D-109).
   redis:
     image: redis:8.8.3-alpine3.23@sha256:cc9d0aecc235bda23e80287b5ef7c131cae443045b9a332d45932feb71a1e70e
+    # The cache's entries all have a TTL and the buckets have a PEXPIRE, so under the cap
+    # Redis evicts the least recently used of those instead of refusing writes (D-112).
+    command: ["redis-server", "--maxmemory", "256mb", "--maxmemory-policy", "volatile-lru"]
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 2s
