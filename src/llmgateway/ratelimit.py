@@ -29,9 +29,12 @@ Key design choices:
     stops asking a Redis that is down, so while it is open requests pass at once instead
     of each waiting out the budget. A timeout opens it only if no other take succeeded
     meanwhile, so a busy gateway with a healthy Redis keeps its limit.
-- The client makes one attempt per request, no retries, from a blocking pool of 50 whose
-  wait is bounded only by the take's budget. `warm` opens all 50 connections and loads
-  the script at startup, so a first burst does not spend its budget connecting.
+- The client retries a command once, and only on `ConnectionError`, from a blocking pool
+  of 50 whose wait is bounded only by the take's budget. redis-py's pool hands out an idle
+  connection the server closed (a Redis restart), which fails once; the retry reconnects,
+  so a restart costs no request its limit. A timeout is never retried (D-106). `warm`
+  opens all 50 connections and loads the script at startup, so a first burst does not
+  spend its budget connecting.
 - A refused request gets 429 `rate_limited` with `Retry-After`, the bucket's time to
   one token in whole seconds, at least 1. It stops here, so it reaches no provider, makes
   no usage record and is neither a failure nor a success for any provider breaker (D-107).
@@ -119,14 +122,15 @@ class RateLimiter(Protocol):
 
 
 def redis_client(url: str) -> "redis.asyncio.Redis":
-    """D-106's client: no retries, and a blocking pool whose wait only the take bounds."""
+    """D-106's client: one retry on a dropped connection, a pool whose wait the take bounds."""
     pool = redis.asyncio.BlockingConnectionPool.from_url(
         url,
         max_connections=MAX_CONNECTIONS,
         timeout=None,
         socket_timeout=LIMIT_TIMEOUT_SECONDS,
         socket_connect_timeout=LIMIT_TIMEOUT_SECONDS,
-        retry=Retry(NoBackoff(), 0),
+        # Not on a timeout: the call's budget would cut a retry short anyway.
+        retry=Retry(NoBackoff(), 1, supported_errors=(redis.exceptions.ConnectionError,)),
     )
     return redis.asyncio.Redis(connection_pool=pool)
 
