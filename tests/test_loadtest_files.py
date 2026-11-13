@@ -437,16 +437,44 @@ def test_the_k6_directory_has_exactly_the_five_scripts() -> None:
     assert sorted(script_texts()) == SCRIPTS
 
 
-def test_only_cache_js_opts_into_the_cache() -> None:
+# The opt-in is the REQUEST header `x-gateway-cache: use` (D-111). Every script may read the
+# RESPONSE header to record it (`header(res, 'X-Gateway-Cache')`, the record's `c` field), which
+# is how RESULTS.md shows that every non-cache 200 said `bypass`; that is not an opt-in. So the
+# check is for the header name and the value `use` together, as quoted strings on one statement:
+# an object entry, an assignment or a pair, in any letter case and either quote style.
+OPT_IN = re.compile(
+    r"""['"]x-gateway-cache['"][^;
+]{0,40}['"]use['"]""",
+    re.IGNORECASE,
+)
+
+
+def test_only_cache_js_sends_the_opt_in() -> None:
     # D-119: no other script sends the opt-in, so the cache makes no Redis call and says bypass.
-    with_header = sorted(
-        name for name, text in script_texts().items() if "x-gateway-cache" in text.lower()
-    )
-    assert with_header == ["cache.js"]
+    sending = sorted(name for name, text in script_texts().items() if OPT_IN.search(text))
+    assert sending == ["cache.js"]
 
 
-def test_cache_js_contains_the_opt_in_header_name_as_written_in_d_111() -> None:
-    assert "x-gateway-cache" in script_texts()["cache.js"]
+def test_the_opt_in_pattern_matches_the_ways_a_script_could_send_it() -> None:
+    # The pattern is the guard, so it is tested: these must match, reading the response must not.
+    for sent in (
+        "Object.assign({ 'x-gateway-cache': 'use' }, HEADERS)",
+        '{ "X-Gateway-Cache": "use" }',
+        "headers['x-gateway-cache'] = 'use';",
+        "['X-Gateway-Cache', 'use']",
+        "{'x-gateway-cache':'use'}",
+    ):
+        assert OPT_IN.search(sent), sent
+    for read in (
+        "c: header(res, 'X-Gateway-Cache'),",
+        "const v = res.headers['X-Gateway-Cache'];",
+        "// every request opted in with x-gateway-cache: use.",
+    ):
+        assert not OPT_IN.search(read), read
+
+
+def test_cache_js_sends_the_opt_in_header_with_the_value_use() -> None:
+    assert OPT_IN.search(script_texts()["cache.js"])
 
 
 def test_no_script_holds_a_literal_key_and_each_reads_the_key_from_the_environment() -> None:

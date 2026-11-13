@@ -7,6 +7,14 @@ from 1 ("nothing is skipped silently"), so a truncated or corrupted record file 
 instead of quietly shrinking a run. A boolean is never a number here, and `d` must be finite
 (`json.loads` accepts `NaN` and `Infinity`, so the parser has to refuse them itself).
 
+D-122's amendment (after the first smoke run): k6 also writes its own log lines to the console
+output file, at levels other than `info` (the real one: level "warning", msg `"cli" level
+configuration overrode scenarios configuration entirely`). `parse_records` reads as records only
+lines whose `level` is exactly `"info"` (what `console.log` writes) and skips any line with another
+string level, whatever its `msg`; a line with no string `level` is an error like any other bad line.
+`k6_messages(lines)` returns the `msg` of every non-info line in order, so the report shows k6's
+warnings instead of dropping them; its info lines are ignored. Line numbers always count every line.
+
 Written from the spec, before the code exists: these fail with an import error until
 `loadtest/lgwload/records.py` lands.
 """
@@ -17,7 +25,7 @@ from collections.abc import Iterator
 from typing import Any
 
 import pytest
-from lgwload.records import Record, parse_records
+from lgwload.records import Record, k6_messages, parse_records
 
 
 def assert_frozen(instance: object, field: str, value: object) -> None:
@@ -252,3 +260,142 @@ def test_a_bad_record_is_never_skipped_so_good_lines_around_it_do_not_rescue_the
     lines = [line_for(GOOD), line_for(with_key(s=700)), line_for(GOOD)]
     with pytest.raises(ValueError):
         parse_records(lines)
+
+
+# --- k6's own log lines (D-122's amendment) ------------------------------------------------
+
+K6_WARNING = (
+    '{"level":"warning","msg":"\\"cli\\" level configuration overrode scenarios configuration '
+    'entirely","time":"2026-11-13T20:05:44Z"}'
+)
+
+
+def level_line(level: object, msg: object = "something k6 said") -> str:
+    return json.dumps({"level": level, "msg": msg, "time": "2026-11-13T20:05:44Z"})
+
+
+def test_the_real_k6_warning_line_is_skipped_and_the_records_around_it_keep_their_order() -> None:
+    lines = [K6_WARNING, line_for(with_key(t=1)), K6_WARNING, line_for(with_key(t=2))]
+    assert [record.start_ms for record in parse_records(lines)] == [1, 2]
+
+
+def test_a_warning_between_two_records_is_skipped_and_order_is_kept() -> None:
+    lines = [line_for(with_key(t=30)), level_line("warning"), line_for(with_key(t=10))]
+    assert [record.start_ms for record in parse_records(lines)] == [30, 10]
+
+
+def test_a_bad_record_after_a_warning_is_named_by_its_line_in_the_whole_input() -> None:
+    lines = [line_for(GOOD), level_line("warning"), line_for(with_key(s=700))]
+    with pytest.raises(ValueError) as caught:
+        parse_records(lines)
+    assert "line 3" in str(caught.value)
+
+
+def test_a_warning_line_is_not_a_record_even_when_its_msg_is_not_json_or_is_missing() -> None:
+    lines = [
+        level_line("warning", "plain words, not json"),
+        json.dumps({"level": "error"}),
+        level_line("debug", None),
+        level_line("warning", 5),
+        line_for(GOOD),
+    ]
+    assert len(parse_records(lines)) == 1
+
+
+def test_a_warning_whose_msg_looks_like_a_valid_record_is_still_skipped() -> None:
+    lines = [level_line("warning", json.dumps(GOOD)), line_for(with_key(t=7))]
+    assert [record.start_ms for record in parse_records(lines)] == [7]
+
+
+@pytest.mark.parametrize("level", ["INFO", "Info", "information", " info", "info ", "", "warn"])
+def test_a_level_that_is_not_exactly_info_is_not_a_record(level: str) -> None:
+    assert parse_records([level_line(level, json.dumps(GOOD))]) == []
+
+
+@pytest.mark.parametrize(
+    "bad_line",
+    [
+        pytest.param(json.dumps({"msg": json.dumps(GOOD)}), id="no-level"),
+        pytest.param(json.dumps({"level": None, "msg": json.dumps(GOOD)}), id="level-null"),
+        pytest.param(json.dumps({"level": 30, "msg": json.dumps(GOOD)}), id="level-number"),
+        pytest.param(json.dumps({"level": True, "msg": json.dumps(GOOD)}), id="level-bool"),
+        pytest.param(json.dumps({"level": ["info"], "msg": json.dumps(GOOD)}), id="level-list"),
+        pytest.param("not json at all", id="not-json"),
+        pytest.param("[1, 2]", id="not-an-object"),
+    ],
+)
+def test_a_line_with_no_string_level_raises_in_both_functions_and_names_its_line(
+    bad_line: str,
+) -> None:
+    lines = [line_for(GOOD), "", bad_line]
+    with pytest.raises(ValueError) as parse_error:
+        parse_records(lines)
+    with pytest.raises(ValueError) as messages_error:
+        k6_messages(lines)
+    assert "line 3" in str(parse_error.value)
+    assert "line 3" in str(messages_error.value)
+
+
+def test_k6_messages_returns_the_msg_of_every_non_info_line_in_order() -> None:
+    lines = [
+        level_line("warning", "first"),
+        line_for(GOOD),
+        level_line("error", "second"),
+        level_line("INFO", "third"),
+        K6_WARNING,
+    ]
+    assert k6_messages(lines) == [
+        "first",
+        "second",
+        "third",
+        '"cli" level configuration overrode scenarios configuration entirely',
+    ]
+
+
+def test_k6_messages_ignores_info_lines_whatever_their_msg() -> None:
+    lines = [
+        line_for(GOOD),
+        outer("not json"),
+        outer(None),
+        json.dumps({"level": "info"}),
+        outer(5),
+    ]
+    assert k6_messages(lines) == []
+
+
+def test_k6_messages_of_no_lines_or_only_blank_lines_is_empty() -> None:
+    assert k6_messages([]) == []
+    assert k6_messages(["", "  ", "\n"]) == []
+
+
+def test_k6_messages_accepts_any_iterable_and_skips_blank_lines() -> None:
+    def generate() -> Iterator[str]:
+        yield ""
+        yield level_line("warning", "kept")
+        yield "   "
+
+    assert k6_messages(generate()) == ["kept"]
+
+
+@pytest.mark.parametrize(
+    "bad_line",
+    [
+        pytest.param(json.dumps({"level": "warning"}), id="no-msg"),
+        pytest.param(level_line("warning", None), id="msg-null"),
+        pytest.param(level_line("warning", 5), id="msg-number"),
+        pytest.param(level_line("error", {"text": "x"}), id="msg-object"),
+        pytest.param(level_line("debug", ["x"]), id="msg-list"),
+    ],
+)
+def test_a_non_info_line_without_a_string_msg_raises_in_k6_messages_and_names_its_line(
+    bad_line: str,
+) -> None:
+    with pytest.raises(ValueError) as caught:
+        k6_messages([level_line("warning"), "", bad_line])
+    assert "line 3" in str(caught.value)
+
+
+def test_the_same_input_is_split_cleanly_between_records_and_messages() -> None:
+    lines = [K6_WARNING, line_for(with_key(t=1)), level_line("error", "late"), line_for(GOOD)]
+    assert len(parse_records(lines)) == 2
+    assert len(k6_messages(lines)) == 2
