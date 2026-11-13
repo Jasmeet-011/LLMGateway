@@ -1,0 +1,12 @@
+INFO:     Started server process [1]
+INFO:     Waiting for application startup.
+2026-11-13T20:06:31.292+00:00 INFO llmgateway.ratelimit ratelimit_warm opened=50 of=50
+2026-11-13T20:06:31.431+00:00 INFO llmgateway.cache cache_warm opened=50 of=50
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     127.0.0.1:50986 - "GET /healthz HTTP/1.1" 200 OK
+2026-11-13T20:06:34.735+00:00 INFO llmgateway.request request_id=gw_737b8f0686594bcfbc1c3b1351a11348 tenant=- key_id=- provider=- model=- status=200 latency_ms=1.3 provider_model=-
+INFO:     127.0.0.1:56602 - "GET /healthz HTTP/1.1" 200 OK
+2026-11-13T20:06:40.153+00:00 INFO llmgateway.request request_id=gw_745ac6293c3a45da81def82dd2208cbe tenant=- key_id=- provider=- model=- status=200 latency_ms=0.7 provider_model=-
+INFO:     127.0.0.1:56604 - "GET /healthz HTTP/1.1" 200 OK
+2026-11-13T20:06:45.526+00:00 INFO llmgateway.request request_id=gw_235b69dcf7624784af1e48a7328360f2 tenant=- key_id=- provider=- model=- status=200 latency_ms=0.6 provider_model=-

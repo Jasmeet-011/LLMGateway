@@ -1,0 +1,23 @@
+{"level":"warning","msg":"\"cli\" level configuration overrode scenarios configuration entirely","time":"2026-11-13T20:20:25Z"}
+
+
+  █ TOTAL RESULTS 
+
+    HTTP
+    http_req_duration..............: avg=24.09ms min=21.73ms med=23.76ms max=68.15ms  p(50)=23.76ms p(95)=25.44ms p(99)=28.74ms
+      { expected_response:true }...: avg=24.09ms min=21.73ms med=23.76ms max=68.15ms  p(50)=23.76ms p(95)=25.44ms p(99)=28.74ms
+    http_req_failed................: 0.00%  0 out of 389
+    http_reqs......................: 389    77.416855/s
+
+    EXECUTION
+    iteration_duration.............: avg=25.76ms min=22.57ms med=25.05ms max=100.95ms p(50)=25.05ms p(95)=27.83ms p(99)=38.09ms
+    iterations.....................: 389    77.416855/s
+    vus............................: 2      min=2        max=2
+    vus_max........................: 2      min=2        max=2
+
+    NETWORK
+    data_received..................: 178 kB 36 kB/s
+    data_sent......................: 126 kB 25 kB/s
+
+
+

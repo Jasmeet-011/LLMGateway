@@ -1,0 +1,40 @@
+{
+  "id": "smoke-m1-nokeycache-r1-200646",
+  "catalog_id": "m1-nokeycache-r1",
+  "measurement": 1,
+  "smoke": true,
+  "rerun": 0,
+  "command": ".\\loadtest\\run.ps1 -Run m1-nokeycache-r1 -Smoke",
+  "script": "steady.js",
+  "target": "http://api:8000",
+  "alias": "steady",
+  "compose_files": [
+    "compose.yaml",
+    "loadtest/compose.loadtest.yaml",
+    "loadtest/compose.nokeycache.yaml"
+  ],
+  "k6_image": "grafana/k6:2.3.0@sha256:2dd4756ec6e14e62778916e1eb850108e4b499304c02df56760fa0bdb0fba0b8",
+  "k6_args": [
+    "run",
+    "-q",
+    "--no-usage-report",
+    "--log-format",
+    "json",
+    "--console-output",
+    "/out/smoke-m1-nokeycache-r1-200646/records.jsonl",
+    "--summary-export",
+    "/out/smoke-m1-nokeycache-r1-200646/summary.json",
+    "--vus",
+    "2",
+    "--duration",
+    "5s",
+    "/scripts/steady.js"
+  ],
+  "k6_exit_code": 0,
+  "api_image_id": "sha256:f7b65c08d06ba8077407573f164c89544033c853c51df9cb8a60a93a8d2dfbc5",
+  "git_commit": "1d798b9db71cc209f92f55a31fd222092cae3ac0",
+  "git_dirty": true,
+  "key_id": "b1d2a1f241b22165",
+  "started_utc": "2026-11-13T20:06:46.704Z",
+  "ended_utc": "2026-11-13T20:07:07.114Z"
+}

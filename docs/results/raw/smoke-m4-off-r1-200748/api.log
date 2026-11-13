@@ -1,0 +1,325 @@
+INFO:     Started server process [1]
+INFO:     Waiting for application startup.
+2026-11-13T20:07:51.764+00:00 INFO llmgateway.ratelimit ratelimit_warm opened=50 of=50
+2026-11-13T20:07:51.877+00:00 INFO llmgateway.cache cache_warm opened=50 of=50
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     127.0.0.1:59114 - "GET /healthz HTTP/1.1" 200 OK
+2026-11-13T20:07:55.329+00:00 INFO llmgateway.request request_id=gw_0abf7de8265b406ead2ae72779f0032c tenant=- key_id=- provider=- model=- status=200 latency_ms=1.7 provider_model=-
+2026-11-13T20:07:57.912+00:00 WARNING llmgateway.router attempt_failed request_id=gw_6311987e140c43148fd2526ef2e4d6d5 alias='failures-off' provider=mock-primary model='mock-a' attempt=1 status=- reason=injected error=ProviderUnavailable retry=yes
+INFO:     172.21.0.6:48238 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:57.915+00:00 INFO llmgateway.request request_id=gw_2f69a1e36752457289711bcb8e27f347 tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=36.0 provider_model='mock-a'
+INFO:     172.21.0.6:48238 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:57.940+00:00 INFO llmgateway.request request_id=gw_a8a3257220a64a3ca554d588024bd23c tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=22.8 provider_model='mock-a'
+2026-11-13T20:07:57.965+00:00 WARNING llmgateway.router attempt_failed request_id=gw_7a2ca702ec8c4248802774f494c9756f alias='failures-off' provider=mock-primary model='mock-a' attempt=1 status=- reason=injected error=ProviderUnavailable retry=yes
+INFO:     172.21.0.6:48252 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:58.009+00:00 INFO llmgateway.request request_id=gw_6311987e140c43148fd2526ef2e4d6d5 tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=132.4 provider_model='mock-a'
+INFO:     172.21.0.6:48252 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:58.034+00:00 INFO llmgateway.request request_id=gw_b36834382b9b4cb3b2c06a9b017ff7f5 tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=22.3 provider_model='mock-a'
+INFO:     172.21.0.6:48252 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:58.059+00:00 INFO llmgateway.request request_id=gw_468bef9d9c9a4d7b920ca0c9bf601c70 tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=23.2 provider_model='mock-a'
+INFO:     172.21.0.6:48238 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:58.070+00:00 INFO llmgateway.request request_id=gw_7a2ca702ec8c4248802774f494c9756f tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=126.5 provider_model='mock-a'
+2026-11-13T20:07:58.083+00:00 WARNING llmgateway.router attempt_failed request_id=gw_8b161a5793114f729931241e92da7a9f alias='failures-off' provider=mock-primary model='mock-a' attempt=1 status=- reason=injected error=ProviderUnavailable retry=yes
+2026-11-13T20:07:58.093+00:00 WARNING llmgateway.router attempt_failed request_id=gw_dc22f38ec33a4036a6599750cd3b5565 alias='failures-off' provider=mock-primary model='mock-a' attempt=1 status=- reason=injected error=ProviderUnavailable retry=yes
+INFO:     172.21.0.6:48252 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:58.164+00:00 INFO llmgateway.request request_id=gw_8b161a5793114f729931241e92da7a9f tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=102.5 provider_model='mock-a'
+INFO:     172.21.0.6:48252 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:58.187+00:00 INFO llmgateway.request request_id=gw_03bbc814187c4fcdaed95c642d5d44c6 tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=22.0 provider_model='mock-a'
+INFO:     172.21.0.6:48252 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:58.213+00:00 INFO llmgateway.request request_id=gw_31e6f8a0fa764ae4b35abad77f101045 tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=23.7 provider_model='mock-a'
+2026-11-13T20:07:58.222+00:00 WARNING llmgateway.router attempt_failed request_id=gw_dc22f38ec33a4036a6599750cd3b5565 alias='failures-off' provider=mock-primary model='mock-a' attempt=2 status=- reason=injected error=ProviderUnavailable retry=yes
+INFO:     172.21.0.6:48252 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:58.237+00:00 INFO llmgateway.request request_id=gw_ceef68e13bab4aad814a3effceb67894 tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=22.6 provider_model='mock-a'
+INFO:     172.21.0.6:48252 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:58.261+00:00 INFO llmgateway.request request_id=gw_5f3a023814e944478f07ae82478f5813 tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=22.4 provider_model='mock-a'
+2026-11-13T20:07:58.284+00:00 WARNING llmgateway.router attempt_failed request_id=gw_363b736d9bbe4334be4fa4010db38633 alias='failures-off' provider=mock-primary model='mock-a' attempt=1 status=- reason=injected error=ProviderUnavailable retry=yes
+INFO:     172.21.0.6:48252 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:58.335+00:00 INFO llmgateway.request request_id=gw_363b736d9bbe4334be4fa4010db38633 tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=72.9 provider_model='mock-a'
+INFO:     172.21.0.6:48252 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:58.360+00:00 INFO llmgateway.request request_id=gw_6a4c4e6d88184f3eb2dddbc8b0b570f8 tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=23.2 provider_model='mock-a'
+2026-11-13T20:07:58.384+00:00 WARNING llmgateway.router attempt_failed request_id=gw_b18e792cad174517a2751536a3283e5a alias='failures-off' provider=mock-primary model='mock-a' attempt=1 status=- reason=injected error=ProviderUnavailable retry=yes
+2026-11-13T20:07:58.454+00:00 WARNING llmgateway.router attempt_failed request_id=gw_dc22f38ec33a4036a6599750cd3b5565 alias='failures-off' provider=mock-primary model='mock-a' attempt=3 status=- reason=injected error=ProviderUnavailable retry=no
+INFO:     172.21.0.6:48238 - "POST /v1/chat HTTP/1.1" 502 Bad Gateway
+2026-11-13T20:07:58.455+00:00 INFO llmgateway.request request_id=gw_dc22f38ec33a4036a6599750cd3b5565 tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=502 latency_ms=383.2 provider_model='mock-a'
+INFO:     172.21.0.6:48238 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:58.478+00:00 INFO llmgateway.request request_id=gw_721c8b2fa45140aba9602b359b8b4119 tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=22.1 provider_model='mock-a'
+INFO:     172.21.0.6:48238 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:58.502+00:00 INFO llmgateway.request request_id=gw_7bdee66ede314d6687a87851e18f87b1 tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=22.4 provider_model='mock-a'
+INFO:     172.21.0.6:48252 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:58.525+00:00 INFO llmgateway.request request_id=gw_b18e792cad174517a2751536a3283e5a tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=163.3 provider_model='mock-a'
+2026-11-13T20:07:58.526+00:00 WARNING llmgateway.router attempt_failed request_id=gw_b15b4e2a4ed5471ebc773d41a5f86f7f alias='failures-off' provider=mock-primary model='mock-a' attempt=1 status=- reason=injected error=ProviderUnavailable retry=yes
+INFO:     172.21.0.6:48252 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:58.550+00:00 INFO llmgateway.request request_id=gw_5a152d66195d436eb531cc9d87a20808 tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=22.8 provider_model='mock-a'
+2026-11-13T20:07:58.574+00:00 WARNING llmgateway.router attempt_failed request_id=gw_46b3cfec9aac496087d3758965578f5c alias='failures-off' provider=mock-primary model='mock-a' attempt=1 status=- reason=injected error=ProviderUnavailable retry=yes
+2026-11-13T20:07:58.584+00:00 WARNING llmgateway.router attempt_failed request_id=gw_b15b4e2a4ed5471ebc773d41a5f86f7f alias='failures-off' provider=mock-primary model='mock-a' attempt=2 status=- reason=injected error=ProviderUnavailable retry=yes
+INFO:     172.21.0.6:48252 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:58.775+00:00 INFO llmgateway.request request_id=gw_46b3cfec9aac496087d3758965578f5c tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=224.1 provider_model='mock-a'
+INFO:     172.21.0.6:48238 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:58.798+00:00 INFO llmgateway.request request_id=gw_b15b4e2a4ed5471ebc773d41a5f86f7f tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=293.9 provider_model='mock-a'
+2026-11-13T20:07:58.799+00:00 WARNING llmgateway.router attempt_failed request_id=gw_e04e725eea784ea1a4cffcdbfb30b6c3 alias='failures-off' provider=mock-primary model='mock-a' attempt=1 status=- reason=injected error=ProviderUnavailable retry=yes
+2026-11-13T20:07:58.822+00:00 WARNING llmgateway.router attempt_failed request_id=gw_8526e99a0b0d4428ac9d5824b5ab9ba6 alias='failures-off' provider=mock-primary model='mock-a' attempt=1 status=- reason=injected error=ProviderUnavailable retry=yes
+2026-11-13T20:07:58.903+00:00 WARNING llmgateway.router attempt_failed request_id=gw_e04e725eea784ea1a4cffcdbfb30b6c3 alias='failures-off' provider=mock-primary model='mock-a' attempt=2 status=- reason=injected error=ProviderUnavailable retry=yes
+INFO:     172.21.0.6:48238 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:58.941+00:00 INFO llmgateway.request request_id=gw_8526e99a0b0d4428ac9d5824b5ab9ba6 tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=141.3 provider_model='mock-a'
+2026-11-13T20:07:58.964+00:00 WARNING llmgateway.router attempt_failed request_id=gw_39a5dea0f3ef4b81b89f5e0534684304 alias='failures-off' provider=mock-primary model='mock-a' attempt=1 status=- reason=injected error=ProviderUnavailable retry=yes
+2026-11-13T20:07:59.144+00:00 WARNING llmgateway.router attempt_failed request_id=gw_e04e725eea784ea1a4cffcdbfb30b6c3 alias='failures-off' provider=mock-primary model='mock-a' attempt=3 status=- reason=injected error=ProviderUnavailable retry=no
+INFO:     172.21.0.6:48252 - "POST /v1/chat HTTP/1.1" 502 Bad Gateway
+2026-11-13T20:07:59.145+00:00 INFO llmgateway.request request_id=gw_e04e725eea784ea1a4cffcdbfb30b6c3 tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=502 latency_ms=367.9 provider_model='mock-a'
+INFO:     172.21.0.6:48238 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:59.167+00:00 INFO llmgateway.request request_id=gw_39a5dea0f3ef4b81b89f5e0534684304 tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=224.5 provider_model='mock-a'
+INFO:     172.21.0.6:48252 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:59.168+00:00 INFO llmgateway.request request_id=gw_e9e1def1cf014baa89912e4e08da6329 tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=22.1 provider_model='mock-a'
+INFO:     172.21.0.6:48238 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:59.193+00:00 INFO llmgateway.request request_id=gw_5975b72d08834e0cb584bebab7d00964 tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=23.7 provider_model='mock-a'
+2026-11-13T20:07:59.193+00:00 WARNING llmgateway.router attempt_failed request_id=gw_a30659aeec5b4b9d88d539d9d41bc3b1 alias='failures-off' provider=mock-primary model='mock-a' attempt=1 status=- reason=injected error=ProviderUnavailable retry=yes
+INFO:     172.21.0.6:48238 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:59.216+00:00 INFO llmgateway.request request_id=gw_db11f54687e74bc6b38b1020ad2a590c tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=22.4 provider_model='mock-a'
+INFO:     172.21.0.6:48238 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:59.241+00:00 INFO llmgateway.request request_id=gw_ea3cbb0182a745bcbc22201766faf0ad tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=22.1 provider_model='mock-a'
+2026-11-13T20:07:59.264+00:00 WARNING llmgateway.router attempt_failed request_id=gw_b8575fcd49dd4fcdb5c647e715a42e7f alias='failures-off' provider=mock-primary model='mock-a' attempt=1 status=- reason=injected error=ProviderUnavailable retry=yes
+INFO:     172.21.0.6:48252 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:59.294+00:00 INFO llmgateway.request request_id=gw_a30659aeec5b4b9d88d539d9d41bc3b1 tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=124.3 provider_model='mock-a'
+INFO:     172.21.0.6:48252 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:59.318+00:00 INFO llmgateway.request request_id=gw_0495211d21d948b2a4a4c4846fd78349 tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=22.3 provider_model='mock-a'
+INFO:     172.21.0.6:48252 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:59.341+00:00 INFO llmgateway.request request_id=gw_d711b056cf224172bd2855e6df255b51 tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=22.1 provider_model='mock-a'
+INFO:     172.21.0.6:48238 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:59.364+00:00 INFO llmgateway.request request_id=gw_b8575fcd49dd4fcdb5c647e715a42e7f tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=121.6 provider_model='mock-a'
+INFO:     172.21.0.6:48252 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:59.366+00:00 INFO llmgateway.request request_id=gw_e2f893dfd745433aaf215ef0da6d37ad tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=23.0 provider_model='mock-a'
+INFO:     172.21.0.6:48238 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:59.389+00:00 INFO llmgateway.request request_id=gw_3293fc21ac7d47d28431dab5f57c68bb tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=22.3 provider_model='mock-a'
+INFO:     172.21.0.6:48252 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:59.390+00:00 INFO llmgateway.request request_id=gw_0ebeba7e57b44601bad3f988d13e212e tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=22.6 provider_model='mock-a'
+INFO:     172.21.0.6:48238 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:59.412+00:00 INFO llmgateway.request request_id=gw_96a23bcffb6348bb9864885a605a7b74 tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=21.9 provider_model='mock-a'
+INFO:     172.21.0.6:48252 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:59.413+00:00 INFO llmgateway.request request_id=gw_d7158fe0a2ad42d89575f3591541af3a tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=21.9 provider_model='mock-a'
+INFO:     172.21.0.6:48238 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:59.438+00:00 INFO llmgateway.request request_id=gw_88854bbd69164906a427e334cd364221 tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=24.3 provider_model='mock-a'
+INFO:     172.21.0.6:48252 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:59.439+00:00 INFO llmgateway.request request_id=gw_334649d34f9c44318eeb3c41504000e0 tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=24.4 provider_model='mock-a'
+INFO:     172.21.0.6:48238 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:59.462+00:00 INFO llmgateway.request request_id=gw_a8aff78bc56a48a798ec88d138771bad tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=22.2 provider_model='mock-a'
+INFO:     172.21.0.6:48252 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:59.463+00:00 INFO llmgateway.request request_id=gw_1797412446284648aab5329f472f6bdf tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=22.2 provider_model='mock-a'
+2026-11-13T20:07:59.486+00:00 WARNING llmgateway.router attempt_failed request_id=gw_a0c254d8059a4be5a6985a7aab0dbefb alias='failures-off' provider=mock-primary model='mock-a' attempt=1 status=- reason=injected error=ProviderUnavailable retry=yes
+2026-11-13T20:07:59.486+00:00 WARNING llmgateway.router attempt_failed request_id=gw_d0617d3550d84151a22f0598e9bb1ef3 alias='failures-off' provider=mock-primary model='mock-a' attempt=1 status=- reason=injected error=ProviderUnavailable retry=yes
+INFO:     172.21.0.6:48252 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:59.582+00:00 INFO llmgateway.request request_id=gw_d0617d3550d84151a22f0598e9bb1ef3 tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=117.7 provider_model='mock-a'
+INFO:     172.21.0.6:48252 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:59.605+00:00 INFO llmgateway.request request_id=gw_c3e3fd9d887c4360a5fb9bab0276527d tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=22.1 provider_model='mock-a'
+2026-11-13T20:07:59.630+00:00 WARNING llmgateway.router attempt_failed request_id=gw_a35edb75197c4a9dbc55e008c9300bb8 alias='failures-off' provider=mock-primary model='mock-a' attempt=1 status=- reason=injected error=ProviderUnavailable retry=yes
+INFO:     172.21.0.6:48238 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:59.654+00:00 INFO llmgateway.request request_id=gw_a0c254d8059a4be5a6985a7aab0dbefb tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=190.6 provider_model='mock-a'
+INFO:     172.21.0.6:48238 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:59.679+00:00 INFO llmgateway.request request_id=gw_37c999e258c74290aa0ca53ee69f238e tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=23.2 provider_model='mock-a'
+INFO:     172.21.0.6:48238 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:59.704+00:00 INFO llmgateway.request request_id=gw_699862a01acd45f580545754490a2eb2 tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=22.9 provider_model='mock-a'
+INFO:     172.21.0.6:48238 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:59.728+00:00 INFO llmgateway.request request_id=gw_a02d990e3ca7457eaac968805b77643c tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=22.3 provider_model='mock-a'
+INFO:     172.21.0.6:48238 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:59.752+00:00 INFO llmgateway.request request_id=gw_c9919ddcb28945e3ab8959d3eed34e96 tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=22.2 provider_model='mock-a'
+INFO:     172.21.0.6:48238 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:59.776+00:00 INFO llmgateway.request request_id=gw_9e9a4800df21439dbf584a4eb5bd1ecc tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=22.1 provider_model='mock-a'
+INFO:     172.21.0.6:48238 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:59.799+00:00 INFO llmgateway.request request_id=gw_d383e92831ae49bc88f9c3aa642e0295 tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=22.1 provider_model='mock-a'
+INFO:     172.21.0.6:48252 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:59.820+00:00 INFO llmgateway.request request_id=gw_a35edb75197c4a9dbc55e008c9300bb8 tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=211.3 provider_model='mock-a'
+INFO:     172.21.0.6:48238 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:59.822+00:00 INFO llmgateway.request request_id=gw_b1ab368ea0c74c3084d936d126429bb2 tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=21.5 provider_model='mock-a'
+INFO:     172.21.0.6:48252 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:59.845+00:00 INFO llmgateway.request request_id=gw_30ee97330f2646deb0d10249563d8161 tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=23.6 provider_model='mock-a'
+2026-11-13T20:07:59.846+00:00 WARNING llmgateway.router attempt_failed request_id=gw_6a53b1d3b3624b5cba4c1396e278da62 alias='failures-off' provider=mock-primary model='mock-a' attempt=1 status=- reason=injected error=ProviderUnavailable retry=yes
+2026-11-13T20:07:59.870+00:00 WARNING llmgateway.router attempt_failed request_id=gw_3aa4814fb5624d53994c09a5e0bf52c4 alias='failures-off' provider=mock-primary model='mock-a' attempt=1 status=- reason=injected error=ProviderUnavailable retry=yes
+INFO:     172.21.0.6:48252 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:59.903+00:00 INFO llmgateway.request request_id=gw_3aa4814fb5624d53994c09a5e0bf52c4 tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=56.4 provider_model='mock-a'
+INFO:     172.21.0.6:48252 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:59.927+00:00 INFO llmgateway.request request_id=gw_654b858b1a2d4f449dad020eb90ba704 tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=22.4 provider_model='mock-a'
+INFO:     172.21.0.6:48252 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:59.951+00:00 INFO llmgateway.request request_id=gw_749e1495506847d1b9fb2a3248545a8f tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=22.3 provider_model='mock-a'
+INFO:     172.21.0.6:48238 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:59.952+00:00 INFO llmgateway.request request_id=gw_6a53b1d3b3624b5cba4c1396e278da62 tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=128.0 provider_model='mock-a'
+2026-11-13T20:07:59.975+00:00 WARNING llmgateway.router attempt_failed request_id=gw_0dfc17746a18445d9f47f17fbc46248c alias='failures-off' provider=mock-primary model='mock-a' attempt=1 status=- reason=injected error=ProviderUnavailable retry=yes
+INFO:     172.21.0.6:48238 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:59.976+00:00 INFO llmgateway.request request_id=gw_7551da72f9c74d4e9dd0d5f2321b8c6b tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=22.5 provider_model='mock-a'
+INFO:     172.21.0.6:48238 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:08:00.000+00:00 INFO llmgateway.request request_id=gw_2c515e8722594685b8311ecb8ce04389 tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=22.9 provider_model='mock-a'
+INFO:     172.21.0.6:48252 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:08:00.017+00:00 INFO llmgateway.request request_id=gw_0dfc17746a18445d9f47f17fbc46248c tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=64.2 provider_model='mock-a'
+INFO:     172.21.0.6:48238 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:08:00.025+00:00 INFO llmgateway.request request_id=gw_e5a9089eb38342caa2ea4b99a2156b4e tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=23.2 provider_model='mock-a'
+INFO:     172.21.0.6:48252 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:08:00.043+00:00 INFO llmgateway.request request_id=gw_d19feba7929b42709748d9a936e3aa8c tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=23.6 provider_model='mock-a'
+2026-11-13T20:08:00.048+00:00 WARNING llmgateway.router attempt_failed request_id=gw_30f76501ccb64ababcd56c5e4010a275 alias='failures-off' provider=mock-primary model='mock-a' attempt=1 status=- reason=injected error=ProviderUnavailable retry=yes
+INFO:     172.21.0.6:48252 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:08:00.067+00:00 INFO llmgateway.request request_id=gw_d14c837c3c7447ffaf73da7934430e2d tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=22.1 provider_model='mock-a'
+INFO:     172.21.0.6:48252 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:08:00.091+00:00 INFO llmgateway.request request_id=gw_0cd6a65302fd414cbc4f83efdf569a31 tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=22.5 provider_model='mock-a'
+INFO:     172.21.0.6:48252 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:08:00.116+00:00 INFO llmgateway.request request_id=gw_04392cebcf9944ee9310eed52fa53ff2 tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=22.7 provider_model='mock-a'
+INFO:     172.21.0.6:48252 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:08:00.140+00:00 INFO llmgateway.request request_id=gw_f540e440e823490b8b71255633c6bc24 tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=22.1 provider_model='mock-a'
+2026-11-13T20:08:00.163+00:00 WARNING llmgateway.router attempt_failed request_id=gw_a09db573d27b4887a7d3e32c7ebd3cac alias='failures-off' provider=mock-primary model='mock-a' attempt=1 status=- reason=injected error=ProviderUnavailable retry=yes
+INFO:     172.21.0.6:48252 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:08:00.194+00:00 INFO llmgateway.request request_id=gw_a09db573d27b4887a7d3e32c7ebd3cac tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=53.3 provider_model='mock-a'
+INFO:     172.21.0.6:48252 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:08:00.218+00:00 INFO llmgateway.request request_id=gw_f1b3b5559b3a4c7abe89af71812c9e11 tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=22.4 provider_model='mock-a'
+2026-11-13T20:08:00.241+00:00 WARNING llmgateway.router attempt_failed request_id=gw_78461a64a5c04e20a9f7fbaa995b8f51 alias='failures-off' provider=mock-primary model='mock-a' attempt=1 status=- reason=injected error=ProviderUnavailable retry=yes
+INFO:     172.21.0.6:48238 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:08:00.247+00:00 INFO llmgateway.request request_id=gw_30f76501ccb64ababcd56c5e4010a275 tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=220.1 provider_model='mock-a'
+INFO:     172.21.0.6:48238 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:08:00.270+00:00 INFO llmgateway.request request_id=gw_428856c2e9f5465ea1b25b5ddcf134a7 tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=21.9 provider_model='mock-a'
+INFO:     172.21.0.6:48238 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:08:00.294+00:00 INFO llmgateway.request request_id=gw_639ace21a81f4f9a9b717a91066c7044 tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=22.1 provider_model='mock-a'
+INFO:     172.21.0.6:48238 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:08:00.318+00:00 INFO llmgateway.request request_id=gw_298e4200114446518f79e2311828febf tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=22.6 provider_model='mock-a'
+INFO:     172.21.0.6:48238 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:08:00.343+00:00 INFO llmgateway.request request_id=gw_e89855def6974bceac98828e2f55ae14 tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=22.8 provider_model='mock-a'
+INFO:     172.21.0.6:48238 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:08:00.367+00:00 INFO llmgateway.request request_id=gw_a5c396c553ea444f81d8a01fdf238e64 tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=22.8 provider_model='mock-a'
+INFO:     172.21.0.6:48252 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:08:00.376+00:00 INFO llmgateway.request request_id=gw_78461a64a5c04e20a9f7fbaa995b8f51 tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=155.8 provider_model='mock-a'
+INFO:     172.21.0.6:48238 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:08:00.391+00:00 INFO llmgateway.request request_id=gw_42421a02593d4dc692fb40d8c8252638 tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=21.9 provider_model='mock-a'
+2026-11-13T20:08:00.398+00:00 WARNING llmgateway.router attempt_failed request_id=gw_b6688e52b0be4992aa4ce32d1b2de931 alias='failures-off' provider=mock-primary model='mock-a' attempt=1 status=- reason=injected error=ProviderUnavailable retry=yes
+INFO:     172.21.0.6:48238 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:08:00.414+00:00 INFO llmgateway.request request_id=gw_70dfcd17bc5b443098d72970bc010c99 tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=21.4 provider_model='mock-a'
+INFO:     172.21.0.6:48238 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:08:00.437+00:00 INFO llmgateway.request request_id=gw_f4675d347e80466f9e6f9abf9ccb4ec0 tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=22.0 provider_model='mock-a'
+2026-11-13T20:08:00.461+00:00 WARNING llmgateway.router attempt_failed request_id=gw_6fc8ba168d574871809b475b357edb96 alias='failures-off' provider=mock-primary model='mock-a' attempt=1 status=- reason=injected error=ProviderUnavailable retry=yes
+INFO:     172.21.0.6:48252 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:08:00.478+00:00 INFO llmgateway.request request_id=gw_b6688e52b0be4992aa4ce32d1b2de931 tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=101.1 provider_model='mock-a'
+INFO:     172.21.0.6:48238 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:08:00.496+00:00 INFO llmgateway.request request_id=gw_6fc8ba168d574871809b475b357edb96 tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=57.2 provider_model='mock-a'
+INFO:     172.21.0.6:48252 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:08:00.502+00:00 INFO llmgateway.request request_id=gw_350cdfbe6eeb40b589cc5d19e2555489 tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=22.1 provider_model='mock-a'
+INFO:     172.21.0.6:48238 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:08:00.520+00:00 INFO llmgateway.request request_id=gw_e24a9a33e5214d6a918d36c3ff856bc0 tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=22.2 provider_model='mock-a'
+INFO:     172.21.0.6:48252 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:08:00.526+00:00 INFO llmgateway.request request_id=gw_763812c5bdeb4a3ab18e2de520eef387 tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=22.4 provider_model='mock-a'
+INFO:     172.21.0.6:48238 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:08:00.544+00:00 INFO llmgateway.request request_id=gw_39c9464499174c3c82d1f0d2962dc591 tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=22.3 provider_model='mock-a'
+INFO:     172.21.0.6:48252 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:08:00.550+00:00 INFO llmgateway.request request_id=gw_d62494f6443d40b6830793ab780579f1 tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=22.3 provider_model='mock-a'
+INFO:     172.21.0.6:48238 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:08:00.568+00:00 INFO llmgateway.request request_id=gw_114c4669747f4ab98459a4ae08b5526e tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=22.0 provider_model='mock-a'
+2026-11-13T20:08:00.573+00:00 WARNING llmgateway.router attempt_failed request_id=gw_7a3f086095d245e78c260d51488c17ac alias='failures-off' provider=mock-primary model='mock-a' attempt=1 status=- reason=injected error=ProviderUnavailable retry=yes
+2026-11-13T20:08:00.591+00:00 WARNING llmgateway.router attempt_failed request_id=gw_bc8494f077544d8fa1a4d70e58a570ff alias='failures-off' provider=mock-primary model='mock-a' attempt=1 status=- reason=injected error=ProviderUnavailable retry=yes
+2026-11-13T20:08:00.705+00:00 WARNING llmgateway.router attempt_failed request_id=gw_7a3f086095d245e78c260d51488c17ac alias='failures-off' provider=mock-primary model='mock-a' attempt=2 status=- reason=injected error=ProviderUnavailable retry=yes
+INFO:     127.0.0.1:40066 - "GET /healthz HTTP/1.1" 200 OK
+2026-11-13T20:08:00.726+00:00 INFO llmgateway.request request_id=gw_7094cc10ce794bef8579ca0f6f31731b tenant=- key_id=- provider=- model=- status=200 latency_ms=0.5 provider_model=-
+INFO:     172.21.0.6:48252 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:08:00.732+00:00 INFO llmgateway.request request_id=gw_7a3f086095d245e78c260d51488c17ac tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=180.3 provider_model='mock-a'
+INFO:     172.21.0.6:48252 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:08:00.755+00:00 INFO llmgateway.request request_id=gw_eefbab999b90428d8fd600632b4c0a3f tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=22.0 provider_model='mock-a'
+INFO:     172.21.0.6:48252 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:08:00.779+00:00 INFO llmgateway.request request_id=gw_03802bd49d214791a81686c649bfdaba tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=22.1 provider_model='mock-a'
+INFO:     172.21.0.6:48238 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:08:00.796+00:00 INFO llmgateway.request request_id=gw_bc8494f077544d8fa1a4d70e58a570ff tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=226.8 provider_model='mock-a'
+INFO:     172.21.0.6:48252 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:08:00.802+00:00 INFO llmgateway.request request_id=gw_f2aa3b12b61f48a297cdb4b9e46ee913 tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=21.9 provider_model='mock-a'
+2026-11-13T20:08:00.819+00:00 WARNING llmgateway.router attempt_failed request_id=gw_5c3ba96e97094623ba1945985fd1b82b alias='failures-off' provider=mock-primary model='mock-a' attempt=1 status=- reason=injected error=ProviderUnavailable retry=yes
+INFO:     172.21.0.6:48252 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:08:00.826+00:00 INFO llmgateway.request request_id=gw_f8e0e5e5985b4ba9bd517d8d2a70db21 tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=22.3 provider_model='mock-a'
+INFO:     172.21.0.6:48252 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:08:00.850+00:00 INFO llmgateway.request request_id=gw_9d687b473bbc4f2cb3799a5a8184ee10 tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=22.2 provider_model='mock-a'
+2026-11-13T20:08:00.873+00:00 WARNING llmgateway.router attempt_failed request_id=gw_1f06975bd271499ca6dc7f7917325c5e alias='failures-off' provider=mock-primary model='mock-a' attempt=1 status=- reason=injected error=ProviderUnavailable retry=yes
+2026-11-13T20:08:00.902+00:00 WARNING llmgateway.router attempt_failed request_id=gw_5c3ba96e97094623ba1945985fd1b82b alias='failures-off' provider=mock-primary model='mock-a' attempt=2 status=- reason=injected error=ProviderUnavailable retry=yes
+2026-11-13T20:08:01.060+00:00 WARNING llmgateway.router attempt_failed request_id=gw_1f06975bd271499ca6dc7f7917325c5e alias='failures-off' provider=mock-primary model='mock-a' attempt=2 status=- reason=injected error=ProviderUnavailable retry=yes
+INFO:     172.21.0.6:48238 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:08:01.292+00:00 INFO llmgateway.request request_id=gw_5c3ba96e97094623ba1945985fd1b82b tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=494.5 provider_model='mock-a'
+2026-11-13T20:08:01.316+00:00 WARNING llmgateway.router attempt_failed request_id=gw_3ae2c22817c94ca1babbbedc9da07d6d alias='failures-off' provider=mock-primary model='mock-a' attempt=1 status=- reason=injected error=ProviderUnavailable retry=yes
+2026-11-13T20:08:01.357+00:00 WARNING llmgateway.router attempt_failed request_id=gw_3ae2c22817c94ca1babbbedc9da07d6d alias='failures-off' provider=mock-primary model='mock-a' attempt=2 status=- reason=injected error=ProviderUnavailable retry=yes
+INFO:     172.21.0.6:48238 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:08:01.458+00:00 INFO llmgateway.request request_id=gw_3ae2c22817c94ca1babbbedc9da07d6d tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=164.0 provider_model='mock-a'
+INFO:     172.21.0.6:48252 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:08:01.469+00:00 INFO llmgateway.request request_id=gw_1f06975bd271499ca6dc7f7917325c5e tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=617.0 provider_model='mock-a'
+2026-11-13T20:08:01.482+00:00 WARNING llmgateway.router attempt_failed request_id=gw_85ed545ecc98488bbfc656e6a5c95d7f alias='failures-off' provider=mock-primary model='mock-a' attempt=1 status=- reason=injected error=ProviderUnavailable retry=yes
+2026-11-13T20:08:01.491+00:00 WARNING llmgateway.router attempt_failed request_id=gw_275e7bb8e8eb4f9483656cf10e19fc82 alias='failures-off' provider=mock-primary model='mock-a' attempt=1 status=- reason=injected error=ProviderUnavailable retry=yes
+INFO:     172.21.0.6:48252 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:08:01.527+00:00 INFO llmgateway.request request_id=gw_275e7bb8e8eb4f9483656cf10e19fc82 tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=56.9 provider_model='mock-a'
+2026-11-13T20:08:01.550+00:00 WARNING llmgateway.router attempt_failed request_id=gw_43b5db7ebb384e8ea1df71ef2c96ce2e alias='failures-off' provider=mock-primary model='mock-a' attempt=1 status=- reason=injected error=ProviderUnavailable retry=yes
+2026-11-13T20:08:01.684+00:00 WARNING llmgateway.router attempt_failed request_id=gw_85ed545ecc98488bbfc656e6a5c95d7f alias='failures-off' provider=mock-primary model='mock-a' attempt=2 status=- reason=injected error=ProviderUnavailable retry=yes
+INFO:     172.21.0.6:48252 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:08:01.759+00:00 INFO llmgateway.request request_id=gw_43b5db7ebb384e8ea1df71ef2c96ce2e tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=230.7 provider_model='mock-a'
+INFO:     172.21.0.6:48252 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:08:01.783+00:00 INFO llmgateway.request request_id=gw_865842e0a8ae441695fc14b9cbe7b7d7 tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=22.1 provider_model='mock-a'
+INFO:     172.21.0.6:48252 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:08:01.806+00:00 INFO llmgateway.request request_id=gw_b4e03104847e4fb7bf9bcc35d54f948d tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=22.2 provider_model='mock-a'
+INFO:     172.21.0.6:48252 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:08:01.830+00:00 INFO llmgateway.request request_id=gw_e003c4b661434a5698a1d092081117bd tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=22.5 provider_model='mock-a'
+2026-11-13T20:08:01.840+00:00 WARNING llmgateway.router attempt_failed request_id=gw_85ed545ecc98488bbfc656e6a5c95d7f alias='failures-off' provider=mock-primary model='mock-a' attempt=3 status=- reason=injected error=ProviderUnavailable retry=no
+INFO:     172.21.0.6:48238 - "POST /v1/chat HTTP/1.1" 502 Bad Gateway
+2026-11-13T20:08:01.841+00:00 INFO llmgateway.request request_id=gw_85ed545ecc98488bbfc656e6a5c95d7f tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=502 latency_ms=380.9 provider_model='mock-a'
+INFO:     172.21.0.6:48252 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:08:01.855+00:00 INFO llmgateway.request request_id=gw_da61a578e2a44c37ad0961de2b033b7b tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=22.9 provider_model='mock-a'
+INFO:     172.21.0.6:48238 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:08:01.864+00:00 INFO llmgateway.request request_id=gw_fcce9d06e2264d9a98366ef50184a654 tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=22.1 provider_model='mock-a'
+2026-11-13T20:08:01.878+00:00 WARNING llmgateway.router attempt_failed request_id=gw_16258e74eab546ff8004396c32e391a3 alias='failures-off' provider=mock-primary model='mock-a' attempt=1 status=- reason=injected error=ProviderUnavailable retry=yes
+2026-11-13T20:08:01.887+00:00 WARNING llmgateway.router attempt_failed request_id=gw_9faedf71df4547b2a8d341d2a105961f alias='failures-off' provider=mock-primary model='mock-a' attempt=1 status=- reason=injected error=ProviderUnavailable retry=yes
+INFO:     172.21.0.6:48238 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:08:01.999+00:00 INFO llmgateway.request request_id=gw_9faedf71df4547b2a8d341d2a105961f tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=133.6 provider_model='mock-a'
+INFO:     172.21.0.6:48238 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:08:02.022+00:00 INFO llmgateway.request request_id=gw_73f0e04e6c2c4cb58bee237136680df2 tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=21.6 provider_model='mock-a'
+2026-11-13T20:08:02.042+00:00 WARNING llmgateway.router attempt_failed request_id=gw_16258e74eab546ff8004396c32e391a3 alias='failures-off' provider=mock-primary model='mock-a' attempt=2 status=- reason=injected error=ProviderUnavailable retry=yes
+INFO:     172.21.0.6:48238 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:08:02.046+00:00 INFO llmgateway.request request_id=gw_ed182c232a01490aa6647d94002e4c6b tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=22.3 provider_model='mock-a'
+INFO:     172.21.0.6:48238 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:08:02.071+00:00 INFO llmgateway.request request_id=gw_b9cb516785664257b6b2b51317567cd9 tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=22.1 provider_model='mock-a'
+2026-11-13T20:08:02.094+00:00 WARNING llmgateway.router attempt_failed request_id=gw_8fbed66aaffa48708ab056f040ed9ea8 alias='failures-off' provider=mock-primary model='mock-a' attempt=1 status=- reason=injected error=ProviderUnavailable retry=yes
+2026-11-13T20:08:02.170+00:00 WARNING llmgateway.router attempt_failed request_id=gw_8fbed66aaffa48708ab056f040ed9ea8 alias='failures-off' provider=mock-primary model='mock-a' attempt=2 status=- reason=injected error=ProviderUnavailable retry=yes
+2026-11-13T20:08:02.184+00:00 WARNING llmgateway.router attempt_failed request_id=gw_16258e74eab546ff8004396c32e391a3 alias='failures-off' provider=mock-primary model='mock-a' attempt=3 status=- reason=injected error=ProviderUnavailable retry=no
+INFO:     172.21.0.6:48252 - "POST /v1/chat HTTP/1.1" 502 Bad Gateway
+2026-11-13T20:08:02.185+00:00 INFO llmgateway.request request_id=gw_16258e74eab546ff8004396c32e391a3 tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=502 latency_ms=329.2 provider_model='mock-a'
+INFO:     172.21.0.6:48252 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:08:02.209+00:00 INFO llmgateway.request request_id=gw_f805201645ee43f8938d9df5743e44b6 tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=22.1 provider_model='mock-a'
+2026-11-13T20:08:02.232+00:00 WARNING llmgateway.router attempt_failed request_id=gw_6fb057c3b1a4449bad618c6f59155ca9 alias='failures-off' provider=mock-primary model='mock-a' attempt=1 status=- reason=injected error=ProviderUnavailable retry=yes
+INFO:     172.21.0.6:48238 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:08:02.239+00:00 INFO llmgateway.request request_id=gw_8fbed66aaffa48708ab056f040ed9ea8 tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=166.3 provider_model='mock-a'
+INFO:     172.21.0.6:48238 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:08:02.263+00:00 INFO llmgateway.request request_id=gw_92f7597178d74e15b1f425d9b637f3de tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=22.6 provider_model='mock-a'
+INFO:     172.21.0.6:48238 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:08:02.287+00:00 INFO llmgateway.request request_id=gw_cbbf35cae89e4acbbb675588f648d689 tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=22.4 provider_model='mock-a'
+2026-11-13T20:08:02.310+00:00 WARNING llmgateway.router attempt_failed request_id=gw_3296deab4a2a42b5a15dbcef56535b87 alias='failures-off' provider=mock-primary model='mock-a' attempt=1 status=- reason=injected error=ProviderUnavailable retry=yes
+INFO:     172.21.0.6:48252 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:08:02.330+00:00 INFO llmgateway.request request_id=gw_6fb057c3b1a4449bad618c6f59155ca9 tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=119.8 provider_model='mock-a'
+INFO:     172.21.0.6:48252 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:08:02.354+00:00 INFO llmgateway.request request_id=gw_a6458d4753414b40b0d37cba781a613e tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=22.1 provider_model='mock-a'
+INFO:     172.21.0.6:48252 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:08:02.377+00:00 INFO llmgateway.request request_id=gw_d01b37af65b847f596cdb34d040557bd tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=21.8 provider_model='mock-a'
+2026-11-13T20:08:02.400+00:00 WARNING llmgateway.router attempt_failed request_id=gw_8805c71bcb8a46ea82185735d23083b1 alias='failures-off' provider=mock-primary model='mock-a' attempt=1 status=- reason=injected error=ProviderUnavailable retry=yes
+INFO:     172.21.0.6:48238 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:08:02.402+00:00 INFO llmgateway.request request_id=gw_3296deab4a2a42b5a15dbcef56535b87 tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=114.2 provider_model='mock-a'
+INFO:     172.21.0.6:48238 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:08:02.426+00:00 INFO llmgateway.request request_id=gw_2294118c9578414da03076de5a4061e1 tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=21.9 provider_model='mock-a'
+INFO:     172.21.0.6:48238 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:08:02.450+00:00 INFO llmgateway.request request_id=gw_6d487a993d98430db256bc0592cb0165 tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=22.4 provider_model='mock-a'
+INFO:     172.21.0.6:48238 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:08:02.473+00:00 INFO llmgateway.request request_id=gw_7194708bb5224b91b7c5a074ceff732a tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=22.1 provider_model='mock-a'
+INFO:     172.21.0.6:48238 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:08:02.497+00:00 INFO llmgateway.request request_id=gw_e4fbe6f311254534a8137cf4e6de756d tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=22.0 provider_model='mock-a'
+2026-11-13T20:08:02.520+00:00 WARNING llmgateway.router attempt_failed request_id=gw_8d98171ecdb24037b27acc12ddd0eb21 alias='failures-off' provider=mock-primary model='mock-a' attempt=1 status=- reason=injected error=ProviderUnavailable retry=yes
+2026-11-13T20:08:02.542+00:00 WARNING llmgateway.router attempt_failed request_id=gw_8805c71bcb8a46ea82185735d23083b1 alias='failures-off' provider=mock-primary model='mock-a' attempt=2 status=- reason=injected error=ProviderUnavailable retry=yes
+INFO:     172.21.0.6:48238 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:08:02.712+00:00 INFO llmgateway.request request_id=gw_8d98171ecdb24037b27acc12ddd0eb21 tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=214.3 provider_model='mock-a'
+INFO:     172.21.0.6:48238 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:08:02.737+00:00 INFO llmgateway.request request_id=gw_4e494baf82d64ea5af7451cbbcd935df tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=22.3 provider_model='mock-a'
+INFO:     172.21.0.6:48238 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:08:02.761+00:00 INFO llmgateway.request request_id=gw_05edcbebbf2f42118296d4d8a84cdbe0 tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=21.9 provider_model='mock-a'
+INFO:     172.21.0.6:48238 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:08:02.786+00:00 INFO llmgateway.request request_id=gw_3ad4fa01ce774604a0c6777e8d10eaa5 tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=22.0 provider_model='mock-a'
+INFO:     172.21.0.6:48238 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:08:02.809+00:00 INFO llmgateway.request request_id=gw_c67feda274734bbdbf92579f28ea9515 tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=21.7 provider_model='mock-a'
+INFO:     172.21.0.6:48238 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:08:02.833+00:00 INFO llmgateway.request request_id=gw_59c051f88adc4f30a0c3b9a363ef63dd tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=21.7 provider_model='mock-a'
+INFO:     172.21.0.6:48238 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:08:02.856+00:00 INFO llmgateway.request request_id=gw_2a40882ff09c46e1b125ec199b0e1719 tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=22.0 provider_model='mock-a'
+INFO:     172.21.0.6:48238 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:08:02.880+00:00 INFO llmgateway.request request_id=gw_c5944be9a81b41579cbf8984115479b2 tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=200 latency_ms=22.1 provider_model='mock-a'
+2026-11-13T20:08:02.904+00:00 WARNING llmgateway.router attempt_failed request_id=gw_8805c71bcb8a46ea82185735d23083b1 alias='failures-off' provider=mock-primary model='mock-a' attempt=3 status=- reason=injected error=ProviderUnavailable retry=no
+INFO:     172.21.0.6:48252 - "POST /v1/chat HTTP/1.1" 502 Bad Gateway
+2026-11-13T20:08:02.905+00:00 INFO llmgateway.request request_id=gw_8805c71bcb8a46ea82185735d23083b1 tenant=smoke-m4-off-r1-200748 key_id=efd7e6e10ecb6496 provider=mock-primary model='failures-off' status=502 latency_ms=526.4 provider_model='mock-a'
+INFO:     127.0.0.1:40078 - "GET /healthz HTTP/1.1" 200 OK
+2026-11-13T20:08:06.098+00:00 INFO llmgateway.request request_id=gw_453830feda7045588ce98ec9b754930c tenant=- key_id=- provider=- model=- status=200 latency_ms=0.9 provider_model=-

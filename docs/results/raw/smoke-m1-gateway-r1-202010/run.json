@@ -1,0 +1,39 @@
+{
+  "id": "smoke-m1-gateway-r1-202010",
+  "catalog_id": "m1-gateway-r1",
+  "measurement": 1,
+  "smoke": true,
+  "rerun": 0,
+  "command": ".\\loadtest\\run.ps1 -Run m1-gateway-r1 -Smoke",
+  "script": "steady.js",
+  "target": "http://api:8000",
+  "alias": "steady",
+  "compose_files": [
+    "compose.yaml",
+    "loadtest/compose.loadtest.yaml"
+  ],
+  "k6_image": "grafana/k6:2.3.0@sha256:2dd4756ec6e14e62778916e1eb850108e4b499304c02df56760fa0bdb0fba0b8",
+  "k6_args": [
+    "run",
+    "-q",
+    "--no-usage-report",
+    "--log-format",
+    "json",
+    "--console-output",
+    "/out/smoke-m1-gateway-r1-202010/records.jsonl",
+    "--summary-export",
+    "/out/smoke-m1-gateway-r1-202010/summary.json",
+    "--vus",
+    "2",
+    "--duration",
+    "5s",
+    "/scripts/steady.js"
+  ],
+  "k6_exit_code": 0,
+  "api_image_id": "sha256:f7b65c08d06ba8077407573f164c89544033c853c51df9cb8a60a93a8d2dfbc5",
+  "git_commit": "64902ff45a48d24d7b4c0de4a4fe19d7cb19577c",
+  "git_dirty": true,
+  "key_id": "97b96e465e5072fd",
+  "started_utc": "2026-11-13T20:20:10.591Z",
+  "ended_utc": "2026-11-13T20:20:36.228Z"
+}

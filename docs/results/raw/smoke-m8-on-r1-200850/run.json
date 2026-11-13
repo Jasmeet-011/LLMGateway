@@ -1,0 +1,40 @@
+{
+  "id": "smoke-m8-on-r1-200850",
+  "catalog_id": "m8-on-r1",
+  "measurement": 8,
+  "smoke": true,
+  "rerun": 0,
+  "command": ".\\loadtest\\run.ps1 -Run m8-on-r1 -Smoke",
+  "script": "failures.js",
+  "target": "http://api:8000",
+  "alias": "outage-on",
+  "compose_files": [
+    "compose.yaml",
+    "loadtest/compose.loadtest.yaml",
+    "loadtest/compose.outage.yaml"
+  ],
+  "k6_image": "grafana/k6:2.3.0@sha256:2dd4756ec6e14e62778916e1eb850108e4b499304c02df56760fa0bdb0fba0b8",
+  "k6_args": [
+    "run",
+    "-q",
+    "--no-usage-report",
+    "--log-format",
+    "json",
+    "--console-output",
+    "/out/smoke-m8-on-r1-200850/records.jsonl",
+    "--summary-export",
+    "/out/smoke-m8-on-r1-200850/summary.json",
+    "--vus",
+    "2",
+    "--duration",
+    "5s",
+    "/scripts/failures.js"
+  ],
+  "k6_exit_code": 0,
+  "api_image_id": "sha256:f7b65c08d06ba8077407573f164c89544033c853c51df9cb8a60a93a8d2dfbc5",
+  "git_commit": "1d798b9db71cc209f92f55a31fd222092cae3ac0",
+  "git_dirty": true,
+  "key_id": "41a6134fccd999d7",
+  "started_utc": "2026-11-13T20:08:50.830Z",
+  "ended_utc": "2026-11-13T20:09:11.132Z"
+}

@@ -141,7 +141,7 @@ try {
         started_utc     = $started
         ended_utc       = $ended
     }
-    Write-LfFile (Join-Path $out 'run.json') @(($meta | ConvertTo-Json -Depth 4))
+    Write-LfFile (Join-Path $out 'run.json') @(($meta | ConvertTo-Json -Depth 4).Replace("`r`n", "`n"))
 
     if ($key -ne '') {
         foreach ($file in Get-ChildItem -File -Path $out) {

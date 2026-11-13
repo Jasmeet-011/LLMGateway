@@ -1,0 +1,824 @@
+INFO:     Started server process [1]
+INFO:     Waiting for application startup.
+2026-11-13T20:07:31.387+00:00 INFO llmgateway.ratelimit ratelimit_warm opened=50 of=50
+2026-11-13T20:07:31.527+00:00 INFO llmgateway.cache cache_warm opened=50 of=50
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     127.0.0.1:35942 - "GET /healthz HTTP/1.1" 200 OK
+2026-11-13T20:07:34.788+00:00 INFO llmgateway.request request_id=gw_9c92f81461d4407daf9d87840a2e6ff3 tenant=- key_id=- provider=- model=- status=200 latency_ms=1.6 provider_model=-
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:37.670+00:00 INFO llmgateway.request request_id=gw_c1d12006ca3946e8bc9ee4144b6e17d6 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=36.0 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:37.672+00:00 INFO llmgateway.request request_id=gw_60dbda0f41a14fc6aa64c6740debcbab tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=41.7 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:37.697+00:00 INFO llmgateway.request request_id=gw_34ee1c9e76f740129f8c2b9273db5da6 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.4 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:37.698+00:00 INFO llmgateway.request request_id=gw_b25f37401b214914aea32855c7c2ac58 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.6 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:37.722+00:00 INFO llmgateway.request request_id=gw_1eda78c7ff9c488f968c096b20a7a847 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.0 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:37.723+00:00 INFO llmgateway.request request_id=gw_51be56f47b324a99af1e3f8a6b52e0a2 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.4 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:37.747+00:00 INFO llmgateway.request request_id=gw_316eda887ca94550a549e4bdf2a60b6f tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.7 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:37.748+00:00 INFO llmgateway.request request_id=gw_1b4aa61b1b0c4abc800aceef253aed1a tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.5 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:37.771+00:00 INFO llmgateway.request request_id=gw_256f7f1361f94a6f9a1c62a9bb4a9c32 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.5 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:37.774+00:00 INFO llmgateway.request request_id=gw_1c2ab9fe559a458aae09dc4e00e419b0 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.2 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:37.797+00:00 INFO llmgateway.request request_id=gw_6b4f0b7977c4437ab7bf14f3a945cca3 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.6 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:37.797+00:00 INFO llmgateway.request request_id=gw_5b2c7f7a2d46434784706e43f4a34909 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=21.9 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:37.821+00:00 INFO llmgateway.request request_id=gw_efa7d678f5f24855a2eb717055b89b3a tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.5 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:37.822+00:00 INFO llmgateway.request request_id=gw_5b4a74e979ba4a67ab9c953c89cf2136 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.7 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:37.846+00:00 INFO llmgateway.request request_id=gw_f41e5d1cf8cd452b9ef2562ef0705b16 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.4 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:37.847+00:00 INFO llmgateway.request request_id=gw_b798f9852bfd4557b9d0602bd1ed55a7 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.9 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:37.870+00:00 INFO llmgateway.request request_id=gw_61f704779194438c9da6a15dd79f6dd8 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.4 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:37.871+00:00 INFO llmgateway.request request_id=gw_77894ab0adf0482f999b383372db7115 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=21.8 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:37.897+00:00 INFO llmgateway.request request_id=gw_2af4d06aaeb54a18884d051ddf3afdfd tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=24.6 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:37.897+00:00 INFO llmgateway.request request_id=gw_fef07475b52540edb2c03724c50e4026 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=24.5 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:37.921+00:00 INFO llmgateway.request request_id=gw_9fc4ee3b54064ddd9df0f131d39dcbbe tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.4 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:37.922+00:00 INFO llmgateway.request request_id=gw_af0ed4ad93a948a695770564de756a94 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=21.8 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:37.945+00:00 INFO llmgateway.request request_id=gw_5371087d2b2e435e83f3b6ea0187d3be tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.2 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:37.946+00:00 INFO llmgateway.request request_id=gw_914c97208a634c699cbde7b8fb98e89a tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.0 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:37.970+00:00 INFO llmgateway.request request_id=gw_ff49fccba61f44b8a8e012814a5e829a tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.8 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:37.971+00:00 INFO llmgateway.request request_id=gw_c42bc15ddb81425da797c7f08cc82b80 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.7 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:37.995+00:00 INFO llmgateway.request request_id=gw_8b8e5041384d424fbe9a902128827c89 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.7 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:38.001+00:00 INFO llmgateway.request request_id=gw_f06cb40784b449289206c26236ea1cc8 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.6 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:38.019+00:00 INFO llmgateway.request request_id=gw_a79a16e608c04b9aba1e2045114e8add tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.2 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:38.025+00:00 INFO llmgateway.request request_id=gw_bf5537c251e44655974abc0469296de6 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=21.7 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:38.046+00:00 INFO llmgateway.request request_id=gw_81718f1956ff4d68a724c5a86eeb1e01 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=21.9 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:38.048+00:00 INFO llmgateway.request request_id=gw_67d3c524bd4e45fbbc3affc8eb68b19f tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=21.6 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:38.071+00:00 INFO llmgateway.request request_id=gw_16c4d9fd92674cae86510c4cc8d676ce tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.7 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:38.072+00:00 INFO llmgateway.request request_id=gw_43489eec1c584df1ad72c471ee4f6b98 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=21.8 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:38.096+00:00 INFO llmgateway.request request_id=gw_4131981910e247799b67bf3bcc42a269 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.6 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:38.097+00:00 INFO llmgateway.request request_id=gw_e93ec74cf0f74107a27f4fcff5396e13 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.3 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:38.120+00:00 INFO llmgateway.request request_id=gw_3cb5d18b560149e5b48a57be94ff6d27 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.8 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:38.121+00:00 INFO llmgateway.request request_id=gw_a5a590bf1a9040a2a6039fa573c3954e tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.4 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:38.146+00:00 INFO llmgateway.request request_id=gw_5018dc5fc39c4a27a75d178676aca410 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.1 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:38.146+00:00 INFO llmgateway.request request_id=gw_40b87145569345468a8861673f319a69 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.3 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:38.170+00:00 INFO llmgateway.request request_id=gw_13f664831e94439e932c040e0dea56ab tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.6 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:38.171+00:00 INFO llmgateway.request request_id=gw_a1668375cdbe4091bacf519525e3c190 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.5 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:38.194+00:00 INFO llmgateway.request request_id=gw_dcda894b3361471ea9ef5dc42acf6de2 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.1 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:38.195+00:00 INFO llmgateway.request request_id=gw_f2a56f5450554a78afbe2b734687fe56 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=21.6 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:38.220+00:00 INFO llmgateway.request request_id=gw_19128d83216e442f91b020d80abb3ad9 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.7 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:38.221+00:00 INFO llmgateway.request request_id=gw_ca63c2b8989a4b84afed4b778da8283a tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.6 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:38.244+00:00 INFO llmgateway.request request_id=gw_ae0a5d3cfd314f5d84d18f6220528664 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.7 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:38.245+00:00 INFO llmgateway.request request_id=gw_dd8c1ae2f72744ef9d6fc8509768740e tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.1 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:38.268+00:00 INFO llmgateway.request request_id=gw_4ec347e9cf3742eb92f92ef4d8291158 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.0 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:38.269+00:00 INFO llmgateway.request request_id=gw_707b194e77ab4558805959e4d0313c58 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=21.5 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:38.294+00:00 INFO llmgateway.request request_id=gw_82f85a9f48804c1c80018bf096979e73 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.9 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:38.295+00:00 INFO llmgateway.request request_id=gw_efcb20c0fde641178fba04e21b49d854 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=24.0 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:38.318+00:00 INFO llmgateway.request request_id=gw_c709f60e67ba48b18a7b9e7e6895cb8d tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.4 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:38.319+00:00 INFO llmgateway.request request_id=gw_a20e68192f2c412991e9ccd49d7fabba tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=21.9 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:38.343+00:00 INFO llmgateway.request request_id=gw_de68b814cda6477a853e1f97e27ae402 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.7 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:38.344+00:00 INFO llmgateway.request request_id=gw_a0cfcb5da5144e8dae054f9459b830af tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.9 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:38.367+00:00 INFO llmgateway.request request_id=gw_89994f686af44d0481abbaafa3671b3b tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.2 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:38.368+00:00 INFO llmgateway.request request_id=gw_37113fdfe13c426486c81d078e2ee54f tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=21.8 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:38.393+00:00 INFO llmgateway.request request_id=gw_2f3ded85036648568073f5195a000c70 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.7 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:38.393+00:00 INFO llmgateway.request request_id=gw_40473c462f334b01832c3ca0dfea2353 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.2 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:38.417+00:00 INFO llmgateway.request request_id=gw_7aca833e775448b09ffa6e3189855bd5 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.7 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:38.418+00:00 INFO llmgateway.request request_id=gw_23a84658da02416f9dd18e00f8b51adb tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.1 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:38.442+00:00 INFO llmgateway.request request_id=gw_cb4a9813278046e8be2f2bfae3a24f55 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.9 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:38.443+00:00 INFO llmgateway.request request_id=gw_16ba32f8c2a449b18607b915d9f2a302 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.8 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:38.467+00:00 INFO llmgateway.request request_id=gw_12d22526d54e4ca692aa218c27ecc962 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.9 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:38.467+00:00 INFO llmgateway.request request_id=gw_ebc5ed8745a74f668388507e258e8efd tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.0 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:38.491+00:00 INFO llmgateway.request request_id=gw_39263041f9e243c1889b4e47308e15a3 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.0 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:38.492+00:00 INFO llmgateway.request request_id=gw_4a0ae136c0c640c688e4b33f57d4381b tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.1 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:38.516+00:00 INFO llmgateway.request request_id=gw_c825e45c95eb4d1c85f14f99de2428b9 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.0 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:38.517+00:00 INFO llmgateway.request request_id=gw_5ce2304632424f5aa3902d2185f5068e tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.0 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:38.540+00:00 INFO llmgateway.request request_id=gw_fb7cf19399d547a09e2985d4f2313dac tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=21.9 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:38.541+00:00 INFO llmgateway.request request_id=gw_ffdc594ecfdd4073bb5e8c3895e484c3 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=21.6 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:38.564+00:00 INFO llmgateway.request request_id=gw_cbd6f9dcb0e74be2aebd6fa668295621 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.9 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:38.565+00:00 INFO llmgateway.request request_id=gw_a9f899af899c48f48c24a9c9336a6d54 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.0 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:38.588+00:00 INFO llmgateway.request request_id=gw_392ea74f3c0342f0b8e63728369530e5 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.7 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:38.589+00:00 INFO llmgateway.request request_id=gw_d031c73f5af74f68a34ad5a04e62fa76 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.7 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:38.613+00:00 INFO llmgateway.request request_id=gw_0ca0dd14a3304edb9377fffa13c826c2 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.0 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:38.614+00:00 INFO llmgateway.request request_id=gw_08c0b353879b42efac7bb20a52f12383 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.8 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:38.637+00:00 INFO llmgateway.request request_id=gw_c464f728376547339000f7e712290d3c tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.6 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:38.638+00:00 INFO llmgateway.request request_id=gw_433e244fc1e64577a04c7ad47fd64e2f tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.5 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:38.662+00:00 INFO llmgateway.request request_id=gw_054fa3f11e2342f987eb52477eda921f tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.8 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:38.663+00:00 INFO llmgateway.request request_id=gw_e82c0635165f4f9c88f02b57e25e535b tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.9 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:38.687+00:00 INFO llmgateway.request request_id=gw_8c057cadac084fcba62f9b8b367d2ce8 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.0 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:38.688+00:00 INFO llmgateway.request request_id=gw_dae64f817be64898835f410b4621dd4e tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.8 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:38.712+00:00 INFO llmgateway.request request_id=gw_01571ce7bff8414b8a2f45d809d32323 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.0 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:38.713+00:00 INFO llmgateway.request request_id=gw_5c1a32f954ce480bb9ba47d5e6eccb26 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.7 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:38.736+00:00 INFO llmgateway.request request_id=gw_ef88d7677f1f499ca8d43559822b8db2 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.7 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:38.737+00:00 INFO llmgateway.request request_id=gw_8ba9770c5e3b414ea3eda923a036efa6 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.7 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:38.761+00:00 INFO llmgateway.request request_id=gw_b0380bd681a04e4496d4daf99ef9ae5b tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.9 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:38.761+00:00 INFO llmgateway.request request_id=gw_a759c0d9c22248778c44c23fac5b8567 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.7 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:38.785+00:00 INFO llmgateway.request request_id=gw_c0d1d96999964163bdcecb478ebbfe81 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.6 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:38.785+00:00 INFO llmgateway.request request_id=gw_a97df94eb7274bdb95f35c241a586da0 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.8 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:38.809+00:00 INFO llmgateway.request request_id=gw_8be4c664dd154168aa9178c425c7c142 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.7 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:38.810+00:00 INFO llmgateway.request request_id=gw_253dafba6a9b4dcba80f0ac2b7686710 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.5 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:38.833+00:00 INFO llmgateway.request request_id=gw_3505bdc16f3045e887574ae2437609ca tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.5 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:38.834+00:00 INFO llmgateway.request request_id=gw_4dc70cdc318f415ba9d83054cfffb6b1 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.2 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:38.857+00:00 INFO llmgateway.request request_id=gw_9c890a2cfb4841bea43d6c5d4895199a tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.0 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:38.858+00:00 INFO llmgateway.request request_id=gw_16c63cfed71b4ea5b6ed66fccfed7737 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.0 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:38.882+00:00 INFO llmgateway.request request_id=gw_500efd1ae2d34a1c9553af91a3d4abe4 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.8 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:38.883+00:00 INFO llmgateway.request request_id=gw_099568a5d45b499cb2d48cbda6eb2a52 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.7 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:38.906+00:00 INFO llmgateway.request request_id=gw_ec912f9e7834413e9d49564c020c5066 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.1 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:38.907+00:00 INFO llmgateway.request request_id=gw_631e5bd34d454ef893d000843677d288 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.1 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:38.931+00:00 INFO llmgateway.request request_id=gw_dee732aa185a44d4b2abacf7aae377c2 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.5 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:38.932+00:00 INFO llmgateway.request request_id=gw_dc4e92c59426405dbae6dfdec55762bc tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.3 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:38.956+00:00 INFO llmgateway.request request_id=gw_bc293c23b74a4533b1f8d265f03149a1 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.9 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:38.956+00:00 INFO llmgateway.request request_id=gw_26f26dda26eb4abeadecc2dd2ecf8c87 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.7 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:38.980+00:00 INFO llmgateway.request request_id=gw_232d0006791645cdb3d54a7f09a3c418 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.8 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:38.981+00:00 INFO llmgateway.request request_id=gw_596a2b48b7494e7a9be2396309655dd1 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.4 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:39.006+00:00 INFO llmgateway.request request_id=gw_2b1c2e95cc9041d1a30b0c2ab158c5b6 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.5 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:39.006+00:00 INFO llmgateway.request request_id=gw_88fb8567d51e4093af5ab6c4e11ed0d7 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.4 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:39.030+00:00 INFO llmgateway.request request_id=gw_80ae3da5a76046c4bb5e4dce7c5201f6 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.0 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:39.031+00:00 INFO llmgateway.request request_id=gw_ac65960c1396459db490f88acf235909 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.1 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:39.056+00:00 INFO llmgateway.request request_id=gw_d4ed052dc3614dbd994530e5d007d139 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.3 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:39.056+00:00 INFO llmgateway.request request_id=gw_09e2c16b9c8a4ff6b6011a5dd9bdd144 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.1 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:39.080+00:00 INFO llmgateway.request request_id=gw_b57a7612c304432684eba1086c58b03b tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.4 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:39.080+00:00 INFO llmgateway.request request_id=gw_7c381b00fd56495d9a660476a9f5ac94 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.0 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:39.104+00:00 INFO llmgateway.request request_id=gw_965294a3b944412b92a1fa9c1da509cf tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.7 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:39.105+00:00 INFO llmgateway.request request_id=gw_5dfa8fa023514eee8abbf6ff35939549 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.7 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:39.128+00:00 INFO llmgateway.request request_id=gw_89e91055963347c0a197ccc2085c29c8 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.8 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:39.129+00:00 INFO llmgateway.request request_id=gw_c1984cb638b74004b9ce0bacf7127159 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.2 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:39.152+00:00 INFO llmgateway.request request_id=gw_5ceb20fe100843ce85afd5c9ee361b98 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.2 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:39.153+00:00 INFO llmgateway.request request_id=gw_4d21f3f1ba5a4d21977e87dba6952ae9 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=21.8 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:39.176+00:00 INFO llmgateway.request request_id=gw_055eb439a0594dbea2aa40c4a316cbed tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=21.9 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:39.177+00:00 INFO llmgateway.request request_id=gw_3841a740874e42bbaa73dcd31b84286f tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=21.7 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:39.201+00:00 INFO llmgateway.request request_id=gw_be2ec6eb5ba447c08ac964835d3459cf tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.9 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:39.202+00:00 INFO llmgateway.request request_id=gw_8d2bd97195874c35a44e1e742ab3971f tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.5 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:39.226+00:00 INFO llmgateway.request request_id=gw_130022b3961e4ba9bd4cc3228ae84cf5 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.8 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:39.227+00:00 INFO llmgateway.request request_id=gw_cf8b23e8727a419d9dfef4229411bfd2 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.6 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:39.250+00:00 INFO llmgateway.request request_id=gw_b723eeb72ebd4eb39979bb10fd266d36 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.7 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:39.251+00:00 INFO llmgateway.request request_id=gw_16ca1f91cdd646afb9be7655e5b863d8 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.8 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:39.274+00:00 INFO llmgateway.request request_id=gw_2e6a97f4435b460b83a3e80720bad50d tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.2 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:39.275+00:00 INFO llmgateway.request request_id=gw_0bbf0e7a32c44fb0a5623777acd39000 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=21.9 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:39.299+00:00 INFO llmgateway.request request_id=gw_07503cc0bcc04dc390ec159b68ec23cb tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.6 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:39.300+00:00 INFO llmgateway.request request_id=gw_e3ef2c7d7e684f12b3ee3bf5a9ba2de9 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.2 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:39.323+00:00 INFO llmgateway.request request_id=gw_a6d133a58657487fb7016bb33569c397 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.8 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:39.324+00:00 INFO llmgateway.request request_id=gw_1b47a5d1ad0042ffaa963b0979537b9a tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.8 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:39.348+00:00 INFO llmgateway.request request_id=gw_ed75692564334797af7fd06de3e8ad72 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.8 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:39.349+00:00 INFO llmgateway.request request_id=gw_8351b52cb53c4d4b983cccab71a2579a tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.7 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:39.372+00:00 INFO llmgateway.request request_id=gw_be57e29ee5214a149c53b0b564a866d9 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.0 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:39.373+00:00 INFO llmgateway.request request_id=gw_eebf692d2127403d80490310593958f9 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.9 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:39.397+00:00 INFO llmgateway.request request_id=gw_360da89557a647dca7cfde39050f7467 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.9 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:39.398+00:00 INFO llmgateway.request request_id=gw_7200dfc58a5749b7bf204e4e47228567 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.9 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:39.421+00:00 INFO llmgateway.request request_id=gw_3580c975cc10498a8f69ad9ee0c516c1 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.1 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:39.422+00:00 INFO llmgateway.request request_id=gw_fb487b9a756349a289395aec5d80aa38 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.5 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:39.445+00:00 INFO llmgateway.request request_id=gw_2e1531055aa843e1a4c4311e451268a6 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.2 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:39.446+00:00 INFO llmgateway.request request_id=gw_74646afd3ddf44b3adce10f5d8b83558 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.6 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:39.469+00:00 INFO llmgateway.request request_id=gw_fa3b3923add04a10be31783923980d23 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.6 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:39.470+00:00 INFO llmgateway.request request_id=gw_28869c9e4a7041e29ae1e1cfaf7f6109 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.1 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:39.494+00:00 INFO llmgateway.request request_id=gw_b0fcbee10bc845359cbf53cf92b36e1b tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.3 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:39.495+00:00 INFO llmgateway.request request_id=gw_2267fbf9af384792815c5ae7d8c7aac7 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=21.9 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:39.519+00:00 INFO llmgateway.request request_id=gw_88c566fe8cf84638a01fb766bd57515a tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.6 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:39.520+00:00 INFO llmgateway.request request_id=gw_06fa7775685c44c0b05eb4db9d0e4652 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.8 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:39.544+00:00 INFO llmgateway.request request_id=gw_7ccc9ebda8ce4d16a31a1cc275dda868 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.9 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:39.544+00:00 INFO llmgateway.request request_id=gw_9ebb15f1a72b458a93a5e47b80c1ab0f tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.0 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:39.568+00:00 INFO llmgateway.request request_id=gw_4d27604ff35e4af78e6bd572b185288a tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.4 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:39.569+00:00 INFO llmgateway.request request_id=gw_633d5e0866394eaf9d429e62499d2ba0 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.1 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:39.592+00:00 INFO llmgateway.request request_id=gw_20932bc510024b89a337403ba5e28cef tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.8 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:39.593+00:00 INFO llmgateway.request request_id=gw_b5eff4d461f445f7a5abbb37572324ee tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.0 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:39.617+00:00 INFO llmgateway.request request_id=gw_e5f08b06557b44b28d88fb9994e0ab43 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.3 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:39.618+00:00 INFO llmgateway.request request_id=gw_9b68ce6a7aa24e5284f151b6dac76f6d tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.2 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:39.643+00:00 INFO llmgateway.request request_id=gw_7cbc7ac55b3b430eb83f93b18625eb51 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=24.6 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:39.644+00:00 INFO llmgateway.request request_id=gw_1a7f5aa53b384fe1bae3de07bc263965 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=24.6 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:39.669+00:00 INFO llmgateway.request request_id=gw_bb7098350beb41a18fb930d7503b2f5b tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.1 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:39.670+00:00 INFO llmgateway.request request_id=gw_8b91d537164442dba9b818540b204936 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.6 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:39.693+00:00 INFO llmgateway.request request_id=gw_8f9cdb85969a4366a3575a5375a52d1a tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.4 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:39.694+00:00 INFO llmgateway.request request_id=gw_4f240a13b0114b7c82f6183d477353ad tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.2 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:39.717+00:00 INFO llmgateway.request request_id=gw_54b7aae30c3644bbbc55d188905dd422 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.3 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:39.718+00:00 INFO llmgateway.request request_id=gw_45b59b9e5fb749ed981aceada5865f98 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.6 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:39.743+00:00 INFO llmgateway.request request_id=gw_b4b7e7beb0a642a38ced378a1c3d0243 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=24.4 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:39.744+00:00 INFO llmgateway.request request_id=gw_9fd580bb22284da6a5a94d6572bd87a9 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=24.2 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:39.767+00:00 INFO llmgateway.request request_id=gw_a2a8a0570c6c48aa9c2ccc45ce568c90 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=21.8 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:39.768+00:00 INFO llmgateway.request request_id=gw_f35834f4c97d4c0482767a6235d58d2e tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=21.7 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:39.792+00:00 INFO llmgateway.request request_id=gw_4291ee70570c4aadb63f3610716f900e tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.7 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:39.793+00:00 INFO llmgateway.request request_id=gw_f200e6c384fe4dfd88a2acdcc5cca5bf tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.5 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:39.816+00:00 INFO llmgateway.request request_id=gw_8321ec230269410d87f74193fe65aa4f tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.3 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:39.817+00:00 INFO llmgateway.request request_id=gw_046044b7f99443d0adf9d515d8d04282 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.2 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:39.841+00:00 INFO llmgateway.request request_id=gw_c04f95028f334368a179d2b53553097a tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.8 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:39.841+00:00 INFO llmgateway.request request_id=gw_fe39ead1a6664b9faf99a6bf8822d37f tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.7 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:39.865+00:00 INFO llmgateway.request request_id=gw_78dc2cf3b2a44a098f9b67c132e983f1 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.1 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:39.866+00:00 INFO llmgateway.request request_id=gw_df0a458a1be04ba7a0ad49525b896ca2 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.1 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:39.890+00:00 INFO llmgateway.request request_id=gw_7e0835bd4d624d25a77cdfd79467b399 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.1 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:39.891+00:00 INFO llmgateway.request request_id=gw_a2185e19a4dd413f84c327a16d5c9bde tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.2 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:39.914+00:00 INFO llmgateway.request request_id=gw_0208a200a5404fee8f3ddc11532c74a2 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.1 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:39.915+00:00 INFO llmgateway.request request_id=gw_4eb45fc3c44a468e9185c808af5b25ee tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.1 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:39.939+00:00 INFO llmgateway.request request_id=gw_934ec3247de842e2b012da6a17494bcb tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.1 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:39.940+00:00 INFO llmgateway.request request_id=gw_67c3638514a947f88d6f038a9b3ec968 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.3 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:39.964+00:00 INFO llmgateway.request request_id=gw_e8c1950fb4d44322bbb2165eb40425f2 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.9 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:39.965+00:00 INFO llmgateway.request request_id=gw_efeb736c605e42d9a746433af5d73489 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.4 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:39.989+00:00 INFO llmgateway.request request_id=gw_f3cf398948784bd88feb0e2552fbdbde tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.1 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:39.990+00:00 INFO llmgateway.request request_id=gw_5d908388160d411c923102c190b29ce8 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.9 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:40.014+00:00 INFO llmgateway.request request_id=gw_95d886dd0aa740d4b810e47316f174be tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.3 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:40.015+00:00 INFO llmgateway.request request_id=gw_c69d33503ed944c698850e59246a9160 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.1 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:40.039+00:00 INFO llmgateway.request request_id=gw_f446c3f0c6a146a89d6eed84a878b34c tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.5 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:40.040+00:00 INFO llmgateway.request request_id=gw_4484fde2ea8d4126a591e01a8d56e1d6 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.6 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:40.065+00:00 INFO llmgateway.request request_id=gw_3a4c2fa2b4814032a9a05a485b5d266c tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.9 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:40.067+00:00 INFO llmgateway.request request_id=gw_4ab952e708e144fe8ad6cb5d016c8fbf tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.4 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:40.091+00:00 INFO llmgateway.request request_id=gw_93e1c69d9a0744d0aa04437f94ced9fa tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.5 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:40.092+00:00 INFO llmgateway.request request_id=gw_aa3a1a7f5b2d4bb4b6112b7b4aefddb5 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.3 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:40.117+00:00 INFO llmgateway.request request_id=gw_37731131bfca47e5a21985c742abaf3d tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.3 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:40.119+00:00 INFO llmgateway.request request_id=gw_23a98382cd8c4a0a852dbaa1655d7829 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.9 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:40.142+00:00 INFO llmgateway.request request_id=gw_2174dc858a0f404c9e42261bcade5e16 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.4 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:40.143+00:00 INFO llmgateway.request request_id=gw_de387697d1944c8dbea64a9ceb56607c tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.1 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:40.166+00:00 INFO llmgateway.request request_id=gw_1d3020b71e60402a9cb63c58c1d80cb8 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.6 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:40.167+00:00 INFO llmgateway.request request_id=gw_c2d11527f8514766a6207aad960aa249 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.5 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:40.190+00:00 INFO llmgateway.request request_id=gw_503791f10aae4e82bbd0c7bb73eab9de tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.4 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:40.191+00:00 INFO llmgateway.request request_id=gw_9b9e45a879d04e97b450854f967de60e tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.2 provider_model='mock-a'
+INFO:     127.0.0.1:54800 - "GET /healthz HTTP/1.1" 200 OK
+2026-11-13T20:07:40.193+00:00 INFO llmgateway.request request_id=gw_48d4a7bf3f3a4cf89419cbe6fec76cfc tenant=- key_id=- provider=- model=- status=200 latency_ms=0.7 provider_model=-
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:40.215+00:00 INFO llmgateway.request request_id=gw_40eb7fb1e7654bbe8593941a3fe9843e tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.2 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:40.216+00:00 INFO llmgateway.request request_id=gw_310b2e494050452a9cb197fdf354e0a2 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.4 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:40.240+00:00 INFO llmgateway.request request_id=gw_193bb5043f644fd4aa163b88c33cf52a tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.1 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:40.240+00:00 INFO llmgateway.request request_id=gw_77e09e6cb41b4d1ab04c93d5b29db406 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.3 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:40.264+00:00 INFO llmgateway.request request_id=gw_f9d33a3a976e4da1b762cc7de8d18109 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.3 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:40.265+00:00 INFO llmgateway.request request_id=gw_de0d0276d7294739830519e586a7c404 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.1 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:40.290+00:00 INFO llmgateway.request request_id=gw_e7e7df43d34f4cc9ab9ead7a1deb523d tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.8 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:40.291+00:00 INFO llmgateway.request request_id=gw_4ac5ddd1025d4813aecc566fb3727f2a tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=24.1 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:40.314+00:00 INFO llmgateway.request request_id=gw_7cd300e22c9748bb8adf62fc73bdb30b tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.6 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:40.315+00:00 INFO llmgateway.request request_id=gw_25b7bde3f57747f795a79b749bd09d19 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.7 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:40.339+00:00 INFO llmgateway.request request_id=gw_95f3a9e2e7ca429797df4abd62741129 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.6 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:40.339+00:00 INFO llmgateway.request request_id=gw_99f4da6217124ffbb8a29fcdb0f45001 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.6 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:40.364+00:00 INFO llmgateway.request request_id=gw_1e2e70e6d1ff44f8a5d2154b5b103a97 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.9 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:40.364+00:00 INFO llmgateway.request request_id=gw_40afeb302e6045e3a6ef20789d38e1fc tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.8 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:40.388+00:00 INFO llmgateway.request request_id=gw_43cf3018deeb4cbf9270eb862286defe tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.8 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:40.389+00:00 INFO llmgateway.request request_id=gw_d96d4e808e1b4144a215bb691541f5b4 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.5 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:40.412+00:00 INFO llmgateway.request request_id=gw_dcd9d2317340421283ab09df77320c89 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.0 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:40.413+00:00 INFO llmgateway.request request_id=gw_4d1293edec5b4fa7b048dd1816217b61 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.0 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:40.437+00:00 INFO llmgateway.request request_id=gw_89ff83560e804dccb8e2c3a87535c2fa tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.3 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:40.438+00:00 INFO llmgateway.request request_id=gw_3310270c62054f76a7d74a3e1a30ca67 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.2 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:40.462+00:00 INFO llmgateway.request request_id=gw_67fc75b26deb4976a3e7dcabab8be3b6 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.2 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:40.463+00:00 INFO llmgateway.request request_id=gw_42181d3d15a84ac1b4ae2a897e78e2aa tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.3 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:40.487+00:00 INFO llmgateway.request request_id=gw_1ab5384f87c14f7898239c411777c0e4 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.0 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:40.488+00:00 INFO llmgateway.request request_id=gw_997980904ff4446cbe0f804fe34b7134 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.0 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:40.512+00:00 INFO llmgateway.request request_id=gw_d3a36e2228974ffcb88e627d9877c77c tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.1 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:40.512+00:00 INFO llmgateway.request request_id=gw_f345fa760b6e473cbee41658e2a5e9bb tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.8 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:40.536+00:00 INFO llmgateway.request request_id=gw_fdb553849797497aa4ae11f27ee45200 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.2 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:40.537+00:00 INFO llmgateway.request request_id=gw_324209951030483f929a11e0576265dd tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.8 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:40.561+00:00 INFO llmgateway.request request_id=gw_973e8e4747ac48c09995a6889aff8413 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.9 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:40.562+00:00 INFO llmgateway.request request_id=gw_ea6da2d7e61f45719375f74f17debf7a tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.7 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:40.585+00:00 INFO llmgateway.request request_id=gw_a032826c9ef44eed8baca6a289afdce2 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.1 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:40.586+00:00 INFO llmgateway.request request_id=gw_e902867434ad474c833ea376b135cc89 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.0 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:40.610+00:00 INFO llmgateway.request request_id=gw_0650cda64bbf4d01933c3afad3b6dafd tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.4 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:40.610+00:00 INFO llmgateway.request request_id=gw_dbc869d2643849108ade47c77ab352a6 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.3 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:40.634+00:00 INFO llmgateway.request request_id=gw_3fe89152aa6841ecaf7faaa9e0d5ca77 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.3 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:40.635+00:00 INFO llmgateway.request request_id=gw_56af70feffd0409b8ebb8b6cdc40a232 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.1 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:40.659+00:00 INFO llmgateway.request request_id=gw_c536f32bd3974bafaf09f65ae0b334e5 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.8 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:40.659+00:00 INFO llmgateway.request request_id=gw_024e0c6165ea4926b238d93f1b252fb4 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.1 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:40.684+00:00 INFO llmgateway.request request_id=gw_2ca425ef0d9b48909e7a958cd823222e tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.4 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:40.685+00:00 INFO llmgateway.request request_id=gw_7208e8a60a8a4b1fb884523803d9dce3 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.3 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:40.708+00:00 INFO llmgateway.request request_id=gw_7b0011bfd17c4e18adf69b39809f2cea tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.9 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:40.709+00:00 INFO llmgateway.request request_id=gw_13f5c3a3d43d4cee9c529d399e78ab10 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.7 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:40.733+00:00 INFO llmgateway.request request_id=gw_cef62eaca9e2436692faca1e574a3f9a tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.6 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:40.733+00:00 INFO llmgateway.request request_id=gw_46b1dd94689a4a719bff902bb2119501 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.5 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:40.756+00:00 INFO llmgateway.request request_id=gw_f56ce3b8a87c42c29cbe00e4d8f7fc1f tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.3 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:40.757+00:00 INFO llmgateway.request request_id=gw_d1728f52eeed43a0bb19ee4190b47900 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.5 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:40.781+00:00 INFO llmgateway.request request_id=gw_0b3553bdcf9345c1bb45b828a967f445 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.0 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:40.782+00:00 INFO llmgateway.request request_id=gw_4001be726e0747a8b306d2972ddcd205 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.7 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:40.805+00:00 INFO llmgateway.request request_id=gw_ba6428ff9fe04320accffae038473e58 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.4 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:40.807+00:00 INFO llmgateway.request request_id=gw_c1402be9600a43768ff2a5af3a106a50 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.3 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:40.831+00:00 INFO llmgateway.request request_id=gw_b28ed138b9584ed09d5e9e11c4b1d96e tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.6 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:40.831+00:00 INFO llmgateway.request request_id=gw_c4bce072ab4540048389045659c9a008 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.1 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:40.855+00:00 INFO llmgateway.request request_id=gw_e297f0a55bbb428188f81c35237bb336 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.6 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:40.855+00:00 INFO llmgateway.request request_id=gw_81d4454a5df94faf9c7c655fc97cc269 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.5 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:40.878+00:00 INFO llmgateway.request request_id=gw_0e67fc9296af4fc1ac32e4562d2d4d3a tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.0 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:40.879+00:00 INFO llmgateway.request request_id=gw_c29a0c260e214bc792048b0029522397 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.2 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:40.904+00:00 INFO llmgateway.request request_id=gw_c7d83c0dc341432b9cd16e04f04da743 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.4 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:40.905+00:00 INFO llmgateway.request request_id=gw_4e13093277d1496c926157fb6f95f472 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.3 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:40.929+00:00 INFO llmgateway.request request_id=gw_77460f92d35d47a9a0fbb48db471e714 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.9 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:40.930+00:00 INFO llmgateway.request request_id=gw_775133bd548844b28da4aeae6cd5d89f tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.7 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:40.954+00:00 INFO llmgateway.request request_id=gw_68e7a690778d4dabbbe7ebb0a8f1cc4c tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.1 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:40.954+00:00 INFO llmgateway.request request_id=gw_9afa3d3390cd4383b527834e83f04850 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.9 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:40.978+00:00 INFO llmgateway.request request_id=gw_340cc2c079784ba4a263258882ddf24b tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.8 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:40.979+00:00 INFO llmgateway.request request_id=gw_ccfdd99c3ad14a179730afb44197a118 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.6 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:41.003+00:00 INFO llmgateway.request request_id=gw_ee326706890e44abba40f0f8d07f978e tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.0 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:41.004+00:00 INFO llmgateway.request request_id=gw_823e852fb4814822a51e8b7aa62ed78b tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.9 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:41.028+00:00 INFO llmgateway.request request_id=gw_4f26994d0fb84a62a2f11ebf0fe78560 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.9 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:41.028+00:00 INFO llmgateway.request request_id=gw_f3891f06b54b44729627315a14172d2c tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.8 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:41.053+00:00 INFO llmgateway.request request_id=gw_98e2e73ac09a426e95b96c45da2b1cb7 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.1 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:41.053+00:00 INFO llmgateway.request request_id=gw_28526e7651db48db81ef0ac362301de8 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.0 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:41.077+00:00 INFO llmgateway.request request_id=gw_c858b5cc635e4f70afaf88d02b45c035 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.0 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:41.078+00:00 INFO llmgateway.request request_id=gw_3fb39dc0331e4489b14db750a854ac2e tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.4 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:41.101+00:00 INFO llmgateway.request request_id=gw_ce3926fc2a614fdcbcab768adc24f3df tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.0 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:41.102+00:00 INFO llmgateway.request request_id=gw_8db67836f47c4d0381fb0b823a7ca441 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=21.9 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:41.126+00:00 INFO llmgateway.request request_id=gw_389d864fd7ac4b40a8998cbcd738eae4 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.1 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:41.127+00:00 INFO llmgateway.request request_id=gw_61f67ca669e84bd381e94c67fa5bb731 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.0 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:41.150+00:00 INFO llmgateway.request request_id=gw_c43271ba6658422c8fad1c3c7b35de41 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.5 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:41.151+00:00 INFO llmgateway.request request_id=gw_bd24c3d135ce42299b97dfdaa640d3cb tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.5 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:41.174+00:00 INFO llmgateway.request request_id=gw_43975e638a55403bbbce5da48b283e42 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.6 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:41.175+00:00 INFO llmgateway.request request_id=gw_655679b192f247ecaa2380b39ad18de1 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.6 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:41.199+00:00 INFO llmgateway.request request_id=gw_9ea69b262dab4e4a88d47ecbc534c2dc tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.6 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:41.199+00:00 INFO llmgateway.request request_id=gw_962995f7a86b4b4282ff32965e9fed28 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.5 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:41.222+00:00 INFO llmgateway.request request_id=gw_c7b894ea0a8845c0a9d1caa1bd9b3eb2 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.0 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:41.223+00:00 INFO llmgateway.request request_id=gw_edd9eca6658f4147996a3a7717539667 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=21.7 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:41.248+00:00 INFO llmgateway.request request_id=gw_87c9787054d74cf59e56257029c81d44 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.3 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:41.248+00:00 INFO llmgateway.request request_id=gw_929ae77c32ba4abd93724b08c03d4376 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.4 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:41.272+00:00 INFO llmgateway.request request_id=gw_89e14a8de507401c81a020866c7aed11 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.7 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:41.273+00:00 INFO llmgateway.request request_id=gw_de173d6ccd7a48348b418ab5529feb16 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.6 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:41.296+00:00 INFO llmgateway.request request_id=gw_b44b71e8b34c435296ad8cbac463145f tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.7 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:41.297+00:00 INFO llmgateway.request request_id=gw_a453e60c76d7429e901a7f609aa0e1d7 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.4 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:41.321+00:00 INFO llmgateway.request request_id=gw_eae642b78e1748fbb0b06e2a6ce4c3db tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.5 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:41.321+00:00 INFO llmgateway.request request_id=gw_22d14e167f6e4def86470864af4784a7 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.2 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:41.344+00:00 INFO llmgateway.request request_id=gw_04079dd90d144077a053651b856f5433 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.0 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:41.345+00:00 INFO llmgateway.request request_id=gw_17530c55c51b482da1b7a69b6c28c4d9 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=21.8 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:41.370+00:00 INFO llmgateway.request request_id=gw_58c71acd2a274dfea4286b30aa99bb38 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=24.0 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:41.371+00:00 INFO llmgateway.request request_id=gw_4cf12e8c3276454abc677d54a4b17798 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.2 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:41.395+00:00 INFO llmgateway.request request_id=gw_a611921719b8435ca3b4ee783eec5973 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.4 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:41.396+00:00 INFO llmgateway.request request_id=gw_c0878bddbbe24bee8575f70ab5621f6a tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.1 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:41.419+00:00 INFO llmgateway.request request_id=gw_de671d1326a1498684f10cedcf64901f tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.7 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:41.420+00:00 INFO llmgateway.request request_id=gw_30d204a0204447128ffaa6738a941955 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.3 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:41.443+00:00 INFO llmgateway.request request_id=gw_694f872dde994effb164f9a0ba335240 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.1 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:41.444+00:00 INFO llmgateway.request request_id=gw_27aee3777b304a3085b265432050c343 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=21.5 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:41.467+00:00 INFO llmgateway.request request_id=gw_4ad6ad2660074b9abcb9f20817c18396 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.1 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:41.468+00:00 INFO llmgateway.request request_id=gw_b587d376f8e44f0090cc272ed41e6b6c tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.2 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:41.492+00:00 INFO llmgateway.request request_id=gw_eeace910b2aa4eedbd7809f032aa9b59 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.7 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:41.492+00:00 INFO llmgateway.request request_id=gw_3ecf32c45ff447cfb34e360b2c49c03a tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.2 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:41.516+00:00 INFO llmgateway.request request_id=gw_90f5399188b04d319d341d8cb708603a tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.0 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:41.517+00:00 INFO llmgateway.request request_id=gw_00595f13a41d414fb5c3b71e2343a86d tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.1 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:41.540+00:00 INFO llmgateway.request request_id=gw_5c9a12303444406da3ce7c0a44ce68f9 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=21.9 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:41.541+00:00 INFO llmgateway.request request_id=gw_2e7795a4c43143a4b11d1c0da27968b3 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=21.6 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:41.565+00:00 INFO llmgateway.request request_id=gw_b6cc93c634ef487a85ae854e1c63baa2 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.7 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:41.566+00:00 INFO llmgateway.request request_id=gw_dbf030fd4f6d459799a1fc73081ca7df tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.6 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:41.590+00:00 INFO llmgateway.request request_id=gw_41b848237d3644b2a6baa46054107f24 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.6 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:41.591+00:00 INFO llmgateway.request request_id=gw_9f4ffb2b68ac44cfb4dff0687bb7318b tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.7 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:41.614+00:00 INFO llmgateway.request request_id=gw_1ec6aa1f8eff4faca788f2bddb5f36ce tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.2 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:41.615+00:00 INFO llmgateway.request request_id=gw_83e0c27ca7494035aa398bf9b3ef8e21 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.0 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:41.638+00:00 INFO llmgateway.request request_id=gw_da3de3f82e7946f6b581d91b1d39ef81 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.1 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:41.639+00:00 INFO llmgateway.request request_id=gw_741c5d1154c14edcac259a234d63ca0e tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=21.6 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:41.664+00:00 INFO llmgateway.request request_id=gw_66f96a50c1894a4293ae5029d8502376 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.5 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:41.665+00:00 INFO llmgateway.request request_id=gw_2eb404abb1574e54adc840319d9ce7e4 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.1 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:41.689+00:00 INFO llmgateway.request request_id=gw_0c4cb74d26e64794b5fae3177e550990 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.9 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:41.689+00:00 INFO llmgateway.request request_id=gw_97622df5b2f540f4bffdbce753e4ab86 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.9 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:41.713+00:00 INFO llmgateway.request request_id=gw_a54e54de62674abb8965091f02f99056 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.9 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:41.714+00:00 INFO llmgateway.request request_id=gw_a2602354d7fc4df28f4f530287cf7b17 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.5 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:41.738+00:00 INFO llmgateway.request request_id=gw_5aa24afe6c7943369b3ec515db76bb8b tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.0 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:41.738+00:00 INFO llmgateway.request request_id=gw_9051bf67bd2d4a588efacaae3a95ad7f tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.8 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:41.762+00:00 INFO llmgateway.request request_id=gw_025465abfe894310b3e3198686a0327b tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.7 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:41.762+00:00 INFO llmgateway.request request_id=gw_d2107df0330a409090dd257dd8d7b5dc tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.7 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:41.785+00:00 INFO llmgateway.request request_id=gw_d2b4ed34838447a696c536fea09b3cb5 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.0 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:41.787+00:00 INFO llmgateway.request request_id=gw_374e23ecd1064c7392d6a0fe1d20cd50 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.4 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:41.809+00:00 INFO llmgateway.request request_id=gw_722f60b4e8b340b28c99e4274d900489 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.0 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:41.810+00:00 INFO llmgateway.request request_id=gw_96b9883de55544669882b3d269f765fd tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.3 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:41.833+00:00 INFO llmgateway.request request_id=gw_d4e33b5da55145e484946aa76e07c1f5 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.1 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:41.834+00:00 INFO llmgateway.request request_id=gw_b0e58b7c32064392b8fbd95f8593d235 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.4 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:41.856+00:00 INFO llmgateway.request request_id=gw_ba126671c71f460ea5424b6ac13aa06d tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=21.8 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:41.857+00:00 INFO llmgateway.request request_id=gw_c9b3c5a0cc0143fd99a49881a0984499 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=21.7 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:41.881+00:00 INFO llmgateway.request request_id=gw_93e8bcc314d14877a84bb419b0974eca tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.2 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:41.882+00:00 INFO llmgateway.request request_id=gw_245a7763ca7a4c5ea57c3c1834fd3081 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.7 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:41.906+00:00 INFO llmgateway.request request_id=gw_3f4640c6758e4773be843c028f06f4c2 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.9 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:41.907+00:00 INFO llmgateway.request request_id=gw_ac28549906c84f9d98f10d9658c122a4 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.7 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:41.931+00:00 INFO llmgateway.request request_id=gw_14de98b9c26f45ebbb93f22fd38bd5db tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.8 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:41.931+00:00 INFO llmgateway.request request_id=gw_e0efa1ba86914f8f93e4023fc4f633c8 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.7 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:41.956+00:00 INFO llmgateway.request request_id=gw_f25d2e2173be4df8b2acd2939be257db tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.2 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:41.956+00:00 INFO llmgateway.request request_id=gw_1a8e027ff62642c29f04f80792e21fe5 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.5 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:41.981+00:00 INFO llmgateway.request request_id=gw_9ea4f3461355437c9a462bd0074527fc tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.0 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:41.981+00:00 INFO llmgateway.request request_id=gw_6700e4022c894be0a624bff98cad41c6 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.5 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:42.005+00:00 INFO llmgateway.request request_id=gw_e8f232ce6e6140ca801d6f96c3441340 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.8 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:42.006+00:00 INFO llmgateway.request request_id=gw_ac40e9bf4fc74d849ff34e112b12b688 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.8 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:42.030+00:00 INFO llmgateway.request request_id=gw_b241b8785a6b4947b0249cd87ae62b7a tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.9 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:42.030+00:00 INFO llmgateway.request request_id=gw_eeab256a944841ff93f30c379378a473 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.4 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:42.055+00:00 INFO llmgateway.request request_id=gw_3b5ffa40372a4a679431714ab3642c90 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.0 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:42.055+00:00 INFO llmgateway.request request_id=gw_ce4685eaeac64255abec9bf36783aef8 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.6 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:42.079+00:00 INFO llmgateway.request request_id=gw_10275f7c481d490d92223aca217852f3 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.0 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:42.080+00:00 INFO llmgateway.request request_id=gw_6d95f9c4bb5e40959491455a61c3ed2c tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.1 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:42.104+00:00 INFO llmgateway.request request_id=gw_f97904ba942c460cb09948319f231580 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.9 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:42.105+00:00 INFO llmgateway.request request_id=gw_f5595799350a4a45a8818ad221007628 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.0 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:42.129+00:00 INFO llmgateway.request request_id=gw_85cdb6e6f9314456ae699ebbcbe5067e tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.9 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:42.130+00:00 INFO llmgateway.request request_id=gw_3e884257a9c94721b0e5237d5b2b74da tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.2 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:42.152+00:00 INFO llmgateway.request request_id=gw_075844d901fc4ef28dd7fc01838f46d6 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.1 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:42.153+00:00 INFO llmgateway.request request_id=gw_d840ac6dfbd04eb4bbe78349ff2d9372 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=21.9 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:42.177+00:00 INFO llmgateway.request request_id=gw_0aeae81d008a49e2a82288e2407b4025 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.4 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:42.178+00:00 INFO llmgateway.request request_id=gw_419c06c69a464482b17300e34102b32e tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.9 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:42.203+00:00 INFO llmgateway.request request_id=gw_5055690a1a9641dc8611f20e70fd20f7 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=24.2 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:42.204+00:00 INFO llmgateway.request request_id=gw_4587b107707b472e9c5466acf6ef8013 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=24.0 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:42.227+00:00 INFO llmgateway.request request_id=gw_dbecc54b86b248518257ab207b1c1547 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.7 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:42.228+00:00 INFO llmgateway.request request_id=gw_d6e28ff0c96a4030a7bba1fe8cc52267 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.1 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:42.251+00:00 INFO llmgateway.request request_id=gw_08f3cd1c197448c3be69af8ea73f36fe tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.3 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:42.252+00:00 INFO llmgateway.request request_id=gw_3cc978e0d3d64817a2312dc842055da7 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=21.9 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:42.277+00:00 INFO llmgateway.request request_id=gw_5f8b8f86799a403aa98092d628070213 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.8 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:42.277+00:00 INFO llmgateway.request request_id=gw_f502bd3bc95b40aa83e58b67b1bb8c6b tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.5 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:42.301+00:00 INFO llmgateway.request request_id=gw_2ece18778ed1422f9f05f40d6d123d8d tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.1 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:42.302+00:00 INFO llmgateway.request request_id=gw_a87bf2f1b2a6405fa668fd8efd9d0bb5 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.3 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:42.327+00:00 INFO llmgateway.request request_id=gw_2a3d55dd89a84f50bfb8ab23a18651fa tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=24.1 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:42.328+00:00 INFO llmgateway.request request_id=gw_04de9665612f4e66980504827252d5ce tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=24.2 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:42.352+00:00 INFO llmgateway.request request_id=gw_d2d4f8b9199649ad865d3fc455d7cc0b tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.4 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:42.353+00:00 INFO llmgateway.request request_id=gw_d0d7d16c63c0428a9e9bbe3a930582b1 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.4 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:42.377+00:00 INFO llmgateway.request request_id=gw_74032b5304444eeea4996fc9c12fa74a tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.1 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:42.378+00:00 INFO llmgateway.request request_id=gw_14633f5066094ba5ba71961821ef5c60 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.2 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:42.403+00:00 INFO llmgateway.request request_id=gw_6f46e23153e34ca08eb92be37763d0f6 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.6 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:42.403+00:00 INFO llmgateway.request request_id=gw_74007c857a9f4c0f933764fd22cfc534 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.7 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:42.427+00:00 INFO llmgateway.request request_id=gw_60c0367a407e49d0bbaf2f40301339fb tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.4 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:42.428+00:00 INFO llmgateway.request request_id=gw_00bf9c3b2d2e42d5aa79093d39a3d1ac tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.0 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:42.451+00:00 INFO llmgateway.request request_id=gw_e2e2c17826c242d4b78c3ad4cb71d405 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.4 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:42.452+00:00 INFO llmgateway.request request_id=gw_d61e3d5ecb3e4c928d794a8eca0646e1 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.4 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:42.476+00:00 INFO llmgateway.request request_id=gw_20e18b6445ad4423ae13214ca4142367 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.3 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:42.476+00:00 INFO llmgateway.request request_id=gw_ae2c1f212c9643d780c97a283374fde9 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.2 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:42.500+00:00 INFO llmgateway.request request_id=gw_6b9c74c8a2e645a5a8a199f811961ea1 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.8 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:42.501+00:00 INFO llmgateway.request request_id=gw_ff103f4e9525493fa4c6f7b09b4b3d17 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.8 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:42.524+00:00 INFO llmgateway.request request_id=gw_9210cc4eff144f0e9eee01d7335cf0e4 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.5 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:42.525+00:00 INFO llmgateway.request request_id=gw_add1d73e11734fa98824232a3ea9de20 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.2 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:42.550+00:00 INFO llmgateway.request request_id=gw_a33f14e7e16c4019ae213bbe777b1338 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.6 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:42.550+00:00 INFO llmgateway.request request_id=gw_2aad188f2c164990bb83b1631ab46151 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=23.8 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:42.574+00:00 INFO llmgateway.request request_id=gw_e2cdb6757a6a4cf4aa8522467328d2fd tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.7 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:42.575+00:00 INFO llmgateway.request request_id=gw_844ce04e845347d29f667cff000e8e22 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.7 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:42.599+00:00 INFO llmgateway.request request_id=gw_775f987e2b814d5783ebfe21311b4019 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.9 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:42.600+00:00 INFO llmgateway.request request_id=gw_432d625116434b2fa7b8ce3998030f08 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.7 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:42.624+00:00 INFO llmgateway.request request_id=gw_6ef468d3d17b4c9daad508278d592435 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.8 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:42.624+00:00 INFO llmgateway.request request_id=gw_c5532e0b51d54d0387aad32b895da6dd tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=22.7 provider_model='mock-a'
+INFO:     172.21.0.6:41660 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:42.647+00:00 INFO llmgateway.request request_id=gw_1c784ffbc08442a48fbfa49a944fd882 tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=21.7 provider_model='mock-a'
+INFO:     172.21.0.6:41662 - "POST /v1/chat HTTP/1.1" 200 OK
+2026-11-13T20:07:42.648+00:00 INFO llmgateway.request request_id=gw_6aeed8ec067f420eae25f3976c78cf8d tenant=smoke-m3-r1-200727 key_id=7bc8ad823a693901 provider=mock-steady model='steady' status=200 latency_ms=21.6 provider_model='mock-a'
+INFO:     127.0.0.1:54846 - "GET /healthz HTTP/1.1" 200 OK
+2026-11-13T20:07:45.535+00:00 INFO llmgateway.request request_id=gw_06693e4806a04e8e8eeb359bf6b799ac tenant=- key_id=- provider=- model=- status=200 latency_ms=0.5 provider_model=-
