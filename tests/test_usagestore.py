@@ -6,12 +6,12 @@ what needs no database (Lesson 17):
 - With `asyncpg.create_pool` replaced by a fake: the pool is made on first use only, with
   `min_size=0` and `max_size=2` (its own small pool, so a slow insert never takes the key
   lookups' connections); an empty batch makes no call at all; a batch is exactly one `execute`
-  of D-099's statement as D-101 widened it, with nineteen parameters that are lists, one per
-  column, in the record order (`delivered_chars` and `estimated_output_tokens` last, as
-  `$18::bigint[]` and `$19::bigint[]`); driver errors (`OSError`, `asyncpg.PostgresError`,
-  `asyncpg.InterfaceError`) are `UsageStoreUnavailable` carrying the type name only, never the
-  driver's message or the DSN, and nothing else is caught; `aclose` closes the pool; `repr` never
-  holds the DSN.
+  of D-099's statement as D-101 and D-113 widened it, with twenty parameters that are lists, one
+  per column, in the record order (`delivered_chars` and `estimated_output_tokens` as
+  `$18::bigint[]` and `$19::bigint[]`, and `cache_hit` last, as `$20::boolean[]`); driver errors
+  (`OSError`, `asyncpg.PostgresError`, `asyncpg.InterfaceError`) are `UsageStoreUnavailable`
+  carrying the type name only, never the driver's message or the DSN, and nothing else is
+  caught; `aclose` closes the pool; `repr` never holds the DSN.
 - With real asyncpg against a port nothing listens on: a refused connection is
   `UsageStoreUnavailable("ConnectionRefusedError")` and nothing leaks.
 
@@ -38,11 +38,11 @@ SQL = (
     "INSERT INTO usage_records (recorded_at, request_id, tenant_id, key_id, alias, "
     "provider_instance, provider_type, model, stream, attempt, outcome, reason, "
     "provider_status, partial, input_tokens, output_tokens, cost_nanousd, delivered_chars, "
-    "estimated_output_tokens) "
+    "estimated_output_tokens, cache_hit) "
     "SELECT * FROM unnest($1::timestamptz[], $2::text[], $3::text[], $4::text[], $5::text[], "
     "$6::text[], $7::text[], $8::text[], $9::boolean[], $10::integer[], $11::text[], "
     "$12::text[], $13::integer[], $14::boolean[], $15::bigint[], $16::bigint[], $17::bigint[], "
-    "$18::bigint[], $19::bigint[])"
+    "$18::bigint[], $19::bigint[], $20::boolean[])"
 )
 
 COLUMNS = [
@@ -65,6 +65,7 @@ COLUMNS = [
     "cost_nanousd",
     "delivered_chars",
     "estimated_output_tokens",
+    "cache_hit",
 ]
 
 DRIVER_ERRORS: list[Any] = [
@@ -162,7 +163,7 @@ async def test_a_batch_is_one_execute_of_d_099s_unnest_statement(
     await store.write([make_record(1), make_record(2)])
     ((sql, args),) = pool.calls
     assert flat(sql) == SQL
-    assert len(args) == 19
+    assert len(args) == 20
 
 
 @pytest.mark.asyncio
@@ -216,7 +217,7 @@ async def test_the_parameters_are_one_list_per_column_in_the_record_order(
     await store.write([first, second, third, fourth])
     ((_, args),) = pool.calls
     records = [first, second, third, fourth]
-    assert [type(arg) for arg in args] == [list] * 19
+    assert [type(arg) for arg in args] == [list] * 20
     for index, name in enumerate(COLUMNS):
         assert args[index] == [getattr(r, name) for r in records], name
 
@@ -244,6 +245,7 @@ async def test_each_parameter_keeps_its_python_type_and_nulls(
     assert named["attempt"] == [1]
     assert named["delivered_chars"] == [None]
     assert named["estimated_output_tokens"] == [None]
+    assert named["cache_hit"] == [False]
 
 
 @pytest.mark.asyncio
@@ -279,6 +281,27 @@ async def test_the_two_estimate_parameters_are_the_last_two_and_keep_zero_apart_
     assert args[17] == [0, 9, None]
     assert args[18] == [0, 4, None]
     assert [type(value) for value in args[17][:2]] == [int, int]
+
+
+@pytest.mark.asyncio
+async def test_the_cache_hit_parameter_is_the_last_one_a_list_of_booleans_in_record_order(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # D-113: `$20::boolean[]`. A hit and two non-hits: the flag is per record, not per batch.
+    hit = make_record(1, cost=0, cache_hit=True)
+    miss = make_record(2)
+    other = make_record(3, cache_hit=False)
+    pool = FakePool()
+    store, _ = store_over(monkeypatch, pool)
+    await store.write([miss, hit, other])
+    ((sql, args),) = pool.calls
+    assert flat(sql).endswith("$19::bigint[], $20::boolean[])")
+    assert args[19] == [False, True, False]
+    assert all(type(value) is bool for value in args[19])
+    assert COLUMNS[-1] == "cache_hit"
+    # The columns before it keep their places.
+    assert args[17] == [None, None, None]
+    assert args[18] == [None, None, None]
 
 
 @pytest.mark.asyncio

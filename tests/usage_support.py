@@ -169,6 +169,7 @@ def make_record(
     tenant_id: str = TEST_TENANT,
     delivered_chars: int | None = None,
     estimated_output_tokens: int | None = None,
+    cache_hit: bool = False,
 ) -> "UsageRecord":
     """A `UsageRecord` whose request id is `n` unless given: cheap to make a batch of."""
     record: UsageRecord = usage_module().UsageRecord(
@@ -191,6 +192,7 @@ def make_record(
         cost_nanousd=cost,
         delivered_chars=delivered_chars,
         estimated_output_tokens=estimated_output_tokens,
+        cache_hit=cache_hit,
     )
     return record
 
@@ -225,6 +227,7 @@ def attempt(
     partial: bool = False,
     usage: tuple[int, int] | None = (1, 2),
     delivered_chars: "int | _Unset | None" = UNSET,
+    cache_hit: bool = False,
 ) -> "AttemptUsage":
     """The `AttemptUsage` a router call should report. `usage` is (input, output) or None.
 
@@ -240,6 +243,10 @@ def attempt(
         )
         delivered_chars = None
     value = None if usage is None else Usage(input_tokens=usage[0], output_tokens=usage[1])
+    # `cache_hit` is passed only when true: D-113 gives `AttemptUsage` a default of false, so every
+    # attempt a router reports without one is built exactly as before, and the default is pinned
+    # by its own test (`test_usage_cache_hit.py`).
+    extra: dict[str, Any] = {"cache_hit": True} if cache_hit else {}
     report: AttemptUsage = usage_module().AttemptUsage(
         provider_instance=instance,
         provider_type=provider_type,
@@ -252,6 +259,7 @@ def attempt(
         partial=partial,
         usage=value,
         delivered_chars=delivered_chars,
+        **extra,
     )
     return report
 

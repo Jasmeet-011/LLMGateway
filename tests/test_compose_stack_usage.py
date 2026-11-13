@@ -1,11 +1,12 @@
 """Integration tests for M15: usage rows in the Compose stack's real Postgres (D-100).
 
 Marked `integration`: they need `docker compose up --build --wait` (the `migrate` service has run
-migrations 0002 and 0003, the api is healthy) and `LLMGATEWAY_BASE_URL`, under D-081's guard, which
-each test calls first, before any docker command or request. They fail and never skip. As in M14
-(D-094), keys are made with the real CLI in the api container, the table is read with `psql` in the
-postgres container, and every value reaches SQL as a psql variable (`-v name=value`, quoted by psql
-as `:'name'`), never in the statement's text. Nothing here imports the gateway's code.
+migrations 0002, 0003 and 0004, the api is healthy) and `LLMGATEWAY_BASE_URL`, under D-081's
+guard, which each test calls first, before any docker command or request. They fail and never
+skip. As in M14 (D-094), keys are made with the real CLI in the api container, the table is read
+with `psql` in the postgres container, and every value reaches SQL as a psql variable (`-v
+name=value`, quoted by psql as `:'name'`), never in the statement's text. Nothing here imports the
+gateway's code.
 
 What they prove, from PLAN.md's M15 Proof (usage rows for success and failure paths) and D-099,
 D-100:
@@ -26,7 +27,11 @@ D-100:
   rows through the gateway have both null; `psql` inserts that break 0003's checks (a negative
   value, one of the pair null, values on a success or a non-streaming row) are rejected by the
   right constraint, and the boundaries it allows (0 and 0, both null on an old-style row) are
-  accepted; the catalog shows both columns, both named constraints and both column comments.
+  accepted; the catalog shows both columns, both named constraints and both column comments;
+- M17 (migration 0004, `cache_hit`, D-113): the table now has the column `cache_hit boolean NOT
+  NULL` and the revision is `0004`; every row these tests make, the failure rows written through
+  the store and the success rows through the gateway, has `cache_hit` false (the tests for the
+  column's check are in `test_compose_stack_cache.py`).
 
 The failure rows prove the store and the table, not the router's path to them, which the unit tests
 prove (D-100). Nothing here sorts after `test_zz_outage_*`; `conftest.py` runs that one last.
@@ -144,6 +149,7 @@ EXPECTED_COLUMNS = [
     "cost_nanousd:bigint:YES",
     "delivered_chars:bigint:YES",
     "estimated_output_tokens:bigint:YES",
+    "cache_hit:boolean:NO",
 ]
 
 
@@ -196,6 +202,8 @@ def success_row(
         # D-101: a request that reached its end, streamed or not, is not a cut stream.
         "delivered_chars": None,
         "estimated_output_tokens": None,
+        # D-113: these requests did not opt in to the cache, so none is a hit.
+        "cache_hit": False,
     }
 
 
@@ -329,6 +337,7 @@ def store_record(
         "cost_nanousd": None,
         "delivered_chars": None,
         "estimated_output_tokens": None,
+        "cache_hit": False,
     }
     record.update(fields)
     return record
@@ -544,15 +553,16 @@ def test_the_table_has_the_columns_indexes_and_checks_of_d_099() -> None:
         "SELECT count(*) FROM pg_constraint "
         "WHERE conrelid = 'usage_records'::regclass AND contype = 'c'"
     )
-    # D-099's nineteen, and D-101's two on the new columns and two named table checks.
-    assert lines(checks) == ["23"]
+    # D-099's nineteen, D-101's two on the new columns and two named table checks, and D-113's
+    # one named table check (`usage_records_cache_hit_free`). Was 23.
+    assert lines(checks) == ["24"]
     foreign = psql(
         "SELECT count(*) FROM information_schema.table_constraints "
         "WHERE table_name = 'usage_records' AND constraint_type = 'FOREIGN KEY'"
     )
     assert lines(foreign) == ["0"]
     version = psql("SELECT version_num FROM alembic_version")
-    assert lines(version) == ["0003"]
+    assert lines(version) == ["0004"]
 
 
 def valid_values(key_id: str, request_id: str) -> dict[str, str]:

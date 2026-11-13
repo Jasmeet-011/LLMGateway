@@ -133,17 +133,25 @@ def test_the_mock_uses_the_generic_rate_not_claudes() -> None:
 # The shape of the two dataclasses (D-101)
 
 
-def test_attempt_usage_has_delivered_chars_as_a_last_field_with_no_default() -> None:
+def test_attempt_usage_has_delivered_chars_before_the_last_field_with_no_default() -> None:
+    # Was "the last field": D-113 adds `cache_hit: bool = False` after it. `delivered_chars` still
+    # has no default, and is now the one before the last (the stricter claim: both are pinned).
     fields = dataclasses.fields(usage_module().AttemptUsage)
-    assert fields[-1].name == "delivered_chars"
-    assert fields[-1].default is dataclasses.MISSING
-    assert fields[-1].default_factory is dataclasses.MISSING
+    assert [f.name for f in fields[-2:]] == ["delivered_chars", "cache_hit"]
+    assert fields[-2].default is dataclasses.MISSING
+    assert fields[-2].default_factory is dataclasses.MISSING
+    assert fields[-1].default is False
 
 
-def test_usage_record_has_the_two_estimate_fields_last_with_no_defaults() -> None:
+def test_usage_record_has_the_two_estimate_fields_before_cache_hit_with_no_defaults() -> None:
+    # Was "the two estimate fields last": D-113 adds `cache_hit: bool` after them.
     fields = dataclasses.fields(usage_module().UsageRecord)
-    assert [f.name for f in fields[-2:]] == ["delivered_chars", "estimated_output_tokens"]
-    for field in fields[-2:]:
+    assert [f.name for f in fields[-3:]] == [
+        "delivered_chars",
+        "estimated_output_tokens",
+        "cache_hit",
+    ]
+    for field in fields[-3:-1]:
         assert field.default is dataclasses.MISSING
         assert field.default_factory is dataclasses.MISSING
 
@@ -178,6 +186,7 @@ def test_a_usage_record_built_without_an_estimate_field_is_a_type_error(missing:
         "cost_nanousd": 0,
         "delivered_chars": None,
         "estimated_output_tokens": None,
+        "cache_hit": False,
     }
     del values[missing]
     with pytest.raises(TypeError, match=rf"missing .*{missing}"):
@@ -433,6 +442,8 @@ async def test_the_meter_copies_every_other_field_as_before_with_the_estimate_be
         "cost_nanousd": 12 * 100 + 1 * 500,
         "delivered_chars": 35,
         "estimated_output_tokens": 13,
+        # D-113: a stream attempt that failed is a provider call, never a hit.
+        "cache_hit": False,
     }
 
 

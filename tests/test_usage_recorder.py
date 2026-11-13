@@ -112,6 +112,7 @@ def test_the_attempt_usage_fields_are_in_the_documented_order() -> None:
         "partial",
         "usage",
         "delivered_chars",
+        "cache_hit",
     ]
 
 
@@ -137,6 +138,7 @@ def test_the_usage_record_fields_are_in_the_documented_order() -> None:
         "cost_nanousd",
         "delivered_chars",
         "estimated_output_tokens",
+        "cache_hit",
     ]
 
 
@@ -198,6 +200,8 @@ async def test_the_meter_builds_a_record_from_the_attempt_the_request_and_the_cl
             # 70 characters at Claude's rate: 70 * 13 / 35 is exactly 26 (D-101).
             delivered_chars=70,
             estimated_output_tokens=26,
+            # D-113: a provider attempt is never a hit.
+            cache_hit=False,
         )
     ]
 

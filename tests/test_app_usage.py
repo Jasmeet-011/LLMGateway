@@ -131,6 +131,8 @@ def expected_record(request_id: str, **fields: Any) -> dict[str, Any]:
         "cost_nanousd": 12 * 100 + 3 * 500,
         "delivered_chars": None,
         "estimated_output_tokens": None,
+        # D-113: only a cache hit has it true, and these requests never opt in.
+        "cache_hit": False,
     }
     base.update(fields)
     return base

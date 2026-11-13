@@ -414,6 +414,8 @@ def test_the_served_app_has_a_recorder_that_reaches_the_swapped_store() -> None:
         )
         assert row["partial"] is False
         assert row["cost_nanousd"] == 0
+        # D-113: a request that did not opt in to the cache is never a hit.
+        assert row["cache_hit"] is False
         assert row["recorded_at"].endswith("+00:00")
     assert streamed["input_tokens"] == out["end_usage"]["input_tokens"]
     assert streamed["output_tokens"] == out["end_usage"]["output_tokens"]

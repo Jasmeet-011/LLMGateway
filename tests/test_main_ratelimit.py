@@ -673,6 +673,7 @@ import redis.asyncio as _redis
 
 _LOADS = []
 _GETS = []
+_POOLS = []
 _RELEASED = []
 
 
@@ -687,6 +688,7 @@ class _Connection:
 
 async def _get_connection(self, *args, **kwargs):
     _GETS.append([list(args), dict(kwargs)])
+    _POOLS.append(id(self))
     await _asyncio.sleep(0)
     return _Connection()
 
@@ -717,6 +719,8 @@ async def probe():
         "script_is_the_limiters": _LOADS == [ratelimit.SCRIPT],
         "get_args": _GETS[:1],
         "released_distinct": len({id(c) for c in _RELEASED}),
+        "pools": len(set(_POOLS)),
+        "gets_per_pool": sorted(_POOLS.count(pool) for pool in set(_POOLS)),
     }))
 
 
@@ -724,10 +728,12 @@ asyncio.run(probe())
 """
 
 
-def test_main_warms_the_real_limiter_through_the_real_lifespan_before_it_serves() -> None:
-    # `main.app`'s lifespan, in a child: the real `RedisRateLimiter` and the real pool class,
-    # with only the three calls that would touch a socket replaced. Startup ends with the script
-    # loaded once, fifty connections asked for with no argument, and all fifty returned.
+def test_main_warms_the_real_limiter_and_cache_through_the_real_lifespan_before_it_serves() -> None:
+    # `main.app`'s lifespan, in a child: the real `RedisRateLimiter` and `RedisResponseCache` and
+    # the real pool class, with only the three calls that would touch a socket replaced. Was one
+    # pool of fifty (M16); with the cache (D-114) there are two pools of their own, so startup
+    # ends with the script loaded ONCE (the cache has none), a hundred connections asked for
+    # with no argument, fifty from each pool, and all hundred returned.
     script = child_prelude() + WARM_PRELUDE + WARM_PROBE
     # The script is fixed text above, not outside input.
     result = subprocess.run(  # noqa: S603
@@ -740,13 +746,21 @@ def test_main_warms_the_real_limiter_through_the_real_lifespan_before_it_serves(
     assert result.returncode == 0, result.stderr
     out = json.loads(result.stdout.strip().splitlines()[-1])
     assert out == {
-        "started": [1, 50, 50],
+        "started": [1, 100, 100],
         "script_is_the_limiters": True,
         "get_args": [[[], {}]],
-        "released_distinct": 50,
+        "released_distinct": 100,
+        "pools": 2,
+        "gets_per_pool": [50, 50],
     }
     infos = [line for line in result.stderr.splitlines() if "ratelimit_warm" in line]
     assert len(infos) == 1, result.stderr
     assert infos[0].endswith(" INFO llmgateway.ratelimit ratelimit_warm opened=50 of=50"), infos[0]
+    # The cache's own line, after the limiter's (D-114: warmed after it).
+    caches = [line for line in result.stderr.splitlines() if "cache_warm" in line]
+    assert len(caches) == 1, result.stderr
+    assert caches[0].endswith(" INFO llmgateway.cache cache_warm opened=50 of=50"), caches[0]
+    lines = result.stderr.splitlines()
+    assert lines.index(infos[0]) < lines.index(caches[0])
     assert MARKER not in result.stderr + result.stdout
     assert "Traceback" not in result.stderr

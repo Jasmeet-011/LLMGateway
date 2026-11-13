@@ -33,6 +33,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
@@ -627,3 +628,117 @@ def test_both_outage_tests_are_collected_last_with_the_ratelimit_tests_in_the_ru
         [POSTGRES_OUTAGE, REDIS_OUTAGE]
     )
     assert any("test_compose_stack_ratelimit.py" in line for line in ids)
+
+
+# M17: the cache tests, which run docker, read and write Redis with redis-cli and start a second
+# gateway on 127.0.0.1:8001 with a mounted config (D-117). They read nothing from the repository
+# before their first docker command, so no stub is needed, and none of them stops a service.
+
+CACHE_INTEGRATION_FILE = TESTS_DIR / "test_compose_stack_cache.py"
+
+
+@pytest.mark.parametrize("base_url", NOT_LOCAL)
+def test_the_cache_tests_fail_before_any_docker_command_or_request_without_a_local_url(
+    tmp_path: Path, base_url: str | None
+) -> None:
+    run = _run_integration_file(tmp_path, base_url, CACHE_INTEGRATION_FILE)
+    _assert_every_test_failed(run, CACHE_INTEGRATION_FILE)
+    for case in run.cases:
+        assert VARIABLE in case.text, (case.name, case.text)
+    assert run.attempts == []
+
+
+@pytest.mark.parametrize("base_url", ["http://127.0.0.1:1", "http://localhost:1"])
+def test_the_cache_tests_do_attempt_docker_or_a_connection_for_a_local_url(
+    tmp_path: Path, base_url: str
+) -> None:
+    run = _run_integration_file(tmp_path, base_url, CACHE_INTEGRATION_FILE)
+    _assert_every_test_failed(run, CACHE_INTEGRATION_FILE)
+    assert len(run.attempts) >= len(run.cases), run.output
+    docker_commands = [attempt for attempt in run.attempts if attempt.startswith("popen")]
+    assert docker_commands, run.output
+    assert all("docker" in attempt for attempt in docker_commands), docker_commands
+    assert any("redis-cli" in attempt for attempt in docker_commands), docker_commands
+
+
+def test_the_cache_tests_leave_no_second_gateway_or_directory_behind_when_they_cannot_start(
+    tmp_path: Path,
+) -> None:
+    # With a local address and every docker command refused, the second-gateway test fails at its
+    # first command (making the key), before it makes the directory for its config: nothing of
+    # the test is left in the temporary directory.
+    before = {p.name for p in Path(tempfile.gettempdir()).glob("llmgateway-cache-test-*")}
+    run = _run_integration_file(tmp_path, "http://127.0.0.1:1", CACHE_INTEGRATION_FILE)
+    after = {p.name for p in Path(tempfile.gettempdir()).glob("llmgateway-cache-test-*")}
+    assert after == before, run.output
+
+
+def test_no_cache_test_is_an_outage_test() -> None:
+    # Exactly two tests are named `test_zz_outage_...` and run last (D-094, D-106); none of the
+    # cache tests stops or pauses a service, so none may be.
+    source = CACHE_INTEGRATION_FILE.read_text(encoding="utf-8")
+    assert re.findall(r"^(?:async )?def (test_zz_outage_\w*)", source, flags=re.MULTILINE) == []
+    for word in ("stop", "pause", "kill", "restart"):
+        assert not re.search(rf'compose\(\s*"{word}"', source), word
+
+
+def test_both_outage_tests_are_still_collected_last_with_the_cache_tests_in_the_run(
+    tmp_path: Path,
+) -> None:
+    files = (
+        INTEGRATION_FILE,
+        AUTH_INTEGRATION_FILE,
+        CACHE_INTEGRATION_FILE,
+        RATELIMIT_INTEGRATION_FILE,
+        USAGE_INTEGRATION_FILE,
+        SUPPORT_FILE,
+    )
+    for file in files:
+        (tmp_path / file.name).write_text(file.read_text(encoding="utf-8"), encoding="utf-8")
+    (tmp_path / "pytest.ini").write_text(INI, encoding="utf-8")
+    shutil.copy(TESTS_DIR / "conftest.py", tmp_path / "conftest.py")
+    env = {k: v for k, v in os.environ.items() if k not in ("PYTEST_ADDOPTS", VARIABLE)}
+    # The command is fixed text and copies of this repo's own test files.
+    result = subprocess.run(  # noqa: S603
+        [
+            sys.executable,
+            "-m",
+            "pytest",
+            "-c",
+            str(tmp_path / "pytest.ini"),
+            "--rootdir",
+            str(tmp_path),
+            "-p",
+            "no:cacheprovider",
+            "-m",
+            "integration",
+            "--collect-only",
+            "-q",
+            str(tmp_path / USAGE_INTEGRATION_FILE.name),
+            str(tmp_path / CACHE_INTEGRATION_FILE.name),
+            str(tmp_path / RATELIMIT_INTEGRATION_FILE.name),
+            str(tmp_path / AUTH_INTEGRATION_FILE.name),
+            str(tmp_path / INTEGRATION_FILE.name),
+        ],
+        cwd=tmp_path,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    ids = [line for line in result.stdout.splitlines() if "::" in line]
+    assert len(ids) == sum(
+        _expected_count(file)
+        for file in (
+            INTEGRATION_FILE,
+            AUTH_INTEGRATION_FILE,
+            CACHE_INTEGRATION_FILE,
+            RATELIMIT_INTEGRATION_FILE,
+            USAGE_INTEGRATION_FILE,
+        )
+    ), result.stdout
+    assert sum("zz_outage" in line for line in ids) == 2
+    assert sorted(line.rsplit("::", 1)[1] for line in ids[-2:]) == sorted(
+        [POSTGRES_OUTAGE, REDIS_OUTAGE]
+    )
+    assert any("test_compose_stack_cache.py" in line for line in ids)
