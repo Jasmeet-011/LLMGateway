@@ -32,9 +32,9 @@ Key design choices:
 - The client retries a command once, and only on `ConnectionError`, from a blocking pool
   of 50 whose wait is bounded only by the take's budget. redis-py's pool hands out an idle
   connection the server closed (a Redis restart), which fails once; the retry reconnects,
-  so a restart costs no request its limit. A timeout is never retried (D-106). `warm`
-  opens all 50 connections and loads the script at startup, so a first burst does not
-  spend its budget connecting.
+  so once Redis answers again a restart costs no request its limit. A timeout is never
+  retried (D-106). `warm` opens all 50 connections and loads the script at startup, so a
+  first burst does not spend its budget connecting.
 - A refused request gets 429 `rate_limited` with `Retry-After`, the bucket's time to
   one token in whole seconds, at least 1. It stops here, so it reaches no provider, makes
   no usage record and is neither a failure nor a success for any provider breaker (D-107).
