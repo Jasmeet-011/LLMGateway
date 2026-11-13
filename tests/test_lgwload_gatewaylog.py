@@ -376,3 +376,151 @@ def test_gateway_counts_is_a_frozen_dataclass() -> None:
     counts = gateway_counts([], "t")
     assert dataclasses.is_dataclass(counts) is True
     assert_frozen(counts, "fallbacks", 5)
+
+
+# --- before_auth (D-122, amended 2026-11-13) -------------------------------------------------
+#
+# A request line whose tenant is `-` is a request the gateway answered before it knew the key's
+# tenant: 401, or 503 `auth_unavailable` (D-091). `before_auth` counts those lines by status,
+# whatever the `tenant` argument. A tenant-less 200 is a health check and is left out.
+
+REAL_REQUEST = "llmgateway.request"
+REAL_503_LINE = (
+    f"2026-11-13T21:07:30.568+00:00 INFO {REAL_REQUEST} request_id=gw_87b1 tenant=- key_id=- "
+    "provider=- model=- status=503 latency_ms=2198.7 provider_model=-"
+)
+
+
+def test_a_real_tenantless_503_line_is_counted_in_before_auth_and_not_in_by_status() -> None:
+    counts = gateway_counts([REAL_503_LINE], "m4-on-r3")
+    assert counts.before_auth == {503: 1}
+    assert counts.by_status == {}
+
+
+def test_before_auth_counts_tenantless_request_lines_by_status() -> None:
+    lines = [
+        request_line("gw_1", "-", 503),
+        request_line("gw_2", "-", 503),
+        request_line("gw_3", "-", 503),
+        request_line("gw_4", "-", 401),
+        request_line("gw_5", "-", 401),
+        request_line("gw_6", "-", 429),
+    ]
+    assert gateway_counts(lines, "m4-on-r1").before_auth == {503: 3, 401: 2, 429: 1}
+
+
+@pytest.mark.parametrize("tenant", ["m4-on-r1", "someone-else", "", "-"])
+def test_before_auth_is_the_same_whatever_the_tenant_argument(tenant: str) -> None:
+    lines = [
+        request_line("gw_1", "-", 503),
+        request_line("gw_2", "-", 401),
+        request_line("gw_3", "m4-on-r1", 200),
+    ]
+    assert gateway_counts(lines, tenant).before_auth == {503: 1, 401: 1}
+
+
+def test_a_tenantless_200_is_a_health_check_and_is_not_counted() -> None:
+    lines = [request_line("gw_1", "-", 200), request_line("gw_2", "-", 200)]
+    counts = gateway_counts(lines, "t")
+    assert counts.before_auth == {}
+    assert counts.by_status == {}
+
+
+def test_tenantless_200s_are_left_out_while_tenantless_errors_beside_them_are_counted() -> None:
+    lines = [
+        request_line("gw_1", "-", 200),
+        request_line("gw_2", "-", 503),
+        request_line("gw_3", "-", 200),
+        request_line("gw_4", "-", 401),
+    ]
+    assert gateway_counts(lines, "t").before_auth == {503: 1, 401: 1}
+
+
+def test_a_tenantless_line_with_an_error_suffix_is_counted_by_its_status() -> None:
+    lines = [request_line("gw_1", "-", 503, error="AuthUnavailable")]
+    assert gateway_counts(lines, "t").before_auth == {503: 1}
+
+
+def test_lines_of_the_tenant_are_counted_in_by_status_as_before_and_not_in_before_auth() -> None:
+    lines = [
+        request_line("gw_1", "m4-on-r1", 200),
+        request_line("gw_2", "m4-on-r1", 200),
+        request_line("gw_3", "m4-on-r1", 502),
+        request_line("gw_4", "m4-on-r1", 503),
+    ]
+    counts = gateway_counts(lines, "m4-on-r1")
+    assert counts.by_status == {200: 2, 502: 1, 503: 1}
+    assert counts.before_auth == {}
+
+
+def test_tenantless_lines_do_not_change_by_status_of_the_tenant() -> None:
+    own = [request_line("gw_1", "t", 200), request_line("gw_2", "t", 502)]
+    noise = [
+        request_line("gw_3", "-", 503),
+        request_line("gw_4", "-", 200),
+        request_line("gw_5", "-", 401),
+    ]
+    assert gateway_counts(own + noise, "t").by_status == gateway_counts(own, "t").by_status
+    assert gateway_counts(noise + own, "t").by_status == {200: 1, 502: 1}
+
+
+def test_other_tenants_non_200_lines_are_not_before_auth() -> None:
+    lines = [request_line("gw_1", "theirs", 503), request_line("gw_2", "theirs", 401)]
+    assert gateway_counts(lines, "mine").before_auth == {}
+
+
+def test_before_auth_defaults_to_an_empty_dict_and_is_not_shared_between_instances() -> None:
+    assert GatewayCounts().before_auth == {}
+    assert GatewayCounts().before_auth is not GatewayCounts().before_auth
+    assert GatewayCounts(by_status={200: 1}).before_auth == {}
+
+
+def test_a_log_without_tenantless_lines_has_an_empty_before_auth() -> None:
+    assert gateway_counts([], "t").before_auth == {}
+    assert gateway_counts([request_line("gw_1", "t", 502)], "t").before_auth == {}
+
+
+def test_counts_can_be_built_with_before_auth_and_compare_by_value() -> None:
+    lines = [request_line("gw_1", "t", 200), request_line("gw_2", "-", 503)]
+    assert gateway_counts(lines, "t") == GatewayCounts(
+        by_status={200: 1}, failed_attempts=0, fallbacks=0, before_auth={503: 1}
+    )
+
+
+def test_attempts_and_fallbacks_of_a_tenantless_request_are_not_the_tenants() -> None:
+    lines = [
+        attempt_line("gw_9"),
+        fallback_line("gw_9"),
+        request_line("gw_9", "-", 503),
+        request_line("gw_1", "t", 200),
+    ]
+    counts = gateway_counts(lines, "t")
+    assert (counts.failed_attempts, counts.fallbacks) == (0, 0)
+    assert counts.before_auth == {503: 1}
+
+
+def test_failed_attempts_and_fallbacks_of_the_tenant_are_unchanged_by_tenantless_lines() -> None:
+    own = [
+        attempt_line("gw_1", 1),
+        attempt_line("gw_1", 2),
+        fallback_line("gw_1"),
+        request_line("gw_1", "t", 200),
+    ]
+    noise = [request_line("gw_2", "-", 503), request_line("gw_3", "-", 401)]
+    counts = gateway_counts(own + noise, "t")
+    assert (counts.failed_attempts, counts.fallbacks) == (2, 1)
+    assert counts.by_status == {200: 1}
+    assert counts.before_auth == {503: 1, 401: 1}
+
+
+def test_a_line_with_a_status_but_no_tenant_field_is_not_a_request_line_for_before_auth() -> None:
+    stream_failed = (
+        f"{ROUTER} stream_failed request_id=gw_9 alias='a' provider=mock model='m' "
+        "status=502 reason=injected"
+    )
+    assert gateway_counts([stream_failed], "t").before_auth == {}
+
+
+def test_tenantless_lines_with_a_trailing_newline_are_counted_as_when_read_from_a_file() -> None:
+    lines = [request_line("gw_1", "-", 503) + "\n", request_line("gw_2", "-", 200) + "\r\n"]
+    assert gateway_counts(lines, "t").before_auth == {503: 1}
