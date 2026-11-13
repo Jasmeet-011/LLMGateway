@@ -96,6 +96,18 @@ Distilled from the mistakes logs. The full history is in [docs/archive/2026-11-s
 
 Newest sessions go here. When this file passes 50 KB, move the session log and the mistakes rows, unchanged, to a new file in [docs/archive/](docs/archive/), and keep the Lessons section current.
 
+### 2026-11-13: owner's results, then M18 Load tests and results
+
+**Recorded first** (30502e8, pushed): the owner confirmed D-106's last-success rule; CLAUDE.md now says "Provider calls are retried only in the router"; the `ver` fix's place in the child's recorder `conftest.py` is accepted with the forced-WMI evidence; the owner's `MINIMAL` live run on `gemini-3.6-flash` (no `thoughtsTokenCount`, 20 in, 20 out, `STOP`) is on D-049 and in README.md's Known limitations.
+
+**Plan for M18** (PLAN.md's M18 entry and Measurements table; the owner's brief).
+1. Spec first: D-118 (k6 2.3.0 by digest), D-119 (the stack, one worker, limits, keys), D-120 (definitions: success, latency, overhead against a direct mock, A and B), D-121 (pre-registered runs, order, median and range, reruns), D-122 (the analysis package, the cross-check, the chart).
+2. Tests, Mode 1, for `loadtest/lgwload/` and the load-test files, red before the code.
+3. Build the config, overrides, direct mock, k6 scripts, `run.ps1`, `lgwload` and `report.py`; `check.ps1`; smoke runs.
+4. RESULTS.md's conditions and every exact command, committed and pushed before the first measured run.
+5. The 30 runs in D-121's order; the report; RESULTS.md, README.md.
+6. Mode 2 on every failure-path test, reviewer (at most two rounds), push, CI green, tick M18.
+
 ### 2026-11-12 and 13: M17 Tenant-scoped response cache
 
 The same session began with the owner's estimate results and the limiter's shed, breaker and pre-warm (D-106, pushed in c97bb20, CI run 43344654684) and the `ver` flake fix (08d1627, CI run 43345819414); that part is in [docs/archive/2026-11-d106-sessions.md](docs/archive/2026-11-d106-sessions.md).

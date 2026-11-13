@@ -47,7 +47,9 @@ select = ["E", "W", "F", "I", "B", "UP", "SIM", "S", "ASYNC", "RUF"]
 python_version = "3.12"
 strict = true
 plugins = ["pydantic.mypy"]
-files = ["src", "tests"]
+files = ["src", "tests", "loadtest"]
+# The load-test analysis package (D-122) is imported from loadtest/, not installed.
+mypy_path = "loadtest"
 
 # asyncpg ships no type information; keystore.py converts its values at the boundary (D-085).
 [[tool.mypy.overrides]]
@@ -61,6 +63,8 @@ warn_required_dynamic_aliases = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# The load-test analysis package (D-122) lives in loadtest/lgwload and is not installed.
+pythonpath = ["loadtest"]
 # Live tests call real provider APIs; only the owner runs them, with `pytest -m live`.
 # Integration tests need the Compose stack; CI runs them with `pytest -m integration` (D-081).
 addopts = "-ra --strict-markers --strict-config -m 'not live and not integration'"
