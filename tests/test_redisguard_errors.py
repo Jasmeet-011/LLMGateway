@@ -8,11 +8,17 @@ raised from the original exception (`from exc`) kept its message one step behind
 
 Each guard error is `from None` (no `__cause__`, the context suppressed), names the class of what
 it replaces, and holds no planted message, URL or reply content in its text.
+
+An `accept` that raises (the reviewer's SHOULD FIX 2, D-106's "a probe always gives its slot
+back") is a bug like any exception from the operation: it propagates as itself, unchanged and not
+wrapped, with a neutral outcome for the breaker (closed or half-open), so the next call after a
+failed probe still gets a permit, and nothing is logged with its message.
 """
 
 import pytest
 import redis.exceptions as rexc
-from ratelimit_support import MARKER, URL_MARKER
+from ratelimit_support import MARKER, URL_MARKER, everything_logged
+from stream_support import FakeClock, Outcomes
 
 from llmgateway.breaker import BreakerPolicy, CircuitBreaker
 from llmgateway.redisguard import (
@@ -111,3 +117,90 @@ async def test_an_open_guard_raises_guard_open_without_calling_the_operation() -
         await guard.call(failing)
     assert calls == [1]
     assert_clean(info.value, replaces_one=False)
+
+
+# An `accept` that raises is a bug: it propagates as itself, and the permit is still recorded
+
+
+class AcceptBug(Exception):
+    pass
+
+
+def guard_with_clock(clock: FakeClock) -> tuple[RedisGuard, CircuitBreaker]:
+    breaker = CircuitBreaker(
+        "test", BreakerPolicy(window_size=5, failure_threshold=5, cooldown=5.0), clock=clock
+    )
+    return RedisGuard(breaker, timeout=1.0, clock=clock), breaker
+
+
+def state_of(breaker: CircuitBreaker) -> str:
+    return breaker.state
+
+
+def broken_accept(reply: object) -> bool:
+    raise ACCEPT_BUG
+
+
+ACCEPT_BUG = AcceptBug(f"accept blew up on {URL_MARKER}: {MARKER}")
+
+
+async def fine() -> object:
+    return [1, 0]
+
+
+@pytest.mark.asyncio
+async def test_an_accept_that_raises_comes_out_unchanged_and_the_outcome_is_neutral_when_closed(
+    monkeypatch: pytest.MonkeyPatch, all_logs: pytest.LogCaptureFixture
+) -> None:
+    outcomes = Outcomes(monkeypatch)
+    guard, breaker = guard_with_clock(FakeClock())
+    with pytest.raises(AcceptBug) as info:
+        await guard.call(fine, accept=broken_accept)
+    assert info.value is ACCEPT_BUG
+    wrapped = isinstance(info.value, GuardBadReply | GuardStoreError | GuardTimeout)
+    assert not wrapped
+    assert outcomes.of(breaker) == ["neutral"]
+    assert state_of(breaker) == "closed"
+    # Neutral enters no window: four failures, the bug, one more failure still make five.
+    for _ in range(4):
+        with pytest.raises(GuardStoreError):
+            await guard.call(_failing)
+    assert state_of(breaker) == "closed"
+    with pytest.raises(AcceptBug):
+        await guard.call(fine, accept=broken_accept)
+    with pytest.raises(GuardStoreError):
+        await guard.call(_failing)
+    assert state_of(breaker) == "open"
+    # Nothing was logged with the exception's message, at any level.
+    assert MARKER not in everything_logged(all_logs)
+    assert URL_MARKER not in everything_logged(all_logs)
+
+
+async def _failing() -> object:
+    raise rexc.ConnectionError("down")
+
+
+@pytest.mark.asyncio
+async def test_an_accept_that_raises_in_the_probe_is_neutral_and_gives_the_slot_back(
+    monkeypatch: pytest.MonkeyPatch, all_logs: pytest.LogCaptureFixture
+) -> None:
+    outcomes = Outcomes(monkeypatch)
+    clock = FakeClock()
+    guard, breaker = guard_with_clock(clock)
+    for _ in range(5):
+        with pytest.raises(GuardStoreError):
+            await guard.call(_failing)
+    assert state_of(breaker) == "open"
+    clock.advance(5.0)
+    # This call is the probe: its `accept` raises.
+    with pytest.raises(AcceptBug) as info:
+        await guard.call(fine, accept=broken_accept)
+    assert info.value is ACCEPT_BUG
+    assert outcomes.of(breaker)[5:] == ["neutral"]
+    assert state_of(breaker) == "half_open"
+    # The slot is back: the next call is a probe too (not GuardOpen), and its success closes it.
+    assert await guard.call(fine) == [1, 0]
+    assert state_of(breaker) == "closed"
+    assert outcomes.of(breaker)[5:] == ["neutral", "success"]
+    assert MARKER not in everything_logged(all_logs)
+    assert URL_MARKER not in everything_logged(all_logs)

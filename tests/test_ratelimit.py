@@ -36,6 +36,7 @@ import importlib.resources
 import inspect
 import re
 import socket
+import threading
 import time
 from contextlib import closing
 from typing import Any
@@ -53,7 +54,7 @@ from ratelimit_support import (
     ratelimit_module,
     unavailable,
 )
-from stream_support import pass_time, until
+from stream_support import Outcomes, pass_time, until
 from usage_support import virtual_loop_time
 
 KEY_ID = "a1b2c3d4e5f60718"
@@ -858,3 +859,75 @@ async def test_the_real_client_against_a_silent_server_is_a_timeout_after_the_bu
         # It waited the budget (not an instant answer) and then stopped.
         assert 0.9 <= elapsed < BOUND
         await limiter.aclose()
+
+
+# A full pool is a shed, not a store error (FLOW.md section 13, D-106's second amendment)
+
+
+class SilentServer:
+    """A listener that accepts connections, counts them, holds them open and never answers."""
+
+    def __init__(self) -> None:
+        self.listener = socket.socket()
+        self.listener.bind(("127.0.0.1", 0))
+        self.listener.listen(16)
+        self.port: int = self.listener.getsockname()[1]
+        self.accepted: list[socket.socket] = []
+        self._thread = threading.Thread(target=self._serve, daemon=True)
+        self._thread.start()
+
+    def _serve(self) -> None:
+        while True:
+            try:
+                connection, _ = self.listener.accept()
+            except OSError:
+                return
+            self.accepted.append(connection)
+
+    def close(self) -> None:
+        self.listener.close()
+        for connection in self.accepted:
+            connection.close()
+
+
+@pytest.mark.asyncio
+async def test_a_take_waiting_in_a_full_pool_ends_as_a_rate_limit_timeout_not_a_store_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The real client of `redis_client` with its pool cut to one connection, against a server
+    # that never answers. One take holds the only connection; a second waits for it in the pool.
+    # D-106: the pool's wait has no limit of its own (`timeout=None`), so the second take is
+    # bounded by its budget and is a `RateLimitTimeout`, never `ConnectionError("No connection
+    # available")` and so a `store_error` that would be served unlimited. With no success ever,
+    # both timeouts are failures for the breaker.
+    outcomes = Outcomes(monkeypatch)
+    server = SilentServer()
+    try:
+        client = ratelimit_module().redis_client(f"redis://127.0.0.1:{server.port}/0")
+        client.connection_pool.max_connections = 1
+        limiter = make_limiter(client, timeout=0.2)
+        first = asyncio.ensure_future(limiter.take(KEY_ID))
+        deadline = time.monotonic() + 10
+        while not server.accepted and time.monotonic() < deadline:  # noqa: ASYNC110
+            await asyncio.sleep(0.01)
+        assert len(server.accepted) == 1, "the first take never opened its connection"
+        started = time.monotonic()
+        second = asyncio.ensure_future(limiter.take(KEY_ID))
+        await asyncio.sleep(0.05)
+        # Both are still running: the second waits for the pool, it did not fail at once, and
+        # the pool opened no second connection.
+        assert not first.done()
+        assert not second.done()
+        assert len(server.accepted) == 1
+        results = await asyncio.gather(first, second, return_exceptions=True)
+        waited = time.monotonic() - started
+        module = ratelimit_module()
+        for result in results:
+            assert isinstance(result, module.RateLimitTimeout), results
+            assert result.error_type == "TimeoutError"
+        # The second take waited its own budget in the pool, not less.
+        assert waited >= 0.15
+        assert [kind for _, kind in outcomes.calls] == ["failure", "failure"]
+        await limiter.aclose()
+    finally:
+        server.close()
