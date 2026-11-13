@@ -998,4 +998,6 @@ def test_no_other_column_of_usage_records_has_a_comment() -> None:
         "AND a.attnum > 0 AND NOT a.attisdropped "
         "AND col_description('usage_records'::regclass, a.attnum) IS NOT NULL ORDER BY a.attname"
     )
-    assert lines(commented) == ["delivered_chars", "estimated_output_tokens"]
+    # D-113's migration 0004 comments `cache_hit` too (its text is checked in
+    # `test_compose_stack_cache.py`); it sorts first. Was just the two estimate columns.
+    assert lines(commented) == ["cache_hit", "delivered_chars", "estimated_output_tokens"]
