@@ -1,7 +1,8 @@
 """One rule for calling Redis: a time budget, a circuit breaker, and pool pre-warming.
 
-Why it exists: the rate limiter (D-106) and the response cache (D-114) both call Redis on
-a request's path, and both must tell "Redis is down" apart from "this gateway is busy".
+Why it exists: the rate limiter (D-106) and, from M17, the response cache (D-114) call
+Redis on a request's path, and both must tell "Redis is down" apart from "this gateway is
+busy".
 Holding that rule once keeps the two from drifting apart.
 
 Key design choices:
@@ -14,7 +15,8 @@ Key design choices:
   `GuardTimeout`; any other `RedisError` or an `OSError` is `GuardStoreError`; a reply the
   caller rejects is `GuardBadReply`. The caller decides what each means for its request.
 - The breaker's outcomes: a store error or a rejected reply is a failure; an accepted reply
-  is a success; a cancellation is neutral, so a probe gives its slot back. A timeout is a
+  is a success; a cancellation, or any other exception from the call or from `accept`,
+  is neutral and propagates unchanged, so a probe always gives its slot back. A timeout is a
   failure only if no call of this guard succeeded between the moment it started and the
   moment it timed out. If Redis answered other calls during the wait, the wait was the
   gateway's own (a busy event loop, a full pool), and counting it would let an overloaded
@@ -103,7 +105,13 @@ class RedisGuard:
         except BaseException:
             self._breaker.record_neutral(permit)
             raise
-        if not accept(reply):
+        try:
+            accepted = accept(reply)
+        except BaseException:
+            # A bug in the check: neutral, so a probe still gives its slot back (D-106).
+            self._breaker.record_neutral(permit)
+            raise
+        if not accepted:
             self._breaker.record_failure(permit)
             raise GuardBadReply(type(reply).__name__)
         self._last_success = self._clock()
