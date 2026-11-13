@@ -1,0 +1,36 @@
+{
+  "id": "m5-r3",
+  "catalog_id": "m5-r3",
+  "measurement": 5,
+  "smoke": false,
+  "rerun": 0,
+  "command": ".\\loadtest\\run.ps1 -Run m5-r3",
+  "script": "burst.js",
+  "target": "http://api:8000",
+  "alias": "steady",
+  "compose_files": [
+    "compose.yaml",
+    "loadtest/compose.loadtest.yaml",
+    "loadtest/compose.burst.yaml"
+  ],
+  "k6_image": "grafana/k6:2.3.0@sha256:2dd4756ec6e14e62778916e1eb850108e4b499304c02df56760fa0bdb0fba0b8",
+  "k6_args": [
+    "run",
+    "-q",
+    "--no-usage-report",
+    "--log-format",
+    "json",
+    "--console-output",
+    "/out/m5-r3/records.jsonl",
+    "--summary-export",
+    "/out/m5-r3/summary.json",
+    "/scripts/burst.js"
+  ],
+  "k6_exit_code": 0,
+  "api_image_id": "sha256:2279219a4354746f9b61d516bfeb77fb0bd36afa1fa89ff97dfc514edf388498",
+  "git_commit": "65b043ab00926bab33661884906df27d6b11f77e",
+  "git_dirty": false,
+  "key_id": "37e78f178b89eaac",
+  "started_utc": "2026-11-13T21:12:02.533Z",
+  "ended_utc": "2026-11-13T21:13:43.272Z"
+}

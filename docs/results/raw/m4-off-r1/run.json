@@ -1,0 +1,35 @@
+{
+  "id": "m4-off-r1",
+  "catalog_id": "m4-off-r1",
+  "measurement": 4,
+  "smoke": false,
+  "rerun": 0,
+  "command": ".\\loadtest\\run.ps1 -Run m4-off-r1",
+  "script": "failures.js",
+  "target": "http://api:8000",
+  "alias": "failures-off",
+  "compose_files": [
+    "compose.yaml",
+    "loadtest/compose.loadtest.yaml"
+  ],
+  "k6_image": "grafana/k6:2.3.0@sha256:2dd4756ec6e14e62778916e1eb850108e4b499304c02df56760fa0bdb0fba0b8",
+  "k6_args": [
+    "run",
+    "-q",
+    "--no-usage-report",
+    "--log-format",
+    "json",
+    "--console-output",
+    "/out/m4-off-r1/records.jsonl",
+    "--summary-export",
+    "/out/m4-off-r1/summary.json",
+    "/scripts/failures.js"
+  ],
+  "k6_exit_code": 0,
+  "api_image_id": "sha256:2279219a4354746f9b61d516bfeb77fb0bd36afa1fa89ff97dfc514edf388498",
+  "git_commit": "65b043ab00926bab33661884906df27d6b11f77e",
+  "git_dirty": false,
+  "key_id": "00c11d1fe577df74",
+  "started_utc": "2026-11-13T20:58:10.477Z",
+  "ended_utc": "2026-11-13T20:59:52.485Z"
+}

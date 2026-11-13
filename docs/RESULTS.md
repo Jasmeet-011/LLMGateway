@@ -2,7 +2,7 @@
 
 Load-test results for LLMGateway (M18). Every number here comes from a measured run whose raw output is committed under [results/raw/](results/raw/), and is computed by `uv run python loadtest/report.py`, which writes [results/tables.md](results/tables.md), [results/summary.json](results/summary.json) and the outage chart. The measurements are fixed by PLAN.md's Measurements table; the runs, their order and how they are aggregated were fixed in this file and pushed before the first run (D-121).
 
-**Status: pre-registered, not yet run.** The conditions and commands below were written before any measured run. Results are added below them after the runs; nothing above the Results heading is changed by the results except to record a defect.
+**Status: first pass run (2026-11-13, 20:31 to 21:33 UTC); 27 of its 30 runs are to be rerun because the laptop went into Modern Standby during it (a defect, recorded under Results).** The conditions and commands below were written before any measured run. Results are added below them after the runs; nothing above the Results heading is changed by the results except to record a defect.
 
 Everything here is measured against the **mock provider on one laptop**. No real provider is called. These numbers describe the gateway's own behaviour and cost, not Claude's or Gemini's latency or reliability.
 
@@ -95,7 +95,17 @@ Measurement 5 is correct when, in the burst, the 200s are at most 20 plus one pe
 
 ## Results
 
-Not yet run.
+### First pass (2026-11-13, 20:31 to 21:33 UTC, commit 65b043a)
+
+All 30 runs of the catalog ran once, in catalog order, from a script that called `.\loadtest\run.ps1 -Run <id>` for each id and would have stopped at the first failure. None failed: k6 exited 0 in all 30, and every run's output is committed under [results/raw/](results/raw/).
+
+**Defect: the laptop went into Modern Standby during the batch.** Windows' System log has Kernel-Power event 506, "The system is entering Modern Standby", at 20:36:01 UTC, and no exit event (507) after it through 21:36, when the builder checked. The batch was unattended, and the builder had not kept the machine awake (Agent Mistakes Log in PROGRESS.md). The conditions above describe an awake machine; from 20:36:01 they did not hold.
+
+- m1-direct-r1, m1-gateway-r1 and m1-nokeycache-r1 (20:31:01 to 20:35:16) ran awake.
+- m1-direct-r2 (from 20:35:16) was hit mid-run: standby began 36 s after its start, and from that second the direct mock stopped answering in time. Response times rose to 29 s, 23 requests failed with "connection reset by peer", and k6 dropped 1,212 iterations.
+- The other 26 runs ran wholly in standby.
+
+The figures of these 27 runs are reported with the rest, but they were not measured in the pre-registered conditions. They are rerun as `<id>-rerun1` with the machine awake, under D-121's rule for a recorded defect.
 
 ## Smoke runs (not results)
 

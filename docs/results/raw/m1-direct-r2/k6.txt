@@ -1,0 +1,46 @@
+{"error":"Post \"http://direct-mock:8000/v1/chat\": read tcp 172.21.0.6:52230-\u003e172.21.0.5:8000: read: connection reset by peer","level":"warning","msg":"Request Failed","time":"2026-11-13T20:36:13Z"}
+{"error":"Post \"http://direct-mock:8000/v1/chat\": read tcp 172.21.0.6:52306-\u003e172.21.0.5:8000: read: connection reset by peer","level":"warning","msg":"Request Failed","time":"2026-11-13T20:36:15Z"}
+{"error":"Post \"http://direct-mock:8000/v1/chat\": read tcp 172.21.0.6:52298-\u003e172.21.0.5:8000: read: connection reset by peer","level":"warning","msg":"Request Failed","time":"2026-11-13T20:36:15Z"}
+{"error":"Post \"http://direct-mock:8000/v1/chat\": read tcp 172.21.0.6:52316-\u003e172.21.0.5:8000: read: connection reset by peer","level":"warning","msg":"Request Failed","time":"2026-11-13T20:36:15Z"}
+{"error":"Post \"http://direct-mock:8000/v1/chat\": read tcp 172.21.0.6:52352-\u003e172.21.0.5:8000: read: connection reset by peer","level":"warning","msg":"Request Failed","time":"2026-11-13T20:36:15Z"}
+{"error":"Post \"http://direct-mock:8000/v1/chat\": read tcp 172.21.0.6:52330-\u003e172.21.0.5:8000: read: connection reset by peer","level":"warning","msg":"Request Failed","time":"2026-11-13T20:36:15Z"}
+{"error":"Post \"http://direct-mock:8000/v1/chat\": read tcp 172.21.0.6:51940-\u003e172.21.0.5:8000: read: connection reset by peer","level":"warning","msg":"Request Failed","time":"2026-11-13T20:36:15Z"}
+{"error":"Post \"http://direct-mock:8000/v1/chat\": read tcp 172.21.0.6:51926-\u003e172.21.0.5:8000: read: connection reset by peer","level":"warning","msg":"Request Failed","time":"2026-11-13T20:36:15Z"}
+{"error":"Post \"http://direct-mock:8000/v1/chat\": read tcp 172.21.0.6:51966-\u003e172.21.0.5:8000: read: connection reset by peer","level":"warning","msg":"Request Failed","time":"2026-11-13T20:36:15Z"}
+{"error":"Post \"http://direct-mock:8000/v1/chat\": read tcp 172.21.0.6:51932-\u003e172.21.0.5:8000: read: connection reset by peer","level":"warning","msg":"Request Failed","time":"2026-11-13T20:36:15Z"}
+{"error":"Post \"http://direct-mock:8000/v1/chat\": read tcp 172.21.0.6:51984-\u003e172.21.0.5:8000: read: connection reset by peer","level":"warning","msg":"Request Failed","time":"2026-11-13T20:36:15Z"}
+{"error":"Post \"http://direct-mock:8000/v1/chat\": read tcp 172.21.0.6:51980-\u003e172.21.0.5:8000: read: connection reset by peer","level":"warning","msg":"Request Failed","time":"2026-11-13T20:36:15Z"}
+{"error":"Post \"http://direct-mock:8000/v1/chat\": read tcp 172.21.0.6:52020-\u003e172.21.0.5:8000: read: connection reset by peer","level":"warning","msg":"Request Failed","time":"2026-11-13T20:36:15Z"}
+{"error":"Post \"http://direct-mock:8000/v1/chat\": read tcp 172.21.0.6:52012-\u003e172.21.0.5:8000: read: connection reset by peer","level":"warning","msg":"Request Failed","time":"2026-11-13T20:36:15Z"}
+{"error":"Post \"http://direct-mock:8000/v1/chat\": read tcp 172.21.0.6:52034-\u003e172.21.0.5:8000: read: connection reset by peer","level":"warning","msg":"Request Failed","time":"2026-11-13T20:36:15Z"}
+{"error":"Post \"http://direct-mock:8000/v1/chat\": read tcp 172.21.0.6:52062-\u003e172.21.0.5:8000: read: connection reset by peer","level":"warning","msg":"Request Failed","time":"2026-11-13T20:36:15Z"}
+{"error":"Post \"http://direct-mock:8000/v1/chat\": read tcp 172.21.0.6:52000-\u003e172.21.0.5:8000: read: connection reset by peer","level":"warning","msg":"Request Failed","time":"2026-11-13T20:36:15Z"}
+{"error":"Post \"http://direct-mock:8000/v1/chat\": read tcp 172.21.0.6:52072-\u003e172.21.0.5:8000: read: connection reset by peer","level":"warning","msg":"Request Failed","time":"2026-11-13T20:36:15Z"}
+{"error":"Post \"http://direct-mock:8000/v1/chat\": read tcp 172.21.0.6:52022-\u003e172.21.0.5:8000: read: connection reset by peer","level":"warning","msg":"Request Failed","time":"2026-11-13T20:36:15Z"}
+{"error":"Post \"http://direct-mock:8000/v1/chat\": read tcp 172.21.0.6:52094-\u003e172.21.0.5:8000: read: connection reset by peer","level":"warning","msg":"Request Failed","time":"2026-11-13T20:36:17Z"}
+{"error":"Post \"http://direct-mock:8000/v1/chat\": read tcp 172.21.0.6:52110-\u003e172.21.0.5:8000: read: connection reset by peer","level":"warning","msg":"Request Failed","time":"2026-11-13T20:36:17Z"}
+{"error":"Post \"http://direct-mock:8000/v1/chat\": read tcp 172.21.0.6:52102-\u003e172.21.0.5:8000: read: connection reset by peer","level":"warning","msg":"Request Failed","time":"2026-11-13T20:36:17Z"}
+{"error":"Post \"http://direct-mock:8000/v1/chat\": read tcp 172.21.0.6:52118-\u003e172.21.0.5:8000: read: connection reset by peer","level":"warning","msg":"Request Failed","time":"2026-11-13T20:36:17Z"}
+
+
+  █ TOTAL RESULTS 
+
+    HTTP
+    http_req_duration..............: avg=3.93s min=19.89ms med=21.76ms max=29.19s p(50)=21.76ms p(95)=24.03s p(99)=28.97s
+      { expected_response:true }...: avg=3.95s min=19.89ms med=21.75ms max=29.19s p(50)=21.75ms p(95)=24.05s p(99)=28.98s
+    http_req_failed................: 1.21%  23 out of 1889
+    http_reqs......................: 1889   20.337882/s
+
+    EXECUTION
+    dropped_iterations.............: 1212   13.048974/s
+    iteration_duration.............: avg=4.23s min=21.79ms med=22.8ms  max=30.93s p(50)=22.8ms  p(95)=24.27s p(99)=29.17s
+    iterations.....................: 1889   20.337882/s
+    vus............................: 27     min=0          max=243
+    vus_max........................: 263    min=70         max=263
+
+    NETWORK
+    data_received..................: 442 kB 4.8 kB/s
+    data_sent......................: 463 kB 5.0 kB/s
+
+
+

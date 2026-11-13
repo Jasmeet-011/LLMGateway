@@ -1,0 +1,20 @@
+INFO:     Started server process [1]
+INFO:     Waiting for application startup.
+2026-11-13T20:35:20.612+00:00 INFO llmgateway.ratelimit ratelimit_warm opened=50 of=50
+2026-11-13T20:35:20.757+00:00 INFO llmgateway.cache cache_warm opened=50 of=50
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     127.0.0.1:54280 - "GET /healthz HTTP/1.1" 200 OK
+2026-11-13T20:35:23.937+00:00 INFO llmgateway.request request_id=gw_a1b05e3b239841cd80ac449d004899f7 tenant=- key_id=- provider=- model=- status=200 latency_ms=1.6 provider_model=-
+INFO:     127.0.0.1:35586 - "GET /healthz HTTP/1.1" 200 OK
+2026-11-13T20:35:29.324+00:00 INFO llmgateway.request request_id=gw_26e92267bb824d6f905e7c0266124c1e tenant=- key_id=- provider=- model=- status=200 latency_ms=0.6 provider_model=-
+INFO:     127.0.0.1:35594 - "GET /healthz HTTP/1.1" 200 OK
+2026-11-13T20:35:34.683+00:00 INFO llmgateway.request request_id=gw_23f6dd1ac1694afb9d12849a7cc2f3d5 tenant=- key_id=- provider=- model=- status=200 latency_ms=0.6 provider_model=-
+INFO:     127.0.0.1:35520 - "GET /healthz HTTP/1.1" 200 OK
+2026-11-13T20:35:40.054+00:00 INFO llmgateway.request request_id=gw_f6b71249ea30492da1ffef65cd5aef08 tenant=- key_id=- provider=- model=- status=200 latency_ms=0.6 provider_model=-
+INFO:     127.0.0.1:35532 - "GET /healthz HTTP/1.1" 200 OK
+2026-11-13T20:35:45.420+00:00 INFO llmgateway.request request_id=gw_92f7d241b1f64d8b9a10a84aed450b3b tenant=- key_id=- provider=- model=- status=200 latency_ms=0.6 provider_model=-
+INFO:     127.0.0.1:42412 - "GET /healthz HTTP/1.1" 200 OK
+2026-11-13T20:35:50.791+00:00 INFO llmgateway.request request_id=gw_b6d7495ed77d4ecca2b482dcf34ca6bb tenant=- key_id=- provider=- model=- status=200 latency_ms=0.5 provider_model=-
+INFO:     127.0.0.1:42438 - "GET /healthz HTTP/1.1" 200 OK
+2026-11-13T20:35:56.183+00:00 INFO llmgateway.request request_id=gw_bc5db3e592e2422f800cfd3954898cc4 tenant=- key_id=- provider=- model=- status=200 latency_ms=0.6 provider_model=-
