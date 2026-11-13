@@ -46,7 +46,7 @@ from cache_support import (
     cache_records,
     everything_logged,
 )
-from ratelimit_support import FakePool, Hang, ratelimit_module
+from ratelimit_support import FakePool, Hang, assert_reconnect_policy, ratelimit_module
 from stream_support import pass_time, until
 from usage_support import virtual_loop_time
 
@@ -356,11 +356,11 @@ def test_cache_client_has_one_second_socket_and_connect_timeouts_like_the_limite
     assert type(kwargs["socket_timeout"]) is float
 
 
-def test_cache_client_does_not_retry_a_command() -> None:
+def test_cache_client_retries_a_command_once_and_only_on_a_connection_error() -> None:
     client = cache_module().cache_client("redis://example.invalid:6379/0")
     retry = client.connection_pool.connection_kwargs["retry"]
-    assert retry.get_retries() == 0
-    assert client.get_retry().get_retries() == 0
+    assert_reconnect_policy(retry)
+    assert_reconnect_policy(client.get_retry())
 
 
 def test_cache_client_uses_tls_for_a_rediss_url_and_not_for_a_redis_url() -> None:

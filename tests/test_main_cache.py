@@ -31,7 +31,7 @@ import pytest
 import redis.asyncio
 from auth_support import AUTH_HEADERS, TEST_TENANT, child_prelude
 from cache_support import MARKER, answer_bytes, cache_module, expected_key
-from ratelimit_support import ratelimit_module
+from ratelimit_support import assert_reconnect_policy, ratelimit_module
 
 import llmgateway.config as config_module
 from llmgateway.config import ConfigError
@@ -133,8 +133,8 @@ async def test_cache_from_env_builds_a_pool_of_fifty_with_the_limiters_timeouts_
     kwargs = pool.connection_kwargs
     assert kwargs["socket_timeout"] == 1.0
     assert kwargs["socket_connect_timeout"] == 1.0
-    assert kwargs["retry"].get_retries() == 0
-    assert client.get_retry().get_retries() == 0
+    assert_reconnect_policy(kwargs["retry"])
+    assert_reconnect_policy(client.get_retry())
     await cache.aclose()
 
 

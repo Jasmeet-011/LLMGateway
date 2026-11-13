@@ -45,8 +45,10 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 import pytest
+import redis.exceptions as rexc
 from auth_support import TEST_KEY, FakeKeyStore, make_authenticator
 from fastapi import FastAPI
+from redis.backoff import NoBackoff
 from stream_support import WALL_START, FakeClock, Gateway, chat_body, pass_time
 from usage_support import FakeUsageStore, UsageAdapter, make_recorder
 
@@ -352,6 +354,20 @@ def breaking(client: Any, *, timeout: float = 1.0) -> Breaking:
         client, burst=60, per_second=1.0, timeout=timeout, breaker=breaker, clock=clock
     )
     return Breaking(limiter, breaker, clock, wall)
+
+
+def assert_reconnect_policy(retry: Any) -> None:
+    """D-106's fourth amendment: one retry, on `ConnectionError` only, and no wait.
+
+    redis-py 8.1.0's `AbstractRetry` has `get_retries()` and keeps the errors it retries in
+    `_supported_errors` (no public getter; read from `redis/retry.py`), the wait in `_backoff`.
+    `redis.exceptions.TimeoutError` is a separate `RedisError`, so it is not in the set and a
+    timeout is never retried.
+    """
+    assert retry.get_retries() == 1
+    assert set(retry._supported_errors) == {rexc.ConnectionError}
+    assert not issubclass(rexc.TimeoutError, tuple(retry._supported_errors))
+    assert isinstance(retry._backoff, NoBackoff)
 
 
 def breaker_lines(caplog: pytest.LogCaptureFixture) -> list[str]:

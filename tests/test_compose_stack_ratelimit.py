@@ -45,6 +45,12 @@ the rest get 429 with `Retry-After`) and D-103 to D-109:
   request is 200 in under the budget with a `reason=circuit_open` line; after the unpause and the
   cooldown a key that nothing used before gets a bucket (the probe went to Redis) and the breaker's
   `to=closed` line is written. The stack is left as it was found, with the limiter's breaker closed;
+- a Redis RESTART under the running gateway (D-106's fourth amendment): after `docker compose
+  restart redis` and a `redis-cli ping`, a concurrent burst of 20 opted-in cacheable requests on a
+  fresh key and tenant is all 200 with `hit` or `miss` (no `bypass`), and the api's log has no
+  `cache_unavailable`, `ratelimit_unavailable` or `ratelimit_shed` line for them. It sits here,
+  before the outage test, and not in the cache's file, which `test_integration_guard.py` keeps free
+  of anything that restarts a service;
 - LAST in the run, with Redis stopped, requests one at a time until the breaker's open line is in
   the log (at most five: a store error for the first, then timeouts), each either 200 with a
   `store_error` line or a shed 503, and then five more requests, each 200 in under the budget with
@@ -929,6 +935,77 @@ def test_a_paused_redis_sheds_timed_out_takes_then_the_breaker_opens_and_request
     assert _limiter_lines(log, last_id) == []
     assert len(_breaker_lines(log, "closed")) > closed_before, "the breaker never closed again"
     delete(f"{BUCKET_PREFIX}{key_id_of(key)}")
+
+
+# A Redis restart under the running gateway (D-106's fourth amendment, found while building M17)
+
+
+def test_a_redis_restart_under_the_running_gateway_costs_no_limiter_or_cache_failure() -> None:
+    # `docker compose restart redis` closes every pooled connection of the api on the server's
+    # side while its clients do not know. After Redis answers again, a concurrent burst of 20
+    # opted-in cacheable requests with different bodies (each draws a connection from the limiter's
+    # pool and from the cache's) on a key and tenant made for the test is all 200 with `hit` or
+    # `miss`, never `bypass`, and the api's log has no `cache_unavailable`,
+    # `ratelimit_unavailable` or `ratelimit_shed` line for any of them. Each dead connection used
+    # to fail once: a request let through unlimited, a cache bypass, and with five in a row an open
+    # breaker. This test is in this file and not in the cache's because it touches Redis's process
+    # (`test_integration_guard.py` forbids that in the cache file); it is not a `test_zz_outage_`
+    # test because it leaves Redis running and answering and needs nothing restored, and the
+    # restart wipes Redis's data, which no test relies on across tests (each makes its own key,
+    # the limiter's buckets are per key, and the 20 cache entries are the test tenant's own and
+    # expire within 300 s). If it fails it waits out the breakers' cooldown and sends three
+    # requests, so that its failure does not become a failure of the tests after it.
+    url = base_url()
+    tenant = f"integration-restart-{secrets.token_hex(4)}"
+    key = create_key(tenant)
+    suffix = secrets.token_hex(6)
+    bodies = [
+        {**BODY, "messages": [{"role": "user", "content": f"restart {suffix} {n}"}]}
+        for n in range(20)
+    ]
+    passed = False
+
+    async def burst() -> list[httpx.Response]:
+        limits = httpx.Limits(max_connections=20, max_keepalive_connections=20)
+        async with httpx.AsyncClient(
+            base_url=url,
+            headers={**bearer(key), "x-gateway-cache": "use"},
+            timeout=60.0,
+            limits=limits,
+        ) as client:
+            return list(
+                await asyncio.gather(*(client.post("/v1/chat", json=body) for body in bodies))
+            )
+
+    try:
+        restart = compose("restart", "redis")
+        assert restart.returncode == 0, restart.stderr
+        _wait_until_redis_answers()
+        responses = asyncio.run(burst())
+        assert [r.status_code for r in responses] == [200] * 20, [r.text[:80] for r in responses]
+        values = [r.headers.get_list("x-gateway-cache") for r in responses]
+        assert all(len(v) == 1 for v in values), values
+        assert {v[0] for v in values} <= {"hit", "miss"}, values
+        log = _api_log(tail=8000)
+        ids = {r.headers["x-request-id"] for r in responses}
+        assert len(ids) == 20
+        failed = [
+            line
+            for line in log.splitlines()
+            if any(f"request_id={request_id}" in line for request_id in ids)
+            and any(
+                name in line
+                for name in ("cache_unavailable", "ratelimit_unavailable", "ratelimit_shed")
+            )
+        ]
+        assert failed == []
+        passed = True
+    finally:
+        if not passed:
+            time.sleep(COOLDOWN + 1.0)
+            with gateway(key) as client:
+                for _ in range(3):
+                    client.post("/v1/chat", json=BODY, headers={"x-gateway-cache": "use"})
 
 
 # Redis down: the limiter fails open once its breaker has seen it. Last in the run: conftest.py

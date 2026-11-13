@@ -50,6 +50,7 @@ from ratelimit_support import (
     FakeRedis,
     Hang,
     Slow,
+    assert_reconnect_policy,
     everything_logged,
     ratelimit_module,
     unavailable,
@@ -726,13 +727,13 @@ def test_redis_client_is_a_blocking_pool_of_fifty_that_waits_without_a_limit_of_
     assert (kwargs["host"], kwargs["port"], kwargs["db"]) == ("example.invalid", 6380, 3)
 
 
-def test_redis_client_does_not_retry_a_command() -> None:
-    # redis-py's plain constructor retries with backoff; D-106 turns that off, so one request
-    # is one attempt.
+def test_redis_client_retries_a_command_once_and_only_on_a_connection_error() -> None:
+    # redis-py's plain constructor retries with backoff, on timeouts too; D-106 first turned that
+    # off (0 retries) and its fourth amendment allows one retry, on `ConnectionError` only, for
+    # a pooled connection the server closed while it sat idle. A timeout is never retried.
     client = ratelimit_module().redis_client("redis://example.invalid:6379/0")
-    retry = client.connection_pool.connection_kwargs["retry"]
-    assert retry.get_retries() == 0
-    assert client.get_retry().get_retries() == 0
+    assert_reconnect_policy(client.connection_pool.connection_kwargs["retry"])
+    assert_reconnect_policy(client.get_retry())
 
 
 def test_redis_client_uses_tls_for_a_rediss_url() -> None:

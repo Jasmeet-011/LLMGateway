@@ -39,7 +39,7 @@ from typing import Any
 import pytest
 import redis.asyncio
 from auth_support import AUTH_HEADERS, TEST_KEY_ID, child_prelude
-from ratelimit_support import ratelimit_module
+from ratelimit_support import assert_reconnect_policy, ratelimit_module
 
 import llmgateway.config as config_module
 from llmgateway.config import ConfigError
@@ -656,8 +656,8 @@ async def test_limiter_from_env_builds_a_client_whose_pool_waits_without_a_limit
     kwargs = pool.connection_kwargs
     assert kwargs["socket_timeout"] == 1.0
     assert kwargs["socket_connect_timeout"] == 1.0
-    assert kwargs["retry"].get_retries() == 0
-    assert client.get_retry().get_retries() == 0
+    assert_reconnect_policy(kwargs["retry"])
+    assert_reconnect_policy(client.get_retry())
     await limiter.aclose()
 
 
