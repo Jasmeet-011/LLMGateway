@@ -353,7 +353,7 @@ Listed, not answered.
 ## 12. Keeping this file honest
 
 - No status, dates or commit SHAs here; status lives in [README.md](README.md) and the owner's local progress log.
-- Edit the target-design diagrams and the error mapping only when a decision in DECISIONS.md changes the design, and link its D-number in the affected section.
+- Edit the target-design diagrams and the error mapping only when a D-entry (its own file in `docs/decisions/`, indexed in DECISIONS.md) changes the design, and link its D-number in the affected section.
 - When code and this file disagree, either the code is fixed or a new D-entry changes the spec; the spec is never edited silently to match the code.
 
 ## 13. Error mapping

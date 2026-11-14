@@ -4,7 +4,7 @@ Rules for AI-assisted work on LLMGateway. These apply to every session. Changing
 
 ## Project
 
-LLMGateway is a FastAPI service in front of Claude and Gemini that adds a reliability and cost-control layer: auth, rate limits, cache, timeouts and retries, fallback, and cost tracking; metrics are stretch (D-031). It is a personal systems project, not a product. Scope and milestones live in `PLAN.md`, status in `notes/PROGRESS.md` (a local file, not in the repo), design decisions in `DECISIONS.md`, and the request-flow spec in `FLOW.md`.
+LLMGateway is a FastAPI service in front of Claude and Gemini that adds a reliability and cost-control layer: auth, rate limits, cache, timeouts and retries, fallback, and cost tracking; metrics are stretch (D-031). It is a personal systems project, not a product. Scope and milestones live in `PLAN.md`, status in `notes/PROGRESS.md` (a local file, not in the repo), design decisions in `docs/decisions/` (one file per decision, indexed in `DECISIONS.md`), and the request-flow spec in `FLOW.md`.
 
 **Definition of done** (from PLAN.md, "Definition of done"):
 
@@ -21,7 +21,7 @@ Concretely, done is D-031's list, quoted in PLAN.md: everything the two resume b
 ## Start of every session
 
 1. `git status` is clean, the branch is `main`, and `git pull` succeeds. If the tree is not clean, stop and report.
-2. Read `notes/PROGRESS.md` (current milestone, open items), that milestone in `PLAN.md`, and, before any design choice, the index at the top of `DECISIONS.md` plus every entry the milestone or the touched code depends on.
+2. Read `notes/PROGRESS.md` (current milestone, open items), that milestone in `PLAN.md`, and, before any design choice, the index in `DECISIONS.md` plus the file in `docs/decisions/` of every entry the milestone or the touched code depends on.
 3. `FLOW.md` is the spec for request flow and error mapping. Code must match it; when a decision changes the flow, the D-entry and FLOW.md change together.
 
 `notes/` is the owner's local folder. It is listed in `.git/info/exclude`, not `.gitignore`, so it is never committed, pushed or mentioned by git, and a fresh clone does not have it. It holds `notes/PROGRESS.md` (status, session log, Agent Mistakes Log, Lessons), `notes/archive/` (older session logs) and `notes/INTERVIEW_QUESTIONS.md` (each milestone's interview question, among others). If `notes/PROGRESS.md` is missing, say so in the session's first message and work from `PLAN.md`; never recreate it inside the repo, and never `git add` anything under `notes/`.
@@ -96,11 +96,11 @@ Subagents cannot spawn subagents, so only the main session delegates.
 Work through milestones in PLAN.md order, starting from the current one in `notes/PROGRESS.md`, until you hit a stop condition or finish the range the owner gave. Do not wait for plan approval. For each milestone:
 
 1. Write a short plan as the first session-log entry for the milestone.
-2. Delegate to the tester: write the milestone's tests from PLAN.md's Proof, FLOW.md and DECISIONS.md, before implementation where practical.
+2. Delegate to the tester: write the milestone's tests from PLAN.md's Proof, FLOW.md and the D-entries in `docs/decisions/`, before implementation where practical.
 3. Implement until `check.ps1` passes. Do not change the tester's assertions. If you think a test is wrong, send the tester your reason; it decides, and the session log records it.
 4. Delegate to the tester: mutation checks on every failure-path test of the milestone. Its table goes in the session log.
 5. Delegate to the reviewer. Fix every BLOCKING item and re-run the reviewer. At most two review rounds; still FAIL after two is a stop condition.
-6. For any decision with a real alternative an interviewer could ask about, make the call, record a D-entry, and keep going. Do not stop to ask. Naming and formatting choices need no entry.
+6. For any decision with a real alternative an interviewer could ask about, make the call, record a D-entry, and keep going. Do not stop to ask. Naming and formatting choices need no entry. A D-entry is its own file, `docs/decisions/D-NNN.md` with the next free number, in the format at the end of `DECISIONS.md`, plus one line in `DECISIONS.md`'s index linking to it. Never rewrite an old entry: an amendment is a dated **Amended** bullet added to the entry's own file, and an amendment or a supersession is also noted on the old entry's index line.
 7. Dependencies: only those listed for the milestone in PLAN.md, and only versions inside the `exclude-newer` age floor (D-029).
 8. Finish: `check.ps1` passes; `notes/PROGRESS.md` updated (tick with evidence, session log, mistakes log; it is local and never committed); FLOW.md, README.md and docs/USAGE.md updated if behavior changed. Small commits on `main` with conventional messages (`feat:`, `fix:`, `test:`, `docs:`, `chore:`, `refactor:`); docs change in the same commit as the code they describe. `git push origin main`. Never force-push; if a push fails, stop. Push each milestone before starting the next.
 9. End the session with a report of at most 15 lines: done, checks summary, reviewer verdict, mutation checks (count passed), decisions made (D-numbers), schema changes (with their D-numbers), mistakes logged, "Needs owner" (live tests to run, questions), and one interview question for the milestone with a five-point answer key. Append that question and its key to `notes/INTERVIEW_QUESTIONS.md` too, so it is not lost with the chat.

@@ -1,6 +1,6 @@
 # Using and operating LLMGateway
 
-The detailed reference behind the [README](../README.md)'s quickstart: what each step of a request does, every setting, running against the real providers, and running the integration tests. The D-numbers point to [DECISIONS.md](../DECISIONS.md), and [FLOW.md](../FLOW.md) is the full spec. Commands are PowerShell 7, as the project is developed on Windows; run them from the repository root.
+The detailed reference behind the [README](../README.md)'s quickstart: what each step of a request does, every setting, running against the real providers, and running the integration tests. Each D-number is a decision record in [docs/decisions/](decisions/), `D-NNN.md`, indexed in [DECISIONS.md](../DECISIONS.md), and [FLOW.md](../FLOW.md) is the full spec. Commands are PowerShell 7, as the project is developed on Windows; run them from the repository root.
 
 ## Request lifecycle
 

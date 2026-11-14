@@ -143,7 +143,7 @@ Every entry in `docs/RESULTS.md` records: machine (CPU, RAM), OS, Python version
 
 ## Open design questions
 
-Each question is answered in `DECISIONS.md` when the step that needs it starts. Decided questions link their entry; any part still open is listed under the question.
+Each question is answered in a D-entry (its own file in `docs/decisions/`, indexed in `DECISIONS.md`) when the step that needs it starts. Decided questions link their entry; any part still open is listed under the question.
 
 - (a) How the request's `model` field maps to a provider, and which Gemini model is the fallback for which Claude model. **Decided in D-010, not implemented:** clients send an alias, and config maps each alias to an ordered list of (provider, model) pairs; fallback is the next entry. **The lists are decided in D-047**, with the config format in D-044.
 - (b) Whether `ChatResponse.id` is the provider's ID or a gateway-generated request ID. Cache hits and mock responses need one either way. **Decided in D-011 and D-020:** the gateway generates the response ID, and the provider's ID goes in the separate `provider_response_id` field. D-020 sets the format: `gw_` plus a random UUID4 in hex, also returned in the `x-request-id` header.

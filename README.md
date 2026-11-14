@@ -99,36 +99,36 @@ To call the real Claude and Gemini APIs (which costs money), to use the cache, o
 
 ## Features
 
-- **One API for both providers.** Clients send a model alias; a TOML config maps it to an ordered list of provider models ([D-010](DECISIONS.md?plain=1#L221), [D-044](DECISIONS.md?plain=1#L533)).
-- **Adapters over raw httpx**, not the provider SDKs, so the only retries are the router's ([D-032](DECISIONS.md?plain=1#L416)).
-- **Normalized SSE streaming:** one event shape for Claude, Gemini and the mock, and an explicit `error` event when a stream fails partway ([D-068](DECISIONS.md?plain=1#L861), [D-069](DECISIONS.md?plain=1#L874), [D-073](DECISIONS.md?plain=1#L928)).
-- **API keys hashed in Postgres**, checked before the body is read, with one identical 401 for every kind of bad key ([D-086](DECISIONS.md?plain=1#L1105) to [D-089](DECISIONS.md?plain=1#L1134)).
-- **Request body limit** of 1 MiB, enforced on chunked bodies too ([D-108](DECISIONS.md?plain=1#L1520)).
-- **Per-key token-bucket rate limit** in one Redis Lua script that reads Redis's clock, so every worker shares one exact limit ([D-103](DECISIONS.md?plain=1#L1409), [D-104](DECISIONS.md?plain=1#L1457)).
-- **Tenant-scoped response cache** in Redis, opt-in per request ([D-110](DECISIONS.md?plain=1#L1551), [D-111](DECISIONS.md?plain=1#L1569)).
-- **Timeouts and retries:** up to 3 attempts per provider with full-jitter backoff, 60 s per attempt and 90 s per request ([D-050](DECISIONS.md?plain=1#L626)).
-- **Circuit breaker** per provider instance: 15 failures in the last 20 outcomes open it (rate limits and bad requests do not count) for 30 s, then one probe ([D-055](DECISIONS.md?plain=1#L700), [D-057](DECISIONS.md?plain=1#L722)).
-- **Provider fallback** on anything but a bad request, with 30 s of the deadline kept for the next provider ([D-060](DECISIONS.md?plain=1#L772), [D-061](DECISIONS.md?plain=1#L785)).
-- **Usage and cost:** one Postgres row per provider attempt, retries and failures included, with cost in integer nano-dollars, written off the response path ([D-095](DECISIONS.md?plain=1#L1216), [D-096](DECISIONS.md?plain=1#L1241), [D-099](DECISIONS.md?plain=1#L1295)).
-- **Fault injection** for mock providers only, including a timed outage window ([D-064](DECISIONS.md?plain=1#L816)).
+- **One API for both providers.** Clients send a model alias; a TOML config maps it to an ordered list of provider models ([D-010](docs/decisions/D-010.md), [D-044](docs/decisions/D-044.md)).
+- **Adapters over raw httpx**, not the provider SDKs, so the only retries are the router's ([D-032](docs/decisions/D-032.md)).
+- **Normalized SSE streaming:** one event shape for Claude, Gemini and the mock, and an explicit `error` event when a stream fails partway ([D-068](docs/decisions/D-068.md), [D-069](docs/decisions/D-069.md), [D-073](docs/decisions/D-073.md)).
+- **API keys hashed in Postgres**, checked before the body is read, with one identical 401 for every kind of bad key ([D-086](docs/decisions/D-086.md) to [D-089](docs/decisions/D-089.md)).
+- **Request body limit** of 1 MiB, enforced on chunked bodies too ([D-108](docs/decisions/D-108.md)).
+- **Per-key token-bucket rate limit** in one Redis Lua script that reads Redis's clock, so every worker shares one exact limit ([D-103](docs/decisions/D-103.md), [D-104](docs/decisions/D-104.md)).
+- **Tenant-scoped response cache** in Redis, opt-in per request ([D-110](docs/decisions/D-110.md), [D-111](docs/decisions/D-111.md)).
+- **Timeouts and retries:** up to 3 attempts per provider with full-jitter backoff, 60 s per attempt and 90 s per request ([D-050](docs/decisions/D-050.md)).
+- **Circuit breaker** per provider instance: 15 failures in the last 20 outcomes open it (rate limits and bad requests do not count) for 30 s, then one probe ([D-055](docs/decisions/D-055.md), [D-057](docs/decisions/D-057.md)).
+- **Provider fallback** on anything but a bad request, with 30 s of the deadline kept for the next provider ([D-060](docs/decisions/D-060.md), [D-061](docs/decisions/D-061.md)).
+- **Usage and cost:** one Postgres row per provider attempt, retries and failures included, with cost in integer nano-dollars, written off the response path ([D-095](docs/decisions/D-095.md), [D-096](docs/decisions/D-096.md), [D-099](docs/decisions/D-099.md)).
+- **Fault injection** for mock providers only, including a timed outage window ([D-064](docs/decisions/D-064.md)).
 
 ## Design decisions
 
-Every decision, with the alternatives it beat and its risks, is in [DECISIONS.md](DECISIONS.md). Five of them:
+Every decision, with the alternatives it beat and its risks, has its own file in [docs/decisions/](docs/decisions/), indexed in [DECISIONS.md](DECISIONS.md). Five of them:
 
-- **No retry after the provider answered 2xx** ([D-052](DECISIONS.md?plain=1#L651)). If a provider returns 200 with a body the gateway cannot parse, the answer was generated and billed, so a retry would pay for it twice. The router does not retry it; it may still fall back to the next provider, so at most one more answer is paid for per provider in the list.
-- **SHA-256 for API keys, not bcrypt** ([D-087](DECISIONS.md?plain=1#L1118)). A key's secret is 256 random bits, so no offline guess can find it under any hash. A slow hash protects low-entropy passwords; here it would only add CPU to every request and give unauthenticated callers a cheap way to load the gateway. A key is found by its public id and compared in constant time, with a dummy compare for unknown ids ([D-088](DECISIONS.md?plain=1#L1126)).
-- **The rate limiter fails open when Redis is down; auth fails closed when Postgres is down** ([D-106](DECISIONS.md?plain=1#L1478)). Auth decides whether anyone may spend; the limiter only paces keys that are already verified and billed. A Redis that is slow rather than down is treated differently: a rate-limit check with no answer in 1 s is refused with 503, and the limiter's own breaker counts a timeout only if no other check succeeded meanwhile, which tells a Redis outage apart from an overloaded gateway.
-- **The cache is opt-in** ([D-111](DECISIONS.md?plain=1#L1569)). No request field can promise a repeatable answer: Claude's current API rejects `temperature`, and newer Gemini models ignore it. So a client asks for a cached answer with `x-gateway-cache: use`, and a temperature above 0 is never cached. The tenant is inside the hashed key, so one tenant never gets another's answer, and a fast hit never tells one tenant what another asked ([D-110](DECISIONS.md?plain=1#L1551)).
-- **The outage measurement was fixed before it ran** ([D-121](DECISIONS.md?plain=1#L1703), [D-123](DECISIONS.md?plain=1#L1751)). Every run, its command and how it is aggregated were pushed before the first run; each figure is the median of three runs with the range, and a run is repeated only for a recorded defect. The headline cites the full-outage test, not the 30%-failure test, because retries have no switch: the 30% test's "fallback off" baseline already retried, so it showed fallback adding only 2.8 points.
+- **No retry after the provider answered 2xx** ([D-052](docs/decisions/D-052.md)). If a provider returns 200 with a body the gateway cannot parse, the answer was generated and billed, so a retry would pay for it twice. The router does not retry it; it may still fall back to the next provider, so at most one more answer is paid for per provider in the list.
+- **SHA-256 for API keys, not bcrypt** ([D-087](docs/decisions/D-087.md)). A key's secret is 256 random bits, so no offline guess can find it under any hash. A slow hash protects low-entropy passwords; here it would only add CPU to every request and give unauthenticated callers a cheap way to load the gateway. A key is found by its public id and compared in constant time, with a dummy compare for unknown ids ([D-088](docs/decisions/D-088.md)).
+- **The rate limiter fails open when Redis is down; auth fails closed when Postgres is down** ([D-106](docs/decisions/D-106.md)). Auth decides whether anyone may spend; the limiter only paces keys that are already verified and billed. A Redis that is slow rather than down is treated differently: a rate-limit check with no answer in 1 s is refused with 503, and the limiter's own breaker counts a timeout only if no other check succeeded meanwhile, which tells a Redis outage apart from an overloaded gateway.
+- **The cache is opt-in** ([D-111](docs/decisions/D-111.md)). No request field can promise a repeatable answer: Claude's current API rejects `temperature`, and newer Gemini models ignore it. So a client asks for a cached answer with `x-gateway-cache: use`, and a temperature above 0 is never cached. The tenant is inside the hashed key, so one tenant never gets another's answer, and a fast hit never tells one tenant what another asked ([D-110](docs/decisions/D-110.md)).
+- **The outage measurement was fixed before it ran** ([D-121](docs/decisions/D-121.md), [D-123](docs/decisions/D-123.md)). Every run, its command and how it is aggregated were pushed before the first run; each figure is the median of three runs with the range, and a run is repeated only for a recorded defect. The headline cites the full-outage test, not the 30%-failure test, because retries have no switch: the 30% test's "fallback off" baseline already retried, so it showed fallback adding only 2.8 points.
 
 ## Testing
 
 - **Test-first.** From milestone M7 on, a separate tester agent wrote each milestone's tests from the spec, not from the code. From M9 on, each milestone's tests were run and seen failing before any implementation was written.
 - **Mutation-checked.** From M7 on (and for the earlier error-mapping tests), every failure-path test was checked by breaking the code it guards on purpose and confirming the test fails.
 - **No real provider calls in the default run.** Unit tests use fakes, `httpx.MockTransport` and the mock provider. Tests that call the real Claude and Gemini APIs are marked `live` and run only by the owner.
-- **Integration tests on real Postgres and Redis.** They run against the Compose stack: the rate-limit script on the real Redis, exactly the allowed number passing under concurrency, tenant isolation in the cache, and Postgres and Redis outages ([D-081](DECISIONS.md?plain=1#L1049)).
-- **CI.** GitHub Actions runs `uv sync --locked`, ruff, ruff format, mypy (strict) and pytest, then builds the Compose stack and runs the integration tests, on every push to `main` ([D-080](DECISIONS.md?plain=1#L1037)).
+- **Integration tests on real Postgres and Redis.** They run against the Compose stack: the rate-limit script on the real Redis, exactly the allowed number passing under concurrency, tenant isolation in the cache, and Postgres and Redis outages ([D-081](docs/decisions/D-081.md)).
+- **CI.** GitHub Actions runs `uv sync --locked`, ruff, ruff format, mypy (strict) and pytest, then builds the Compose stack and runs the integration tests, on every push to `main` ([D-080](docs/decisions/D-080.md)).
 
 Locally, `.\scripts\check.ps1` runs the same five checks (PowerShell). [docs/USAGE.md](docs/USAGE.md#tests-and-ci) shows how to run the integration tests.
 
@@ -155,7 +155,7 @@ The full list is in [docs/RESULTS.md](docs/RESULTS.md#known-limitations). In sho
 - **Injected failures are fast and clean.** Real outages are often slow timeouts, which would change both success rates and latency.
 - **One worker.** Breakers and fault windows are per process, so the tests ran one uvicorn process; more workers would raise throughput but split them.
 - **The second provider was always healthy** in the fallback tests, which is the best case for fallback.
-- **Spend caps, request coalescing and metrics are not built**; they were stretch goals ([D-031](DECISIONS.md?plain=1#L408)).
+- **Spend caps, request coalescing and metrics are not built**; they were stretch goals ([D-031](docs/decisions/D-031.md)).
 
 ## How this was built
 
@@ -181,8 +181,9 @@ config/                       alias configs: mock pair, real providers, load tes
 tests/                        unit, integration and live tests
 loadtest/                     k6 scripts, run script, report generator
 docs/                         RESULTS.md, raw load-test output, USAGE.md
+docs/decisions/               one file per design decision
 scripts/check.ps1             the five checks
-PLAN.md, DECISIONS.md, FLOW.md   scope, decision log, request-flow spec
+PLAN.md, DECISIONS.md, FLOW.md   scope, decision index, request-flow spec
 ```
 
 ## License
