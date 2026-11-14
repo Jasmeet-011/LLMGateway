@@ -524,3 +524,106 @@ def test_a_line_with_a_status_but_no_tenant_field_is_not_a_request_line_for_befo
 def test_tenantless_lines_with_a_trailing_newline_are_counted_as_when_read_from_a_file() -> None:
     lines = [request_line("gw_1", "-", 503) + "\n", request_line("gw_2", "-", 200) + "\r\n"]
     assert gateway_counts(lines, "t").before_auth == {503: 1}
+
+
+# --- strengthened after the mutation pass (M18) ----------------------------------------------
+
+
+@pytest.mark.parametrize("empty", ["ts", "provider", "from_state", "to_state", "reason"])
+def test_a_breaker_field_with_an_empty_value_raises_and_names_its_line(empty: str) -> None:
+    bad = breaker_line(**{empty: ""})
+    assert "line 4" in error_at_line_4(bad)
+
+
+@pytest.mark.parametrize(
+    "ts",
+    [
+        "2026-11-13T19:07:18.120001Z",
+        "2026-11-13T19:07:18Z",
+        "2026-11-13T19:07:18.120001+0000",
+        "2026-11-13T19:07:18.120001-00:00",
+        "2026-11-13T19:07:18.120001+00",
+    ],
+    ids=["z-micro", "z", "plus-0000", "minus-00-00", "plus-00"],
+)
+def test_a_utc_timestamp_not_written_with_plus_00_00_raises_and_names_its_line(ts: str) -> None:
+    # D-082: the breaker's ts is UTC with an explicit +00:00. Python reads these as UTC too,
+    # so only the check for the literal suffix refuses them.
+    assert "line 4" in error_at_line_4(breaker_line(ts=ts))
+
+
+@pytest.mark.parametrize("status", ["abc", "", "20x", "-1", "2.0", "+200", " "])
+@pytest.mark.parametrize("tenant", ["t", "-"])
+def test_a_request_line_whose_status_is_not_digits_is_ignored(tenant: str, status: str) -> None:
+    bad = f"{APP} request_id=gw_bad tenant={tenant} key_id=- provider=- model=- status={status}"
+    counts = gateway_counts([bad, request_line("gw_2", "t")], "t")
+    assert counts == GatewayCounts(by_status={200: 1})
+
+
+# Digits outside ASCII, built from code points so the source stays plain ASCII. They read as
+# 503 (or 1, or nothing) to int(), but a log status is ASCII: such a line is not a status.
+NON_ASCII_STATUSES = {
+    "superscript-two": chr(0xB2),
+    "arabic-indic-one": chr(0x661),
+    "arabic-indic-503": chr(0x665) + chr(0x660) + chr(0x663),
+    "fullwidth-503": chr(0xFF15) + chr(0xFF10) + chr(0xFF13),
+    "mixed-503": "50" + chr(0x663),
+}
+
+
+@pytest.mark.parametrize("status", list(NON_ASCII_STATUSES.values()), ids=list(NON_ASCII_STATUSES))
+@pytest.mark.parametrize("tenant", ["t", "-"])
+def test_a_request_line_whose_status_has_non_ascii_digits_is_ignored(
+    tenant: str, status: str
+) -> None:
+    bad = f"{APP} request_id=gw_bad tenant={tenant} key_id=- provider=- model=- status={status}"
+    counts = gateway_counts([bad, request_line("gw_2", "t")], "t")
+    assert counts == GatewayCounts(by_status={200: 1})
+
+
+@pytest.mark.parametrize("tenant", ["t", "-"])
+def test_a_request_line_with_no_request_id_is_ignored(tenant: str) -> None:
+    bad = f"{APP} tenant={tenant} key_id=- provider=- model=- status=503 latency_ms=1.0"
+    counts = gateway_counts([bad, request_line("gw_2", "t")], "t")
+    assert counts == GatewayCounts(by_status={200: 1})
+
+
+def test_an_attempt_or_fallback_line_with_no_request_id_is_ignored() -> None:
+    lines = [
+        f"{ROUTER} attempt_failed alias='a' provider=p attempt=1",
+        f"{ROUTER} fallback_taken alias='a' from=p to=q",
+        f"{ROUTER} attempt_failed request_id= alias='a'",
+        request_line("gw_1", "t"),
+    ]
+    counts = gateway_counts(lines, "t")
+    assert (counts.failed_attempts, counts.fallbacks) == (0, 0)
+
+
+def test_attempt_and_fallback_are_matched_as_whole_tokens_not_as_parts_of_a_word() -> None:
+    lines = [
+        f"{ROUTER} reattempt_failed_total request_id=gw_1 n=3",
+        f"{ROUTER} fallback_taken_total request_id=gw_1 n=3",
+        request_line("gw_1", "t"),
+    ]
+    counts = gateway_counts(lines, "t")
+    assert (counts.failed_attempts, counts.fallbacks) == (0, 0)
+    assert counts.by_status == {200: 1}
+
+
+def test_a_request_line_that_carries_an_attempt_failed_field_is_still_a_request_line() -> None:
+    # `attempt_failed=3` is a key=value field, not the bare event name of an attempt line.
+    lines = [request_line("gw_1", "t") + " attempt_failed=3 fallback_taken=1"]
+    counts = gateway_counts(lines, "t")
+    assert counts.by_status == {200: 1}
+    assert (counts.failed_attempts, counts.fallbacks) == (0, 0)
+
+
+def test_when_a_field_name_repeats_in_a_line_the_first_one_counts() -> None:
+    first_is_ours = f"{APP} request_id=gw_1 tenant=t status=200 tenant=other status=500"
+    first_is_other = f"{APP} request_id=gw_2 tenant=other status=200 tenant=t status=500"
+    first_id_wins = f"{APP} request_id=gw_3 tenant=t status=200 request_id=gw_4"
+    counts = gateway_counts([first_is_ours, first_is_other, first_id_wins], "t")
+    assert counts.by_status == {200: 2}
+    # A later attempt line is joined to the first id (gw_3), not the repeated one (gw_4).
+    joined = gateway_counts([first_id_wins, attempt_line("gw_3"), attempt_line("gw_4")], "t")
+    assert joined.failed_attempts == 1

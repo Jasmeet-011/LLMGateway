@@ -140,3 +140,15 @@ def test_spread_has_the_fields_median_low_high() -> None:
 def test_spread_of_an_empty_input_raises() -> None:
     with pytest.raises(ValueError):
         spread([])
+
+
+@pytest.mark.parametrize(
+    "q",
+    ["95", "50", "", None, True, False, [95]],
+    ids=["str-95", "str-50", "empty-str", "none", "true", "false", "list"],
+)
+def test_percentile_of_a_q_that_is_not_a_number_raises_value_error(q: object) -> None:
+    # A bool is an int in Python, so True would read as q=1 and never be refused by the range.
+    # A str must be refused as ValueError like any other bad q, not left to fail as TypeError.
+    with pytest.raises(ValueError):
+        percentile(FIVE, q)  # type: ignore[arg-type]

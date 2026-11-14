@@ -218,3 +218,62 @@ def test_cross_check_returns_a_list_of_strings() -> None:
     result = cross_check(1, gateway(ok=2), usage(success=3))
     assert isinstance(result, list)
     assert all(isinstance(m, str) for m in result)
+
+
+# A count that is not a plain non-negative ASCII integer. The first line of each input is
+# `success a 1`, so a bad line here uses a pair no earlier line used: the count check is what
+# raises, not the repeated-pair check that masks it when the pair is the same.
+@pytest.mark.parametrize(
+    "count",
+    [
+        "",
+        "-1",
+        "+1",
+        "1.5",
+        "1.0",
+        "one",
+        " 1",
+        "1 ",
+        "1e3",
+        "0x10",
+        "1_000",
+        "\u0661",  # ARABIC-INDIC DIGIT ONE: str.isdigit() is true and int() reads it as 1
+        "\u0662\u0663",
+        "\uff11",  # FULLWIDTH DIGIT ONE
+        "\u00b2",  # SUPERSCRIPT TWO: str.isdigit() is true, int() refuses it
+    ],
+    ids=[
+        "empty",
+        "negative",
+        "signed",
+        "fractional",
+        "float",
+        "word",
+        "leading-space",
+        "trailing-space",
+        "exponent",
+        "hex",
+        "underscore",
+        "arabic-indic-digit",
+        "arabic-indic-two-digits",
+        "fullwidth-digit",
+        "superscript-two",
+    ],
+)
+def test_a_bad_count_on_a_pair_no_earlier_line_used_raises_and_names_its_line(count: str) -> None:
+    with pytest.raises(ValueError) as caught:
+        parse_usage(["success\ta\t1\n", "", f"failed\tb\t{count}"])
+    assert "line 3" in str(caught.value)
+    assert "second row" not in str(caught.value)
+
+
+def test_a_valid_count_on_a_new_pair_is_accepted_after_the_first_line() -> None:
+    counts = parse_usage(["success\ta\t1\n", "", "failed\tb\t7"])
+    assert counts.failed == 7
+
+
+def test_exactly_one_abandoned_row_is_reported() -> None:
+    messages = cross_check(2950, gateway(), usage(abandoned=1))
+    assert len(messages) == 1
+    assert "abandoned" in messages[0]
+    assert "1" in messages[0]

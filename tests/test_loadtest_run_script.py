@@ -260,3 +260,86 @@ def test_the_stop_is_conditional_on_events_not_unconditional() -> None:
     assert after_run
     preceding = text[max(0, after_run[-1].start() - 300) : after_run[-1].start()]
     assert re.search(r"\bif\s*\(", preceding), "the power throw is not under an `if (...)`"
+
+
+# --- the guard and the stop, each throw inside its own `if` (strengthened after mutation) -------
+#
+# The tests above find `throw` and `506` anywhere in a span, so another throw in that span (the
+# refused power request) satisfies them. These tie each condition to the throw it guards, by
+# reading `if (...) { ... }` as a unit.
+
+
+def if_blocks(text: str) -> list[tuple[int, str, str]]:
+    """(position, condition, body) of every `if (condition) { body }`, by counting."""
+    found: list[tuple[int, str, str]] = []
+    for match in re.finditer(r"\bif\s*\(", text):
+        depth, index = 1, match.end()
+        while depth and index < len(text):
+            depth += {"(": 1, ")": -1}.get(text[index], 0)
+            index += 1
+        condition = text[match.end() : index - 1]
+        opening = re.compile(r"\s*\{").match(text, index)
+        if opening is None:
+            continue
+        depth, index = 1, opening.end()
+        while depth and index < len(text):
+            depth += {"{": 1, "}": -1}.get(text[index], 0)
+            index += 1
+        found.append((match.start(), condition, text[opening.end() : index - 1]))
+    return found
+
+
+STANDBY_WORDS = re.compile(r"standby|power|sleep|asleep|suspend", re.IGNORECASE)
+
+
+def test_the_refusal_is_one_if_on_the_latest_event_being_506_whose_body_throws() -> None:
+    text = code()
+    docker = first_docker_call(text)
+    guards = [
+        (position, condition, body)
+        for position, condition, body in if_blocks(text)
+        if position < docker and re.search(r"\.Id\s+-eq\s+506\b", condition)
+    ]
+    assert len(guards) == 1, "expected one `if` before the first docker call on .Id -eq 506"
+    _, condition, body = guards[0]
+    assert "-ne" not in condition, "the refusal's condition must be `-eq 506`, not `-ne`"
+    assert not re.search(r"\b507\b", condition)
+    throws = re.findall(r"\bthrow\b[^\n]*", body)
+    assert len(throws) == 1, throws
+    assert STANDBY_WORDS.search(throws[0]), throws[0]
+
+
+def test_the_refusal_tests_the_newest_event_read_with_newest_1() -> None:
+    text = code()
+    assert re.search(r"\$last\s*=\s*@\(\s*Get-StandbyEvents\s+-Newest\s+1\s*\)", text)
+    refusal = next(c for _, c, _ in if_blocks(text) if re.search(r"\.Id\s+-eq\s+506\b", c))
+    assert "$last" in refusal
+
+
+def test_the_stop_after_the_run_is_one_if_on_power_events_count_above_zero_with_a_throw() -> None:
+    text = code()
+    docker = first_docker_call(text)
+    stops = [
+        (position, condition, body)
+        for position, condition, body in if_blocks(text)
+        if position > docker and re.search(r"\$powerEvents\b", condition)
+    ]
+    assert len(stops) == 1, "expected one `if` on $powerEvents after the run starts"
+    _, condition, body = stops[0]
+    assert re.fullmatch(r"\s*\$powerEvents\.Count\s+-gt\s+0\s*", condition), condition
+    throws = re.findall(r"\bthrow\b[^\n]*", body)
+    assert len(throws) == 1, throws
+    assert STANDBY_WORDS.search(throws[0]), throws[0]
+    # It is the only power throw after the run starts, so none sits outside this `if`.
+    outside = [m for m in power_throws(text) if m.start() > docker]
+    assert len(outside) == 1
+
+
+def test_no_power_throw_after_the_run_starts_stands_outside_an_if() -> None:
+    text = code()
+    docker = first_docker_call(text)
+    inside = [(p, b) for p, _, b in if_blocks(text) if p > docker]
+    for throw in power_throws(text):
+        if throw.start() < docker:
+            continue
+        assert any(p < throw.start() and throw.group(0) in b for p, b in inside), throw.group(0)

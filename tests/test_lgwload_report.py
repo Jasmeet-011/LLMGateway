@@ -681,3 +681,297 @@ def test_the_two_sections_are_separate_headings_in_tables_md(tmp_path: Path) -> 
     headings = [line for line in text.splitlines() if line.startswith("## ")]
     assert sum(REFUSED in h for h in headings) == 1
     assert sum(POWER in h for h in headings) == 1
+
+
+# --- strengthened after the mutation pass (M18) ----------------------------------------------
+#
+# A rerun's gateway counts, the order of reruns, the Cross-check column, the smoke list, and the
+# measurement 2, 3 and 5 paths, which the six-run fixture above does not reach.
+
+ROUTER_LOG = "2026-11-13T21:07:30.100+00:00 WARNING llmgateway.router"
+
+
+def attempt_failed(request_id: str, attempt: int = 1) -> str:
+    return (
+        f"{ROUTER_LOG} attempt_failed request_id={request_id} alias='failures-on' "
+        f"provider=mock-primary model='mock-a' attempt={attempt} status=- reason=injected "
+        "error=ProviderUnavailable retry=yes"
+    )
+
+
+def fallback_taken(request_id: str) -> str:
+    return (
+        f"{ROUTER_LOG} fallback_taken request_id={request_id} alias='failures-on' "
+        "from=mock-primary from_model='mock-a' to=mock-secondary to_model='mock-b' "
+        "reason=injected error=ProviderUnavailable"
+    )
+
+
+def test_a_rerun_reads_its_gateway_counts_under_the_rerun_tenant(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path)
+    rerun_log = (
+        request_lines("r", "m4-on-r1-rerun1", [200, 200, 502])
+        # The tenant of the first output must not leak into the rerun figures.
+        + request_lines("q", "m4-on-r1", [200] * 7)
+        + [attempt_failed("gw_r2", 1), attempt_failed("gw_r2", 2), attempt_failed("gw_r0")]
+        + [fallback_taken("gw_r0"), attempt_failed("gw_q0"), fallback_taken("gw_q1")]
+        + health("rh")
+    )
+    add_rerun(repo, "m4-on-r1", ok=2, failed=1, api_log=rerun_log)
+    gateway = info_of(report.build(repo), "m4-on-r1")["gateway"]
+    assert counts(gateway["by_status"]) == {"200": 2, "502": 1}
+    assert gateway["failed_attempts"] == 3
+    assert gateway["fallbacks"] == 1
+
+
+def test_the_first_pass_reads_the_first_outputs_gateway_counts_under_the_first_tenant(
+    tmp_path: Path,
+) -> None:
+    repo = make_repo(tmp_path)
+    add_rerun(
+        repo, "m4-on-r1", ok=2, failed=1, api_log=request_lines("r", "m4-on-r1-rerun1", [200])
+    )
+    first = info_of(report.build(repo, first_pass=True), "m4-on-r1")["gateway"]
+    assert counts(first["by_status"]) == {"200": 2, "502": 1}
+
+
+def test_the_latest_rerun_is_the_highest_number_not_the_last_in_alphabetical_order(
+    tmp_path: Path,
+) -> None:
+    repo = make_repo(tmp_path)
+    for number, ok in ((1, 3), (2, 4), (10, 5)):
+        add_rerun(repo, "m4-on-r1", number, ok=ok)
+    info = info_of(report.build(repo), "m4-on-r1")
+    assert info["used"] == "m4-on-r1-rerun10"
+    assert info["produced"] == [
+        "m4-on-r1",
+        "m4-on-r1-rerun1",
+        "m4-on-r1-rerun2",
+        "m4-on-r1-rerun10",
+    ]
+    assert info["success"]["total"] == 5
+
+
+CROSS_CHECK = "Cross-check"
+M4 = "Measurement 4"
+
+
+def set_usage(repo: Path, directory: str, rows: list[str]) -> None:
+    path = repo / "docs" / "results" / "raw" / directory / "usage.tsv"
+    path.write_text("".join(row + "\n" for row in rows), encoding="utf-8")
+
+
+def test_a_run_whose_usage_rows_agree_with_k6_and_the_gateway_shows_match(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path)
+    # m4-off-r1: 2 successes in k6, two 200 lines in the log, no failed attempt.
+    set_usage(repo, "m4-off-r1", ["success\tmock\t2"])
+    assert info_of(report.build(repo), "m4-off-r1")["cross_check"] == []
+    text = (generate(repo) / "tables.md").read_text(encoding="utf-8")
+    assert run_row(text, M4, "m4-off-r1")[CROSS_CHECK] == "match"
+
+
+def test_a_run_whose_usage_rows_disagree_shows_mismatch_with_the_sentences(
+    tmp_path: Path,
+) -> None:
+    repo = make_repo(tmp_path)
+    set_usage(repo, "m4-off-r1", ["success\tmock\t3", "failed\tmock\t4"])
+    problems = info_of(report.build(repo), "m4-off-r1")["cross_check"]
+    assert len(problems) == 3
+    text = (generate(repo) / "tables.md").read_text(encoding="utf-8")
+    cell = run_row(text, M4, "m4-off-r1")[CROSS_CHECK]
+    assert cell.startswith("MISMATCH: ")
+    assert all(problem in cell for problem in problems)
+
+
+def test_a_run_with_no_usage_rows_at_all_is_a_mismatch_not_a_match(tmp_path: Path) -> None:
+    # The fixture run m4-on-r1 has two k6 successes and an empty usage.tsv.
+    repo = make_repo(tmp_path)
+    assert info_of(report.build(repo), "m4-on-r1")["cross_check"] != []
+    text = (generate(repo) / "tables.md").read_text(encoding="utf-8")
+    assert run_row(text, M4, "m4-on-r1")[CROSS_CHECK].startswith("MISMATCH: ")
+
+
+def test_the_smoke_runs_are_listed_by_exact_directory_name_and_nothing_else(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path)
+    raw = repo / "docs" / "results" / "raw"
+    write_run(repo, "smoke-m4-on-r1-200627")
+    write_run(repo, "smoke-m1-direct-r1-200100")
+    write_run(repo, "smokey-run")  # not a smoke run: no hyphen after "smoke"
+    (raw / "smoke-note.txt").write_text("a file, not a run\n", encoding="utf-8")
+    summary = report.build(repo)
+    assert summary["smoke_runs"] == ["smoke-m1-direct-r1-200100", "smoke-m4-on-r1-200627"]
+    text = (generate(repo) / "tables.md").read_text(encoding="utf-8")
+    assert list_items(text, "Smoke runs") == [
+        "- smoke-m1-direct-r1-200100",
+        "- smoke-m4-on-r1-200627",
+    ]
+
+
+def test_the_smoke_section_says_none_when_there_is_no_smoke_run(tmp_path: Path) -> None:
+    text = (generate(make_repo(tmp_path)) / "tables.md").read_text(encoding="utf-8")
+    assert list_items(text, "Smoke runs") == ["- none"]
+    assert report.build(make_repo(tmp_path / "again"))["smoke_runs"] == []
+
+
+def rec(
+    scenario: str,
+    t: int,
+    status: int = 200,
+    ok: bool = True,
+    d: float = 25.0,
+    cache: str = "bypass",
+    retry_after: str | None = None,
+) -> str:
+    msg: dict[str, Any] = {"sc": scenario, "t": t, "s": status, "d": d, "ok": ok, "c": cache}
+    if retry_after is not None:
+        msg["ra"] = retry_after
+    return json.dumps({"level": "info", "msg": json.dumps(msg), "time": "2026-11-13T21:07:28Z"})
+
+
+def add_catalog_run(
+    repo: Path, run_id: str, measurement: int, script: str, lines: list[str]
+) -> None:
+    """Appends a catalog entry that targets the api, with its own records."""
+    path = repo / "loadtest" / "runs.json"
+    entries = json.loads(path.read_text(encoding="utf-8"))
+    entries.append(
+        {
+            "id": run_id,
+            "measurement": measurement,
+            "script": script,
+            "target": "api",
+            "alias": "steady",
+            "overrides": [],
+            "usage": False,
+        }
+    )
+    path.write_text(json.dumps(entries), encoding="utf-8")
+    write_run(repo, run_id)
+    records = repo / "docs" / "results" / "raw" / run_id / "records.jsonl"
+    records.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def burst_records(
+    ok: int, limited: int = 0, *, retry_after: bool = True, other: int = 0
+) -> list[str]:
+    """The burst requests 100 ms apart: `ok` 200s, then `limited` 429s, then `other` 500s."""
+    lines = [rec("burst", T0 + 100 * n) for n in range(ok)]
+    for n in range(limited):
+        ra = "1" if retry_after else None
+        lines.append(rec("burst", T0 + 100 * (ok + n), 429, False, retry_after=ra))
+    for n in range(other):
+        lines.append(rec("burst", T0 + 100 * (ok + limited + n), 500, False))
+    return lines
+
+
+def paced_records(ok: int = 3, failed: int = 0) -> list[str]:
+    lines = [rec("paced", T0 + 3000 + 1000 * n) for n in range(ok)]
+    return lines + [rec("paced", T0 + 3000 + 1000 * (ok + n), 502, False) for n in range(failed)]
+
+
+M5 = "Measurement 5"
+
+
+def test_measurement_5_counts_the_burst_and_the_paced_requests_and_calls_a_correct_run_correct(
+    tmp_path: Path,
+) -> None:
+    repo = make_repo(tmp_path)
+    add_catalog_run(repo, "m5-r1", 5, "burst.js", burst_records(20, 5) + paced_records(3))
+    info = info_of(report.build(repo), "m5-r1")
+    burst = info["burst"]
+    assert (burst["requests"], burst["ok"], burst["limited"], burst["other"]) == (25, 20, 5, 0)
+    assert burst["limited_with_retry_after"] == 5
+    assert burst["length_s"] == pytest.approx(2.425)
+    assert burst["allowed_at_most"] == 22
+    assert info["paced"] == {"requests": 3, "ok": 3}
+    assert info["correct"] is True
+    text = (generate(repo) / "tables.md").read_text(encoding="utf-8")
+    row = run_row(text, M5, "m5-r1")
+    assert row["Burst requests"] == "25"
+    assert row["200"] == "20"
+    assert row["429"] == "5"
+    assert row["429 with Retry-After"] == "5"
+    assert row["Other"] == "0"
+    assert row["Burst length (s)"] == "2.425"
+    assert row["200s allowed at most"] == "22"
+    assert row["Paced requests"] == "3"
+    assert row["Paced 200"] == "3"
+    assert row["Correct"] == "yes"
+
+
+@pytest.mark.parametrize(
+    ("burst", "paced"),
+    [
+        (burst_records(23, 2), paced_records(3)),
+        (burst_records(20, 5, retry_after=False), paced_records(3)),
+        (burst_records(20, 4, other=1), paced_records(3)),
+        (burst_records(20, 5), paced_records(2, 1)),
+    ],
+    ids=["too-many-200", "429-without-retry-after", "other-status", "paced-failed"],
+)
+def test_measurement_5_calls_a_run_that_breaks_a_rule_not_correct(
+    tmp_path: Path, burst: list[str], paced: list[str]
+) -> None:
+    repo = make_repo(tmp_path)
+    add_catalog_run(repo, "m5-r1", 5, "burst.js", burst + paced)
+    assert info_of(report.build(repo), "m5-r1")["correct"] is False
+    text = (generate(repo) / "tables.md").read_text(encoding="utf-8")
+    assert run_row(text, M5, "m5-r1")["Correct"] == "NO"
+
+
+def test_measurement_5_accepts_exactly_the_allowed_number_of_200s(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path)
+    add_catalog_run(repo, "m5-r1", 5, "burst.js", burst_records(22, 3) + paced_records(3))
+    info = info_of(report.build(repo), "m5-r1")
+    assert info["burst"]["allowed_at_most"] == 22
+    assert info["correct"] is True
+
+
+@pytest.mark.parametrize("missing", ["burst", "paced"])
+def test_measurement_5_with_a_scenario_that_has_no_records_stops_the_report(
+    tmp_path: Path, missing: str
+) -> None:
+    lines = burst_records(20, 5) if missing == "paced" else paced_records(3)
+    repo = make_repo(tmp_path)
+    add_catalog_run(repo, "m5-r1", 5, "burst.js", lines)
+    with pytest.raises(ValueError, match="m5-r1"):
+        report.build(repo)
+
+
+def test_measurement_2_reports_throughput_and_error_rate_from_the_measure_scenario(
+    tmp_path: Path,
+) -> None:
+    lines = [rec("measure", T0 + 100 * n) for n in range(6)]
+    lines += [rec("measure", T0 + 600 + 100 * n, 502, False) for n in range(2)]
+    lines += [rec("warmup", T0 - 1000 + 100 * n) for n in range(5)]
+    repo = make_repo(tmp_path)
+    add_catalog_run(repo, "m2-r1", 2, "throughput.js", lines)
+    info = info_of(report.build(repo), "m2-r1")
+    assert info["throughput_rps"] == pytest.approx(0.1)
+    assert info["error_rate"] == pytest.approx(0.25)
+    assert (info["success"]["succeeded"], info["success"]["total"]) == (6, 8)
+    text = (generate(repo) / "tables.md").read_text(encoding="utf-8")
+    row = run_row(text, "Measurement 2", "m2-r1")
+    assert row["Successes"] == "6"
+    assert row["Requests"] == "8"
+    assert row["Error rate"] == "25.00%"
+    assert row["Throughput (req/s)"] == "0.1"
+
+
+def test_measurement_3_splits_hits_and_misses_and_times_each(tmp_path: Path) -> None:
+    lines = [rec("measure", T0 + 10 * n, d=5.0, cache="hit") for n in range(3)]
+    lines += [rec("measure", T0 + 100 + 10 * n, d=25.0, cache="miss") for n in range(2)]
+    lines += [rec("measure", T0 + 200, d=9.0, cache="bypass")]
+    lines += [rec("warmup", T0 - 1000, d=1.0, cache="hit")]
+    repo = make_repo(tmp_path)
+    add_catalog_run(repo, "m3-r1", 3, "cache.js", lines)
+    info = info_of(report.build(repo), "m3-r1")
+    cache = info["cache"]
+    assert (cache["hits"], cache["misses"], cache["other"], cache["total"]) == (3, 2, 1, 6)
+    assert cache["hit_rate"] == pytest.approx(0.5)
+    text = (generate(repo) / "tables.md").read_text(encoding="utf-8")
+    row = run_row(text, "Measurement 3", "m3-r1")
+    assert (row["Hits"], row["Misses"], row["Other"]) == ("3", "2", "1")
+    assert row["Hit rate"] == "50.00%"
+    assert row["Hit p50"] == "5.00"
+    assert row["Miss p95"] == "25.00"
