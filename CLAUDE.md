@@ -9,9 +9,14 @@ LLMGateway is a FastAPI service in front of Claude and Gemini that adds a reliab
 **Definition of done** (from PLAN.md, "Definition of done"):
 
 > - Built a FastAPI gateway over the Claude and Gemini APIs that normalizes SSE streaming across providers, with hashed per-key auth in Postgres, an atomic Redis Lua token-bucket rate limiter, and a tenant-scoped response cache.
-> - Added timeouts, retries with jittered backoff, a circuit breaker, and pre-first-byte provider fallback; under k6 load with [X]% injected provider failures, raised successful responses from [A]% to [B]% at [N] req/s, with [Y] ms p95 gateway overhead.
+> - Added timeouts, jittered retries, a circuit breaker, and pre-first-byte provider fallback; in k6 load tests, served 100% of requests through a 30 s full outage of one provider (0% without fallback), with the gateway adding 2.0 ms at p95.
 
-The bracketed numbers stay as placeholders until `docs/RESULTS.md` has measured values. Concretely, done is D-031's list, quoted in PLAN.md: everything the two resume bullets need is merged (Claude and Gemini adapters, normalized SSE streaming, hashed API keys in Postgres, the Redis Lua rate limiter, the tenant-scoped response cache, timeouts and retries with jittered backoff, the circuit breaker, pre-first-byte provider fallback, and a k6 load test with failure injection whose results are in `docs/RESULTS.md`), plus token and cost accounting, Docker Compose, CI, and the README.
+Each number in bullet 2, traced to its row in `docs/RESULTS.md` (D-123):
+
+- **30 s, 100%, 0%:** measurement 8, rows "Inside the window" (fallback on 100.00%, fallback off 0.00%, in all three runs of each) and "Outage of `mock-outage`" (the 60 s to 90 s window).
+- **2.0 ms:** measurement 1, row "Gateway overhead, key cache 10 s": p95 2.02 ms [1.81 to 2.11].
+
+Concretely, done is D-031's list, quoted in PLAN.md: everything the two resume bullets need is merged (Claude and Gemini adapters, normalized SSE streaming, hashed API keys in Postgres, the Redis Lua rate limiter, the tenant-scoped response cache, timeouts and retries with jittered backoff, the circuit breaker, pre-first-byte provider fallback, and a k6 load test with failure injection whose results are in `docs/RESULTS.md`), plus token and cost accounting, Docker Compose, CI, and the README.
 
 ## Start of every session
 

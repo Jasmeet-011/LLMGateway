@@ -37,7 +37,24 @@ M18 is done: the measurements from PLAN.md were pre-registered and run with k6 a
 - a 30 s full outage: 0% and 100% inside the window;
 - the accounting cross-check: every run matched.
 
-The first pass ran partly in Modern Standby; 27 of its runs were rerun, and both passes are reported (D-121, amended). M18 is the last milestone in PLAN.md; what is left is for the owner (resume bullets, live tests).
+The first pass ran partly in Modern Standby; 27 of its runs were rerun, and both passes are reported (D-121, amended). **The project is done** against the definition of done in PLAN.md (D-031), as of 2026-11-14. Every item on D-031's list is merged, each in a ticked milestone below:
+
+| Item | Milestone |
+| --- | --- |
+| Claude and Gemini adapters | M6, M7 |
+| Normalized SSE streaming | M12 |
+| Hashed API keys in Postgres | M14 |
+| The Redis Lua rate limiter | M16 |
+| The tenant-scoped response cache | M17 |
+| Timeouts and retries with jittered backoff | M9 |
+| The circuit breaker | M10 |
+| Pre-first-byte provider fallback | M11, M12 |
+| A k6 load test with failure injection, results in `docs/RESULTS.md` | M18 |
+| Token and cost accounting | M15 |
+| Docker Compose and CI | M13 |
+| The README | M1, kept current through M18 |
+
+The owner's final resume bullets replace the template in PLAN.md and CLAUDE.md. Bullet 2's numbers are traced to RESULTS.md: 30 s, 100% and 0% to measurement 8; 2.0 ms to measurement 1 (D-123). None of D-031's five stretch items is built: request coalescing, per-key spend caps, Prometheus metrics, a Grafana dashboard and a cloud deploy.
 
 Open items: the owner ran `tests/test_live_estimate_rate.py` on 2026-11-12, 2 passed: both rates overestimate English prose (Claude +13.7%, Gemini +18.7%), one sample each, recorded on D-101, not a calibration. The owner's thinking live test passed on 2026-11-11: Gemini's streamed `thoughtsTokenCount` repeats its final value on every chunk, so the latest-value rule holds (D-097); it ran at `LOW` thinking. The owner ran `tests/test_live_gemini_minimal_thinking.py` on 2026-11-13, PASSED: `gemini-3.6-flash` through the adapter at `MINIMAL` reported no `thoughtsTokenCount`, 20 candidate and 20 prompt tokens, `finishReason` `STOP`, and the adapter reported 20 in and 20 out; one sample, recorded on D-049 and in README.md's Known limitations. The owner confirmed on 2026-11-13: D-106's last-success rule (a timeout counts toward the limiter's breaker only if no other take succeeded meanwhile, which tells overload apart from Redis being down), recorded on D-106; CLAUDE.md now says "Provider calls are retried only in the router"; and the `ver` flake fix's place in the child's recorder `conftest.py`, not `tests/conftest.py`, is accepted with the forced-WMI reproduction as its evidence (`docs/archive/2026-11-d106-sessions.md`). The owner verified the Gemini price rows on 2026-11-11 (D-098). The owner confirmed D-089 (2026-11-11). The request body size limit is in place (D-108). D-071 is approved by the owner (2026-11-11), with its condition pinned by tests. The owner reran the five non-streaming live tests on 2026-11-04 after the Gemini fixes (D-048, D-049): 5 passed. Every checkout is now LF (`.gitattributes`).
 

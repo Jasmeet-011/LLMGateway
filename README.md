@@ -1,8 +1,10 @@
 # LLMGateway
 
-LLMGateway is a FastAPI service that sits in front of Anthropic Claude and Google Gemini and is being built to add a reliability and cost-control layer: API-key authentication, per-key rate limits, a response cache, timeouts and retries, provider fallback, and per-key cost tracking. Per-key spend caps and Prometheus metrics are stretch goals. The goal is for clients to call one unified API while the gateway handles provider differences, failures, and accounting. It is a personal systems project for learning and demonstrating backend reliability engineering, not a product.
+LLMGateway is a FastAPI service that sits in front of Anthropic Claude and Google Gemini and adds a reliability and cost-control layer: API-key authentication, per-key rate limits, a response cache, timeouts and retries, provider fallback, and per-key cost tracking. Per-key spend caps and Prometheus metrics are stretch goals. The goal is for clients to call one unified API while the gateway handles provider differences, failures, and accounting. It is a personal systems project for learning and demonstrating backend reliability engineering, not a product.
 
-**Status:** in progress; [PROGRESS.md](PROGRESS.md) lists what is built and verified.
+In k6 load tests against mock providers on one laptop, it served [100%](docs/RESULTS.md#m8-window) of requests through a [30 s full outage](docs/RESULTS.md#m8-outage) of one provider ([0%](docs/RESULTS.md#m8-window) without fallback), with the gateway adding [2.0 ms at p95](docs/RESULTS.md#m1-overhead). The conditions and limits are in [docs/RESULTS.md](docs/RESULTS.md).
+
+**Status:** done against the definition of done in [PLAN.md](PLAN.md); [PROGRESS.md](PROGRESS.md) lists what is built and verified.
 
 ## Architecture
 
