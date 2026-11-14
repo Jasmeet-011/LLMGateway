@@ -159,7 +159,7 @@ The full list is in [docs/RESULTS.md](docs/RESULTS.md#known-limitations). In sho
 
 ## How this was built
 
-Built with [Claude Code](https://claude.com/claude-code) under a test-first workflow with independent tester and reviewer agents: the rules are in [CLAUDE.md](CLAUDE.md), and the agents' briefs in [.claude/agents/](.claude/agents/). The tester writes tests from the spec and runs the mutation checks; the reviewer reads each finished milestone and returns PASS or FAIL. I set the plan and its milestones ([PLAN.md](PLAN.md)), approved every decision in [DECISIONS.md](DECISIONS.md), and ran the tests against the real Claude and Gemini APIs myself.
+Built with [Claude Code](https://claude.com/claude-code) under a test-first workflow with independent tester and reviewer agents: the rules are in [CLAUDE.md](CLAUDE.md), and the agents' briefs in [.claude/agents/](.claude/agents/). The tester writes tests from the spec and runs the mutation checks; the reviewer reads each finished milestone and returns PASS or FAIL. I set the plan and the constraints, made the key calls (milestone order, the order of checks on each request, the resume bullets, what counts as done, the limiter and measurement fixes), and checked results against real providers. Every decision the agents made is recorded in [DECISIONS.md](DECISIONS.md).
 
 ## Project layout
 
