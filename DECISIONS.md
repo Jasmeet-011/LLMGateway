@@ -6,7 +6,7 @@ Add a new decision as a new file, with its line here, after each step; do not re
 
 ## Index
 
-One line per entry, linking to its file, with what superseded or amended it. A session reads this index plus every entry its milestone or the code it touches depends on, not every file. Add a line here with every new entry.
+One line per entry, linking to its file, with what superseded it. Lines added before the split note only some amendments; from now on every amendment is noted on its entry's line. A session reads this index plus every entry its milestone or the code it touches depends on, not every file. Add a line here with every new entry.
 
 - [D-001](docs/decisions/D-001.md) Mock provider for tests and load tests
 - [D-002](docs/decisions/D-002.md) Lua for the rate limiter

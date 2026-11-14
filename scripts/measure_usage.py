@@ -1,7 +1,7 @@
 """D-099 measurement: what recording usage costs on the response path.
 
 Run from the repo root: uv run python scripts/measure_usage.py
-Results and conditions of the run at 620d7ad are in DECISIONS.md, D-099 ("Measured").
+Results and conditions of the run at 620d7ad are in docs/decisions/D-099.md ("Measured").
 It is a design check that recording stays off the response path, not a
 docs/RESULTS.md performance figure.
 In-process app (httpx ASGITransport), mock provider with 0 latency, fake key store.
