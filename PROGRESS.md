@@ -136,28 +136,47 @@ Against HEAD, every test of new behavior failed. One stayed red against the buil
 - **Standby effect:** in the first pass, measurement 2 was 116.2 req/s, which shows how much standby cost.
 - **Chart:** rendered and inspected, which found three layout faults: the axis title overlapped the breaker caption, both end labels sat at 100%, and the lanes were labeled with catalog ids rather than the outputs plotted. All three are fixed, and the chart and report tests pass.
 
-**Mutation checks (Mode 2).** The tester ran 187 mutations across the 11 M18 test files: `lgwload` records, k6log, stats, measures, gatewaylog, accounting, chart and report; the catalog, Compose and config file tests; the direct mock; and run.ps1's guard.
+**Mutation checks (Mode 2).** The tester mutated the code guarded by the 11 M18 test files, reverted each mutation, and recounted every figure below from its mutation scripts after the M18 review, round 1. Its first report said "187 mutations, 160 killed, 27 survived". That was wrong: 187 was the number killed. Those figures are corrected here and recorded in the mistakes log.
 
-The tester's first pass killed 160 of 187 mutations; 27 survived. The tester's report lists each row; it gives totals, not counts per file.
+| Area | Distinct mutants | Killed by the first tests | Survived, then killed by a new test | Equivalent | Added later, killed by new tests | Still uncaught |
+| --- | --- | --- | --- | --- | --- | --- |
+| records + k6log | 32 | 32 | 0 | 0 | 0 | 0 |
+| stats | 8 | 5 | 1 | 2 | 0 | 0 |
+| measures | 14 | 11 | 0 | 3 | 0 | 0 |
+| gatewaylog | 24 | 16 | 7 | 1 | 0 | 0 |
+| accounting | 16 | 11 | 5 | 0 | 0 | 0 |
+| chart | 12 | 12 | 0 | 0 | 0 | 0 |
+| report | 31 | 17 | 5 | 2 | 7 | 0 |
+| files (catalog, Compose, config, k6 scripts) | 53 | 53 | 0 | 0 | 0 | 0 |
+| direct_mock | 8 | 8 | 0 | 0 | 0 | 0 |
+| run.ps1 | 73 | 22 | 5 | 0 | 46 | 0 |
+| **Total** | **271** | **187** | **23** | **8** | **53** | **0** |
 
-| Survivor | Kind | After strengthening |
-| --- | --- | --- |
-| `percentile`'s `q` type check | gap | killed; the bool-only variant is equivalent (`Fraction("True")` raises the same `ValueError`) |
-| `parse_usage` count checks (4) | gap: every bad count reused line 1's pair, so the duplicate check raised first | killed |
-| `cross_check` with `abandoned == 1` | gap | killed |
-| a breaker field with an empty value | gap | killed |
-| a timestamp in `Z`, `+0000` or `-00:00` | gap | killed |
-| a status that is not digits, or no `request_id` (2) | gap | killed |
-| `attempt_failed` matched as a substring | gap | killed |
-| a field repeated in one line | gap | killed |
-| a rerun's gateway counts under the catalog tenant | gap | killed |
-| rerun order (`rerun10` against `rerun2`) | gap | killed |
-| the Cross-check cell always `match` | gap | killed |
-| the smoke glob; measurement 5's no-records raise | gap | killed |
-| run.ps1: the guard's throw (2), its `-ne 506`, and the stop's condition (2) | gap: not tied to one `if` block | killed |
-| `spread([])`, the `utcoffset` check, `latency`, `overhead` and `per_second` empty raises, `_chosen_dir`'s raise, the `before_auth` tenant (7) | equivalent: the same error from the next line, or by design | not tested |
+- **First pass:** 217 distinct mutants. 187 were killed and 30 survived: 22 real gaps and 8 equivalent.
+- **The 23 in "survived, then killed":**
+  - the 22 gaps:
+    - stats: `percentile`'s `q` type check;
+    - accounting: four count checks masked by the duplicate-pair check, and `abandoned == 1`;
+    - gatewaylog: an empty field value; `Z` and `+0000` timestamps; a non-digit status and a missing `request_id`; a substring token match; a repeated field;
+    - report: a rerun's counts read under the catalog tenant; rerun order 10 against 2; the Cross-check cell; the smoke glob; measurement 5's no-records raise;
+    - run.ps1: the guard's throw (2), its `-ne 506`, and the stop's condition (2), none of them tied to one `if` block;
+  - plus `isascii` removed from `gateway_counts`. That mutant restores a real bug which the first tests passed. The test came first, then the fix in 3dc8df8.
+- **The 8 equivalent mutants** raise the same error on the next line, or match the design:
+  - `percentile` with a bool `q` (`Fraction("True")` raises);
+  - the empty raises in `spread`, `latency`, `overhead` and `per_second`;
+  - the `utcoffset` check;
+  - `_chosen_dir`'s raise;
+  - the `before_auth` tenant.
+- **"Added later":** mutants written for new tests, never run against the old ones. Seven are report mutants. In run.ps1 there are two stop-condition mutants and the 44 for the review's S1 tests (key-leak scan 14, usage query 12, existing output folder 7, k6 exit 11).
+- **Not counted:** seven invalid attempts that were redone (two collection errors, a clock-resolution artifact, a rename that kept the substring, and three copied rather than moved blocks), and 24 re-runs of survivors.
+- **Not recoverable:** the number of tests that failed per mutant, for every row, because some logs were truncated.
 
- The tester then added tests for the 15 real gaps and changed no existing assertion; 552 M18 tests now pass, up from 476. Every real survivor is now killed. The remaining survivors are equivalent mutants, where the same `ValueError` comes from the next line. One observation became a code fix: `gateway_counts` read `status=²` as a digit and crashed. The tester wrote the test first, and the builder made the fix.
+Tests changed: only additions, except three report tests that pinned the first power-events wording, which D-122's correction superseded:
+- `..._lists_only_runs_with_a_non_empty_list` became `..._lists_runs_with_events_and_runs_not_recorded_and_no_other`.
+- `..._empty_power_events_list_or_no_field_is_not_listed` was split into an empty-list test and a no-field ("not recorded") test.
+- `..._says_none_when_no_run_has_an_event` became `..._says_none_only_when_every_run_has_a_recorded_empty_list`. The old version set one run to `[]` and left the rest null.
+
+Each replacement asserts more than the test it replaced. The M18 test files now hold 585 tests, all passing.
 
 ### 2026-11-12 and 13: M17 Tenant-scoped response cache
 
@@ -218,7 +237,8 @@ Older rows are in [docs/archive/2026-11-sessions.md](docs/archive/2026-11-sessio
 
 | Date | What went wrong | How it was caught | Fix |
 | --- | --- | --- | --- |
-| 2026-11-13 | M18 session log: when writing up the mutation checks, the builder wrote a table of per-file mutation counts (for example "records, k6log: 39, 39, 0") that the tester's report does not contain. The tester reported only totals (187, 160, 27) and one row per mutation group; the per-file figures were the builder's estimates, written as facts. | The builder, rereading the edit against the tester's report before committing. | Replaced with the report's totals and its survivor list; nothing with the made-up counts was committed. |
+| 2026-11-13 | M18 session log: when writing up the mutation checks, the builder wrote a table of per-file mutation counts (for example "records, k6log: 39, 39, 0") that the tester's report does not contain. The tester reported only totals (187, 160, 27) and one row per mutation group; the per-file figures were the builder's estimates, written as facts. | The builder, rereading the edit against the tester's report before committing. | Replaced with the report's totals and its survivor list; nothing with the made-up counts was committed. Those totals turned out to be wrong too (next row), and the record now holds the tester's recount. |
+| 2026-11-13 | M18 mutation checks: the tester reported "187 mutations, 160 killed, 27 survived", and the builder copied it into the session log (3dc8df8). 187 was the number killed; there were 217 distinct mutants and 30 survivors, and its own survivor rows did not add up to 27. The builder also wrote "552 M18 tests" where the files then held 562. | The reviewer, M18 round 1 (BLOCKING): the record gave three different survivor counts, and its pytest run gave 562. | The tester recounted from its mutation scripts, by area, with reconciling totals (271 mutants in all, none uncaught). The builder replaced the record and checked the test count by running the files (585 after the review's tests). |
 | 2026-11-13 | M18 analysis: the builder's D-122 spec showed a run replaced by a rerun only by its id (`(replaced: <id>)`), so its figures would have left the tables, though D-121 says the first run's numbers stay in RESULTS.md. No rerun existed yet, so no figure was lost. | The builder, before the first rerun, planning how the 27 replaced runs would be reported. | D-122 amended: once any run has a rerun, the report also writes `tables-first-pass.md`, `summary-first-pass.json` and `m8-outage-first-pass.svg` from every run's first output; rows are labeled with the output they use. |
 | 2026-11-13 | M18 analysis: the builder's D-122 spec for `gateway_counts` counted only request lines carrying the run's tenant, so requests the gateway refused before it knew the tenant were in no column: m4-on-r3's 14 `503 auth_unavailable` showed as "200: 2985" beside 2,999 requests. | The builder, asking why m4-on-r3 had 14 non-successes and no non-200 gateway status. | D-122 amended: `before_auth` counts tenant-less request lines with a status other than 200; measurement 4 and 8 tables have a "Refused before auth" column, and `tables.md` lists every run with such requests. |
 | 2026-11-13 | M18 measured runs: the builder started the 30 runs as an unattended 62-minute batch without keeping the laptop awake. Windows entered Modern Standby at 20:36:01 UTC (Kernel-Power 506), 36 s into m1-direct-r2, and stayed in it, so 27 of the 30 runs ran partly or wholly outside the conditions RESULTS.md records. | m1-direct-r2's figures (p95 24 s against a 20 ms mock, 23 connection resets, 1,212 dropped iterations) sent the builder to the System log, which has the 506 event at the second the stall began and no exit event after it. | All 30 outputs kept and reported. The 27 runs are rerun as `-rerun1` with the machine awake. `run.ps1` gains a guard: it refuses to start in standby, holds a display power request during a run, and records any standby event during a run in run.json and stops. |

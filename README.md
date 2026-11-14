@@ -4,7 +4,7 @@ LLMGateway is a FastAPI service that sits in front of Anthropic Claude and Googl
 
 **Status:** in progress; [PROGRESS.md](PROGRESS.md) lists what is built and verified.
 
-## Planned architecture
+## Architecture
 
 ```
 client
@@ -26,6 +26,21 @@ Claude API · Gemini API · mock provider (default; configurable latency and fai
 ```
 
 Supporting pieces: Docker Compose (gateway, Postgres, Redis), pytest test suite, k6 load tests against the mock provider, GitHub Actions CI.
+
+## Request lifecycle
+
+What happens to one `POST /v1/chat`, in order. [FLOW.md](FLOW.md) is the full spec, with the reason for each step's place.
+
+1. **API key.** It is checked before the body is read: SHA-256 digests compared in constant time against Postgres, with a 10 s per-process cache. A bad key gets 401. If Postgres cannot answer within 2 s, the request gets 503 and auth fails closed.
+2. **Body size.** A body over 1 MiB gets 413 before it is parsed.
+3. **Rate limit.** Each request takes one token from its key's bucket, in one Redis Lua script that uses Redis's clock, so the check and the update are one atomic step across workers. Over the limit, the request gets 429 with `Retry-After`. If Redis is down, the limiter fails open; if Redis answers too slowly, the request is shed with 503.
+4. **Validation.** A malformed body gets 422, and a `model` that is not a configured alias gets 400.
+5. **Cache.** This step applies only when the client opts in with `x-gateway-cache: use`, the request is not a stream and the temperature is unset or 0. The key covers the tenant, the alias and every request field, so one tenant never gets another's answer. A hit returns at once and is recorded at zero cost.
+6. **Router.** It tries the alias's entries in order. Each attempt has a timeout, and retryable failures are retried with jittered backoff. A circuit breaker per provider instance skips one that keeps failing. Fallback to the next entry happens only before the first byte of a stream reaches the client.
+7. **Usage.** Each provider attempt becomes one usage row in Postgres, with tokens and cost. The rows are written in batches, off the response's path.
+8. **Response.** The response is in one schema for every provider, as JSON or as normalized server-sent events, and carries the gateway's request id, which the logs and the usage rows share.
+
+Request coalescing and spend caps are stretch goals and are not built.
 
 ## Run it
 
@@ -154,15 +169,15 @@ The full list is in [docs/RESULTS.md, Known limitations](docs/RESULTS.md#known-l
 
 ## Results
 
-Measured with k6 against mock providers on one laptop, 2026-11-13. Each figure is the median of three runs, [minimum to maximum]. Conditions, every run's numbers, definitions and limitations are in [docs/RESULTS.md](docs/RESULTS.md).
+Measured with k6 against mock providers on one laptop, 2026-11-13. Each figure is the median of three runs, [minimum to maximum], or the value all three runs had. Conditions, every run's numbers, definitions and limitations are in [docs/RESULTS.md](docs/RESULTS.md).
 
 | Measurement | Result |
 | --- | --- |
 | Gateway overhead over the same mock called directly, 50 req/s | p50 1.07 ms [0.93 to 1.10], p95 2.02 ms [1.81 to 2.11] |
 | Throughput, one worker, 50 concurrent clients | 509.3 req/s [489.1 to 537.0], no errors |
-| Cache, 80% repeated prompts | hit p50 2.81 ms vs miss 24.92 ms; hit rate 79.64% (set by the workload) |
+| Cache, 80% repeated prompts | hit p50 2.81 ms [2.23 to 2.94] vs miss p50 24.92 ms [23.78 to 25.43]; hit rate 79.64% in all three (set by the workload) |
 | 30% injected provider failures, 50 req/s | 97.20% [96.87 to 97.40] successful with fallback off (retries on), 100.00% [100.00 to 100.00] with fallback on |
-| One provider fully down for 30 s, 50 req/s | inside the outage, 0% successful with fallback off and 100% with fallback on; the breaker opened 0.2 s into it |
+| One provider fully down for 30 s, 50 req/s | inside the outage, 0.00% successful with fallback off and 100.00% with fallback on, in all three runs of each; the breaker opened 0.2 s into it in all six |
 | Burst of 100 against a 20-request bucket | exactly 20 served and 80 refused with 429 and `Retry-After`, in 3 of 3 runs |
 
 ![Success rate per second with fallback on and off during a 30 s outage of one provider](docs/results/m8-outage.svg)

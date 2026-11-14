@@ -111,6 +111,8 @@ The figures of these 27 runs are reported with the rest, but they were not measu
 
 The 27 runs from m1-direct-r2 to m8-on-r3 ran once more, in catalog order, each as `.\loadtest\run.ps1 -Run <id> -Rerun 1`. The machine was awake: it left standby at 21:57:35 UTC (Kernel-Power 507). The gateway image was the first pass's (`sha256:2279219a4354746f9b61d516bfeb77fb0bd36afa1fa89ff97dfc514edf388498`, built from 65b043a); the commits since then change only the load-test tooling, tests and docs, none of `src/`, `config/` or the `Dockerfile`. The runner's standby guard (D-121, amended) was in place: every rerun's `run.json` has `"power_events": []`, and k6 exited 0 in all 27.
 
+**Correction to the pre-registered commands (found in the M18 review):** the k6 command under "Runs and their exact commands" leaves out `--no-usage-report`, which `run.ps1` passes in every run, smoke and measured alike (each run's `run.json` lists it under `k6_args`). The flag only stops k6 from sending anonymous usage statistics and does not change what is measured. The pre-registered text is left as it was pushed.
+
 The figures that count are in [results/tables.md](results/tables.md): the three repetition-1 runs of measurement 1 from the first pass, and the reruns for everything else. Every first-pass figure, including those of the 27 replaced runs, is in [results/tables-first-pass.md](results/tables-first-pass.md). The JSON behind each is [results/summary.json](results/summary.json) and [results/summary-first-pass.json](results/summary-first-pass.json).
 
 ### Figures

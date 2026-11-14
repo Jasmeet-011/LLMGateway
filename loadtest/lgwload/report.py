@@ -425,11 +425,14 @@ def tables(summary: dict[str, Any], first_pass: bool = False) -> str:
     ]
     out += refused or ["- none"]
     out += ["", "## Power events during a run (Kernel-Power 506 entering, 507 leaving standby)", ""]
-    events = [
-        f"- {rid}: " + ", ".join(f"{e['id']} at {e['utc']}" for e in info["power_events"])
-        for rid, info in summary["runs"].items()
-        if info.get("power_events")
-    ]
+    events: list[str] = []
+    for rid, info in summary["runs"].items():
+        recorded = info.get("power_events")
+        if recorded is None:
+            # Not "none": nothing was recorded (D-122, corrected after the M18 review).
+            events.append(f"- {rid}: not recorded (made before the D-121 guard)")
+        elif recorded:
+            events.append(f"- {rid}: " + ", ".join(f"{e['id']} at {e['utc']}" for e in recorded))
     out += events or ["- none"]
     out += ["", "## Smoke runs (not results)", ""]
     out += [f"- {name}" for name in summary["smoke_runs"]] or ["- none"]

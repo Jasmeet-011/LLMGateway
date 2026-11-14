@@ -88,7 +88,9 @@ median [min to max] of the three repetitions.
 
 ## Power events during a run (Kernel-Power 506 entering, 507 leaving standby)
 
-- none
+- m1-direct-r1: not recorded (made before the D-121 guard)
+- m1-gateway-r1: not recorded (made before the D-121 guard)
+- m1-nokeycache-r1: not recorded (made before the D-121 guard)
 
 ## Smoke runs (not results)
 
