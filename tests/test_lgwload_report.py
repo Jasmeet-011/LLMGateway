@@ -652,28 +652,83 @@ def test_the_refused_before_auth_section_says_none_when_no_run_has_a_count(tmp_p
     assert list_items(text, REFUSED) == ["- none"]
 
 
-def test_the_power_events_section_lists_only_runs_with_a_non_empty_list(tmp_path: Path) -> None:
+NOT_RECORDED = "not recorded (made before the D-121 guard)"
+# make_repo: m4-on-r1 has two events, m4-off-r1 an empty list, the other four runs no field.
+NO_FIELD = ("m1-direct-r1", "m1-gateway-r1", "m1-nokeycache-r1", "m8-on-r1")
+
+
+def set_power_events(repo: Path, directory: str, value: list[dict[str, Any]] | None) -> None:
+    """Writes the run's `power_events` into its run.json; `None` removes the field."""
+    path = repo / "docs" / "results" / "raw" / directory / "run.json"
+    meta = json.loads(path.read_text(encoding="utf-8"))
+    meta.pop("power_events", None)
+    if value is not None:
+        meta["power_events"] = value
+    path.write_text(json.dumps(meta), encoding="utf-8")
+
+
+def test_the_power_events_section_lists_runs_with_events_and_runs_not_recorded_and_no_other(
+    tmp_path: Path,
+) -> None:
+    # D-122, corrected after the M18 review, round 1: a null list is "not recorded", not "none".
     text = (generate(make_repo(tmp_path)) / "tables.md").read_text(encoding="utf-8")
     items = list_items(text, POWER)
-    assert len(items) == 1
-    assert "m4-on-r1" in items[0]
+    assert len(items) == 5
+    assert len(listed(text, POWER, "m4-on-r1")) == 1
+    assert NOT_RECORDED not in listed(text, POWER, "m4-on-r1")[0]
     assert "- none" not in items
 
 
-def test_a_run_with_an_empty_power_events_list_or_no_field_is_not_listed(tmp_path: Path) -> None:
+def test_a_run_with_an_empty_power_events_list_is_not_listed(tmp_path: Path) -> None:
     text = (generate(make_repo(tmp_path)) / "tables.md").read_text(encoding="utf-8")
-    for run_id in ("m4-off-r1", "m8-on-r1", "m1-direct-r1", "m1-gateway-r1", "m1-nokeycache-r1"):
-        assert not listed(text, POWER, run_id), run_id
+    assert not listed(text, POWER, "m4-off-r1")
 
 
-def test_the_power_events_section_says_none_when_no_run_has_an_event(tmp_path: Path) -> None:
+def test_a_run_with_no_power_events_field_is_listed_as_not_recorded(tmp_path: Path) -> None:
+    text = (generate(make_repo(tmp_path)) / "tables.md").read_text(encoding="utf-8")
+    items = list_items(text, POWER)
+    for run_id in NO_FIELD:
+        assert f"- {run_id}: {NOT_RECORDED}" in items, run_id
+
+
+def test_the_power_events_section_says_none_only_when_every_run_has_a_recorded_empty_list(
+    tmp_path: Path,
+) -> None:
     repo = make_repo(tmp_path)
-    path = repo / "docs" / "results" / "raw" / "m4-on-r1" / "run.json"
-    meta = json.loads(path.read_text(encoding="utf-8"))
-    meta["power_events"] = []
-    path.write_text(json.dumps(meta), encoding="utf-8")
+    for run_id, *_ in CATALOG:
+        set_power_events(repo, run_id, [])
     text = (generate(repo) / "tables.md").read_text(encoding="utf-8")
     assert list_items(text, POWER) == ["- none"]
+
+
+def test_one_run_not_recorded_is_enough_to_keep_none_out_of_the_section(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path)
+    for run_id, *_ in CATALOG:
+        set_power_events(repo, run_id, [])
+    set_power_events(repo, "m8-on-r1", None)
+    text = (generate(repo) / "tables.md").read_text(encoding="utf-8")
+    assert list_items(text, POWER) == [f"- m8-on-r1: {NOT_RECORDED}"]
+
+
+def test_one_run_with_events_is_enough_to_keep_none_out_even_when_the_rest_are_empty(
+    tmp_path: Path,
+) -> None:
+    repo = make_repo(tmp_path)
+    for run_id, *_ in CATALOG:
+        set_power_events(repo, run_id, [])
+    set_power_events(repo, "m4-on-r1", [POWER_506])
+    items = list_items((generate(repo) / "tables.md").read_text(encoding="utf-8"), POWER)
+    assert len(items) == 1
+    assert "m4-on-r1" in items[0]
+    assert "506" in items[0]
+
+
+def test_the_first_pass_tables_list_not_recorded_runs_too(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path)
+    add_reruns(repo)
+    first, latest = first_pass_text(repo)
+    for text in (first, latest):
+        assert f"- m1-direct-r1: {NOT_RECORDED}" in list_items(text, POWER)
 
 
 def test_the_two_sections_are_separate_headings_in_tables_md(tmp_path: Path) -> None:

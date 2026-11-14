@@ -343,3 +343,216 @@ def test_no_power_throw_after_the_run_starts_stands_outside_an_if() -> None:
         if throw.start() < docker:
             continue
         assert any(p < throw.start() and throw.group(0) in b for p, b in inside), throw.group(0)
+
+
+# --- the other failure paths of the runner (S1, M18 review round 1) -------------------------------
+#
+# Content tests in the style of the guard tests above: they cannot run PowerShell, so they pin the
+# presence, the condition, the body and the order of each guard, reading each
+# `if (...) { ... }` as a unit.
+# What they cannot prove: that `Contains` returns what it should, that psql accepts the statement,
+# or that k6's exit code reaches `$LASTEXITCODE`. Those need a run on the owner's machine.
+
+OUTPUT_FILES = {"k6.txt", "api.log", "usage.tsv", "run.json"}
+
+
+def written_files(text: str) -> dict[str, int]:
+    """Output file name -> position of its `Write-LfFile (Join-Path $out '<name>')`."""
+    found = {
+        m.group(1): m.start()
+        for m in re.finditer(r"Write-LfFile\s*\(Join-Path\s+\$out\s+'([^']+)'\)", text)
+    }
+    assert set(found) == OUTPUT_FILES, sorted(found)
+    return found
+
+
+def done_position(text: str) -> int:
+    return text.index('Write-Host "done')
+
+
+def if_with(text: str, condition: str) -> list[tuple[int, str, str]]:
+    return [b for b in if_blocks(text) if re.fullmatch(condition, b[1].strip())]
+
+
+# --- the key-leak scan -------------------------------------------------------------------------
+
+
+def key_guard(text: str) -> tuple[int, str]:
+    """The `if ($key -ne '') { ... }` that holds the scan: (position, body)."""
+    guards = if_with(text, r"\$key\s+-ne\s+''")
+    assert len(guards) == 1, "expected one `if ($key -ne '')` around the scan"
+    position, _, body = guards[0]
+    return position, body
+
+
+def test_the_key_scan_reads_every_file_in_the_output_folder_with_no_filter() -> None:
+    _, body = key_guard(code())
+    loops = re.findall(r"foreach\s*\(\s*\$file\s+in\s+([^)]*)\)", body)
+    assert len(loops) == 1, loops
+    listing = loops[0]
+    assert re.search(r"\bGet-ChildItem\b", listing)
+    assert re.search(r"-File\b", listing)
+    assert re.search(r"-Path\s+\$out\b", listing)
+    assert not re.search(r"-(Filter|Include|Exclude|Depth|First|Skip)\b", listing, re.IGNORECASE)
+    assert not re.search(r"\|", listing), "the listing must not be piped through a filter"
+
+
+def test_the_key_scan_reads_each_files_text_and_checks_it_for_the_key() -> None:
+    _, body = key_guard(code())
+    assert re.search(r"\[System\.IO\.File\]::ReadAllText\(\s*\$file\.FullName\s*\)", body)
+    checks = [b for b in if_blocks(body) if re.search(r"\.Contains\(\s*\$key\s*\)", b[1])]
+    assert len(checks) == 1, "expected one `if (<text>.Contains($key))` in the scan"
+    assert re.fullmatch(r"\s*\$text\.Contains\(\s*\$key\s*\)\s*", checks[0][1])
+
+
+def test_the_key_scan_throws_when_a_file_holds_the_key_and_the_throw_names_the_key() -> None:
+    _, body = key_guard(code())
+    check = next(b for b in if_blocks(body) if re.search(r"\.Contains\(\s*\$key\s*\)", b[1]))
+    throws = re.findall(r"\bthrow\b[^\n]*", check[2])
+    assert len(throws) == 1, throws
+    assert re.search(r"\bkey\b", throws[0], re.IGNORECASE), throws[0]
+    assert "$out" in throws[0], "the throw should say which folder not to commit"
+
+
+def test_the_key_scan_runs_only_for_a_run_that_has_a_key() -> None:
+    # A direct-mock run has the key ''. Every text contains '', so scanning for it would stop
+    # every one of those runs. The guard is on the key, and nothing else sets it first.
+    text = code()
+    assert re.search(r"\$key\s*=\s*''", text)
+    key_guard(text)
+
+
+def test_the_key_scan_comes_after_every_output_file_is_written() -> None:
+    text = code()
+    position, _ = key_guard(text)
+    assert position > max(written_files(text).values()), "a file written later is never scanned"
+
+
+def test_the_key_scan_comes_before_the_two_stops_and_before_done() -> None:
+    # A run that stops on standby events or on k6's exit must still have been scanned: its output
+    # is kept and may be committed.
+    text = code()
+    position, _ = key_guard(text)
+    stops = [m.start() for m in re.finditer(r"\bthrow\b[^\n]*(standby events|k6 exited)", text)]
+    assert len(stops) == 2, stops
+    assert position < min(stops)
+    assert position < done_position(text)
+
+
+# --- the usage query: the tenant is a bind parameter, never part of the SQL ----------------------
+
+
+def sql_statement(text: str) -> str:
+    match = re.search(r"\$sql\s*=\s*(.*?)\n\s*\$usage\s*=", text, re.DOTALL)
+    assert match is not None, "no `$sql = ...` followed by `$usage = ...`"
+    return match.group(1)
+
+
+def test_the_usage_sql_names_the_tenant_as_the_placeholder_one() -> None:
+    statement = sql_statement(code())
+    sql, _, _ = statement.partition("\\bind")
+    assert re.search(r"tenant_id\s*=\s*\$1\b", sql), sql
+    assert "usage_records" in sql
+
+
+def test_the_usage_sql_text_holds_no_powershell_variable_and_no_double_quoted_string() -> None:
+    # Single-quoted PowerShell strings do not interpolate: `$id` here would be a literal and a
+    # double-quoted string here would paste the tenant into the SQL.
+    before, _, _ = sql_statement(code()).partition("\\bind")
+    # Drop the `+ "` that opens the string holding the bind part.
+    sql = re.sub(r'\s*\+\s*"$', "", before)
+    assert not re.search(r"\$[A-Za-z_{(]", sql), sql
+    assert '"' not in sql, sql
+    assert "$id" not in sql and "$Run" not in sql and "$entry" not in sql
+
+
+def test_the_tenant_is_given_to_psql_by_bind_and_run_with_g() -> None:
+    statement = sql_statement(code())
+    sql, bind, after = statement.partition("\\bind")
+    assert bind == "\\bind"
+    assert re.search(r"'\$id'", after), "the tenant id is not the \\bind argument"
+    assert re.search(r"\\g\b", after), "the statement is not run with \\g"
+    assert "$id" not in sql
+
+
+def test_psql_reads_the_statement_from_stdin_and_stops_at_the_first_error() -> None:
+    text = code()
+    assert re.search(r"'-f',\s*'-'", text), "psql does not read the statement from stdin"
+    assert re.search(r"'ON_ERROR_STOP=1'", text)
+    assert re.search(r"\$sql\s*\|\s*&\s*docker\b", text), "the SQL is not piped to docker/psql"
+    assert not re.search(r"'-c'", text), "psql -c would put the SQL on the command line"
+
+
+def test_a_failing_psql_stops_the_run_before_the_usage_file_is_written() -> None:
+    text = code()
+    checks = [b for b in if_blocks(text) if re.search(r"\$LASTEXITCODE\s+-ne\s+0", b[1])]
+    psql = [b for b in checks if re.search(r"psql", b[2])]
+    assert len(psql) == 1, "no `if ($LASTEXITCODE -ne 0) { throw ... psql ... }`"
+    assert "throw" in psql[0][2]
+    assert psql[0][0] < written_files(text)["usage.tsv"]
+    assert psql[0][0] > text.index("$usage = ")
+
+
+# --- the output folder must not exist -------------------------------------------------------------
+
+
+def test_a_run_whose_output_folder_exists_is_refused_with_a_throw() -> None:
+    text = code()
+    guards = if_with(text, r"Test-Path\s+\$out")
+    assert len(guards) == 1, "expected one `if (Test-Path $out) { throw ... }`"
+    _, _, body = guards[0]
+    throws = re.findall(r"\bthrow\b[^\n]*", body)
+    assert len(throws) == 1, throws
+    assert "$out" in throws[0]
+    assert re.search(r"exists", throws[0])
+
+
+def test_the_refusal_for_an_existing_folder_comes_before_anything_is_created_or_run() -> None:
+    text = code()
+    position, _, _ = if_with(text, r"Test-Path\s+\$out")[0]
+    assert position < first_docker_call(text)
+    assert position < text.index("New-Item")
+
+
+def test_the_output_folder_is_made_without_force_so_an_existing_one_cannot_be_reused() -> None:
+    text = code()
+    creates = re.findall(r"New-Item[^\n]*", text)
+    assert len(creates) == 1, creates
+    assert "-ItemType Directory" in creates[0]
+    assert "-Force" not in creates[0]
+    assert re.search(r"\$out\s*=\s*Join-Path\s+'docs/results/raw'\s+\$id", text)
+
+
+# --- a non-zero k6 exit stops the run, after the output is saved ---------------------------------
+
+
+def test_the_k6_exit_code_is_read_right_after_the_k6_command() -> None:
+    text = code()
+    assert re.search(r"&\s*docker\s+@runArgs[^\n]*\n\s*\$k6Exit\s*=\s*\$LASTEXITCODE\b", text)
+
+
+def test_a_non_zero_k6_exit_stops_the_run_with_a_throw_that_names_the_kept_output() -> None:
+    text = code()
+    stops = if_with(text, r"\$k6Exit\s+-ne\s+0")
+    assert len(stops) == 1, "expected one `if ($k6Exit -ne 0) { throw ... }`"
+    throws = re.findall(r"\bthrow\b[^\n]*", stops[0][2])
+    assert len(throws) == 1, throws
+    assert "k6" in throws[0]
+    assert "$k6Exit" in throws[0]
+    assert "$out" in throws[0]
+
+
+def test_the_k6_stop_comes_after_every_output_file_is_saved_and_before_done() -> None:
+    text = code()
+    position = if_with(text, r"\$k6Exit\s+-ne\s+0")[0][0]
+    assert position > max(written_files(text).values())
+    assert position < done_position(text)
+
+
+def test_the_k6_stop_comes_after_the_key_scan() -> None:
+    text = code()
+    assert if_with(text, r"\$k6Exit\s+-ne\s+0")[0][0] > key_guard(text)[0]
+
+
+def test_the_k6_exit_code_is_recorded_in_run_json() -> None:
+    assert re.search(r"^\s*k6_exit_code\s*=\s*\$k6Exit\s*$", meta_block(code()), re.MULTILINE)
