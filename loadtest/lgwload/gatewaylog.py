@@ -102,7 +102,9 @@ def gateway_counts(lines: Iterable[str], tenant: str) -> GatewayCounts:
             continue
         fields = _fields(line)
         status = fields.get("status", "")
-        if "request_id" not in fields or not status.isdigit():
+        # isascii too: str.isdigit accepts superscript and Arabic-Indic digits, which int()
+        # rejects or reads as another status.
+        if "request_id" not in fields or not (status.isascii() and status.isdigit()):
             continue
         # Refusals first, so they are counted whatever tenant was asked for (D-122, amended).
         if fields.get("tenant") == "-" and int(status) != 200:

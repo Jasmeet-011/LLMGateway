@@ -136,6 +136,29 @@ Against HEAD, every test of new behavior failed. One stayed red against the buil
 - **Standby effect:** in the first pass, measurement 2 was 116.2 req/s, which shows how much standby cost.
 - **Chart:** rendered and inspected, which found three layout faults: the axis title overlapped the breaker caption, both end labels sat at 100%, and the lanes were labeled with catalog ids rather than the outputs plotted. All three are fixed, and the chart and report tests pass.
 
+**Mutation checks (Mode 2).** The tester ran 187 mutations across the 11 M18 test files: `lgwload` records, k6log, stats, measures, gatewaylog, accounting, chart and report; the catalog, Compose and config file tests; the direct mock; and run.ps1's guard.
+
+The tester's first pass killed 160 of 187 mutations; 27 survived. The tester's report lists each row; it gives totals, not counts per file.
+
+| Survivor | Kind | After strengthening |
+| --- | --- | --- |
+| `percentile`'s `q` type check | gap | killed; the bool-only variant is equivalent (`Fraction("True")` raises the same `ValueError`) |
+| `parse_usage` count checks (4) | gap: every bad count reused line 1's pair, so the duplicate check raised first | killed |
+| `cross_check` with `abandoned == 1` | gap | killed |
+| a breaker field with an empty value | gap | killed |
+| a timestamp in `Z`, `+0000` or `-00:00` | gap | killed |
+| a status that is not digits, or no `request_id` (2) | gap | killed |
+| `attempt_failed` matched as a substring | gap | killed |
+| a field repeated in one line | gap | killed |
+| a rerun's gateway counts under the catalog tenant | gap | killed |
+| rerun order (`rerun10` against `rerun2`) | gap | killed |
+| the Cross-check cell always `match` | gap | killed |
+| the smoke glob; measurement 5's no-records raise | gap | killed |
+| run.ps1: the guard's throw (2), its `-ne 506`, and the stop's condition (2) | gap: not tied to one `if` block | killed |
+| `spread([])`, the `utcoffset` check, `latency`, `overhead` and `per_second` empty raises, `_chosen_dir`'s raise, the `before_auth` tenant (7) | equivalent: the same error from the next line, or by design | not tested |
+
+ The tester then added tests for the 15 real gaps and changed no existing assertion; 552 M18 tests now pass, up from 476. Every real survivor is now killed. The remaining survivors are equivalent mutants, where the same `ValueError` comes from the next line. One observation became a code fix: `gateway_counts` read `status=²` as a digit and crashed. The tester wrote the test first, and the builder made the fix.
+
 ### 2026-11-12 and 13: M17 Tenant-scoped response cache
 
 The same session began with the owner's estimate results and the limiter's shed, breaker and pre-warm (D-106, pushed in c97bb20, CI run 43344654684) and the `ver` flake fix (08d1627, CI run 43345819414); that part is in [docs/archive/2026-11-d106-sessions.md](docs/archive/2026-11-d106-sessions.md).
@@ -195,6 +218,7 @@ Older rows are in [docs/archive/2026-11-sessions.md](docs/archive/2026-11-sessio
 
 | Date | What went wrong | How it was caught | Fix |
 | --- | --- | --- | --- |
+| 2026-11-13 | M18 session log: when writing up the mutation checks, the builder wrote a table of per-file mutation counts (for example "records, k6log: 39, 39, 0") that the tester's report does not contain. The tester reported only totals (187, 160, 27) and one row per mutation group; the per-file figures were the builder's estimates, written as facts. | The builder, rereading the edit against the tester's report before committing. | Replaced with the report's totals and its survivor list; nothing with the made-up counts was committed. |
 | 2026-11-13 | M18 analysis: the builder's D-122 spec showed a run replaced by a rerun only by its id (`(replaced: <id>)`), so its figures would have left the tables, though D-121 says the first run's numbers stay in RESULTS.md. No rerun existed yet, so no figure was lost. | The builder, before the first rerun, planning how the 27 replaced runs would be reported. | D-122 amended: once any run has a rerun, the report also writes `tables-first-pass.md`, `summary-first-pass.json` and `m8-outage-first-pass.svg` from every run's first output; rows are labeled with the output they use. |
 | 2026-11-13 | M18 analysis: the builder's D-122 spec for `gateway_counts` counted only request lines carrying the run's tenant, so requests the gateway refused before it knew the tenant were in no column: m4-on-r3's 14 `503 auth_unavailable` showed as "200: 2985" beside 2,999 requests. | The builder, asking why m4-on-r3 had 14 non-successes and no non-200 gateway status. | D-122 amended: `before_auth` counts tenant-less request lines with a status other than 200; measurement 4 and 8 tables have a "Refused before auth" column, and `tables.md` lists every run with such requests. |
 | 2026-11-13 | M18 measured runs: the builder started the 30 runs as an unattended 62-minute batch without keeping the laptop awake. Windows entered Modern Standby at 20:36:01 UTC (Kernel-Power 506), 36 s into m1-direct-r2, and stayed in it, so 27 of the 30 runs ran partly or wholly outside the conditions RESULTS.md records. | m1-direct-r2's figures (p95 24 s against a 20 ms mock, 23 connection resets, 1,212 dropped iterations) sent the builder to the System log, which has the 506 event at the second the stall began and no exit event after it. | All 30 outputs kept and reported. The 27 runs are rerun as `-rerun1` with the machine awake. `run.ps1` gains a guard: it refuses to start in standby, holds a display power request during a run, and records any standby event during a run in run.json and stops. |
