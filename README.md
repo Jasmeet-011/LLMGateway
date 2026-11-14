@@ -1,192 +1,190 @@
 # LLMGateway
 
-LLMGateway is a FastAPI service that sits in front of Anthropic Claude and Google Gemini and adds a reliability and cost-control layer: API-key authentication, per-key rate limits, a response cache, timeouts and retries, provider fallback, and per-key cost tracking. Per-key spend caps and Prometheus metrics are stretch goals. The goal is for clients to call one unified API while the gateway handles provider differences, failures, and accounting. It is a personal systems project for learning and demonstrating backend reliability engineering, not a product.
+A FastAPI service in front of the Claude and Gemini APIs that adds authentication, rate limits, a response cache, timeouts, retries, a circuit breaker, provider fallback and per-attempt cost accounting, behind one request and response format.
 
-In k6 load tests against mock providers on one laptop, it served [100%](docs/RESULTS.md#m8-window) of requests through a [30 s full outage](docs/RESULTS.md#m8-outage) of one provider ([0%](docs/RESULTS.md#m8-window) without fallback), with the gateway adding [2.0 ms at p95](docs/RESULTS.md#m1-overhead). The conditions and limits are in [docs/RESULTS.md](docs/RESULTS.md).
+**Why.** An application that calls LLM providers directly has to handle each provider's API, keys, rate limits, outages, retries and spend on its own. A gateway does that once, in one place. This one is a personal systems project, built to learn and to measure that reliability layer; it is not a product.
 
-**Status:** done against the definition of done in [PLAN.md](PLAN.md).
+## How a request flows
 
-## Architecture
+```mermaid
+flowchart LR
+    client(["Client"])
+    subgraph gateway["Gateway: one FastAPI process"]
+        direction LR
+        auth["1. API key<br/>SHA-256, constant-time"]
+        body["2. Body limit<br/>1 MiB"]
+        limit["3. Rate limit<br/>token bucket"]
+        valid["4. Validate<br/>schema, alias"]
+        cache{"5. Cache<br/>opt-in"}
+        router["6. Router<br/>timeouts, retries,<br/>breaker, fallback"]
+        adapters["Adapters<br/>Claude, Gemini, mock"]
+        usage["Usage queue<br/>one row per attempt"]
+    end
+    pg[("Postgres<br/>keys, usage")]
+    redis[("Redis<br/>buckets, cache")]
+    claude["Claude API"]
+    gemini["Gemini API"]
 
-```
-client
-  │  HTTPS, API key
-  ▼
-FastAPI gateway
-  ├─ auth            SHA-256-hashed API keys in Postgres (asyncpg, Alembic), constant-time compare
-  ├─ rate limiter    Redis token bucket, atomic Lua script using Redis server time
-  ├─ cache           Redis; deterministic, non-streaming requests only; key includes tenant ID
-  ├─ coalescing      identical in-flight requests share one upstream call (stretch)
-  ├─ spend caps      atomic per-key budget check (stretch)
-  ├─ router          timeouts, retries (backoff + jitter), circuit breaker,
-  │                  fallback to the other provider before the first streamed byte
-  ├─ adapters        unified schema ⇄ Claude / Gemini / mock provider (async httpx, SSE streaming)
-  └─ accounting      token counts and cost per provider attempt, in Postgres; Prometheus metrics (stretch)
-  │
-  ▼
-Claude API · Gemini API · mock provider (default; configurable latency and failure rate)
-```
-
-Supporting pieces: Docker Compose (gateway, Postgres, Redis), pytest test suite, k6 load tests against the mock provider, GitHub Actions CI.
-
-## Request lifecycle
-
-What happens to one `POST /v1/chat`, in order. [FLOW.md](FLOW.md) is the full spec, with the reason for each step's place.
-
-1. **API key.** It is checked before the body is read: SHA-256 digests compared in constant time against Postgres, with a 10 s per-process cache. A bad key gets 401. If Postgres cannot answer within 2 s, the request gets 503 and auth fails closed.
-2. **Body size.** A body over 1 MiB gets 413 before it is parsed.
-3. **Rate limit.** Each request takes one token from its key's bucket, in one Redis Lua script that uses Redis's clock, so the check and the update are one atomic step across workers. Over the limit, the request gets 429 with `Retry-After`. If Redis is down, the limiter fails open; if Redis answers too slowly, the request is shed with 503.
-4. **Validation.** A malformed body gets 422, and a `model` that is not a configured alias gets 400.
-5. **Cache.** This step applies only when the client opts in with `x-gateway-cache: use`, the request is not a stream and the temperature is unset or 0. The key covers the tenant, the alias and every request field, so one tenant never gets another's answer. A hit returns at once and is recorded at zero cost.
-6. **Router.** It tries the alias's entries in order. Each attempt has a timeout, and retryable failures are retried with jittered backoff. A circuit breaker per provider instance skips one that keeps failing. Fallback to the next entry happens only before the first byte of a stream reaches the client.
-7. **Usage.** Each provider attempt becomes one usage row in Postgres, with tokens and cost. The rows are written in batches, off the response's path.
-8. **Response.** The response is in one schema for every provider, as JSON or as normalized server-sent events, and carries the gateway's request id, which the logs and the usage rows share.
-
-Request coalescing and spend caps are stretch goals and are not built.
-
-## Run it
-
-PowerShell 7. The gateway reads the process environment; it does not load `.env` files (see `.env.example` for the variables).
-
-**API keys (D-086 to D-092).** Every request except one to `/healthz` needs `Authorization: Bearer <key>`, checked before the body is read. A key looks like `lgw_<16 hex>_<64 hex>`; Postgres stores only its SHA-256, and the full key is printed once, when it is made. A missing, malformed, unknown, wrong or revoked key gets the same 401 `invalid_api_key`. If a key's row is not in the cache and Postgres cannot answer within 2 s, the request gets 503 `auth_unavailable` and is not served. Each worker caches a found key's row for 10 s (`LLMGATEWAY_KEY_CACHE_SECONDS`, 0 to 60), so a revoked key stops working within that time. The request log line names the key's tenant and key id, never the key. `LLMGATEWAY_DATABASE_URL` is required: without it, startup stops. Keys are managed with `python -m llmgateway.keys`:
-
-```powershell
-python -m llmgateway.keys migrate                  # create or update the schema
-python -m llmgateway.keys create --tenant demo     # prints the key once, on stdout
-python -m llmgateway.keys list                     # ids, tenants, times; never hashes
-python -m llmgateway.keys revoke <key id>
+    client -->|"POST /v1/chat"| auth --> body --> limit --> valid --> cache
+    cache -->|"miss or bypass"| router --> adapters
+    adapters --> claude
+    adapters --> gemini
+    cache -.->|"hit: no provider call"| client
+    auth -.-> pg
+    limit -.->|"Lua script"| redis
+    cache -.-> redis
+    router -.-> usage -.->|"batched writes"| pg
 ```
 
-**Body size and rate limits (D-103 to D-108).** After the key, and before the body is parsed, come two more checks. A body over 1 MiB (`LLMGATEWAY_MAX_BODY_BYTES`) gets 413 `request_too_large`; a declared `Content-Length` over the limit is refused before any of the body is read, and a chunked body is counted as it arrives. Then each request takes one token from its API key's bucket in Redis: by default a key may burst 60 requests and then average one per second (`LLMGATEWAY_RATE_LIMIT_BURST`, `LLMGATEWAY_RATE_LIMIT_PER_SECOND`). Every request counts, a malformed one too. A key with no token left gets 429 `rate_limited` with `Retry-After`, the seconds until its bucket refills one token; such a request reaches no provider and is not billed. The bucket is one Lua script that Redis runs atomically, reading Redis's own clock, so every worker and gateway instance shares one limit exactly. `LLMGATEWAY_REDIS_URL` is required. Redis down and Redis slow are handled differently (D-106). If Redis fails at once (refused, lost, a script error), the request is served without a limit and the gateway logs `ratelimit_unavailable`: unlike auth, the limiter fails open, because every request is still authenticated and billed, and a Redis outage should not take the gateway down with it. If Redis does not answer within 1 s, the request is shed with 503 `rate_limit_timeout` and `Retry-After: 1`, never let through, so a gateway too busy to hear Redis keeps its limit. The limiter has its own circuit breaker: five failures in a row open it for 5 s, and while it is open requests pass at once instead of each waiting out the second; a timeout counts only if no other request's check succeeded meanwhile, so a busy gateway with a healthy Redis does not trip it. The pool's 50 connections are opened at startup (`ratelimit_warm`), so a first burst does not wait on new connections. A connection that Redis closed, as a Redis restart does to every pooled one, is retried once on a new connection, so once Redis answers again after a restart no request is let through unlimited; a timeout is never retried.
+The checks run cheapest first, and each one protects the next: a bad key is refused before the body is read, an oversized body before it costs a rate-limit token, and a limited request before it is parsed. The router tries the alias's providers in order. A stream can still move to the next provider until its first event reaches the client; after that it is committed. [FLOW.md](FLOW.md) is the full spec, and [docs/USAGE.md](docs/USAGE.md) walks through each step and every setting.
 
-**Response cache (D-110 to D-117).** A client can have a repeated request answered from Redis instead of a provider: send `x-gateway-cache: use` on a `POST /v1/chat` that is not a stream and has `temperature` unset or 0. A sampled answer (temperature above 0) is never replayed. The key is a SHA-256 of the key's tenant, the alias, the alias's configured entries and every request field that can change the answer, so one tenant is never served another's answer and a hit's speed tells no tenant what another asked. Only a complete answer from the alias's first entry is stored, at most 256 KiB, for 300 s; errors, streams, fallback answers and empty answers never are. A hit calls no provider, still takes its rate-limit token, and writes one usage row with `cache_hit` true and cost 0. Every 200 from `/v1/chat` says `x-gateway-cache: hit`, `miss` or `bypass`; an error carries no such header. The cache uses the same Redis with its own pool and circuit breaker, and each lookup or store has 250 ms: if Redis is down or slow the request is simply served by the provider, with a `cache_unavailable` line. Identical misses that arrive together each call the provider; they are not collapsed (D-115). The Compose stack caps Redis at 256 MB and evicts the least recently used key that has an expiry.
+## Key results
 
-The simplest way to have Postgres and Redis is the Compose stack below. To run uvicorn on the host instead, point `LLMGATEWAY_DATABASE_URL` at a Postgres and `LLMGATEWAY_REDIS_URL` at a Redis you run yourself, then `uv run python -m llmgateway.keys migrate` and `create`, and set `$key` to the printed key.
+Measured with k6 against mock providers on one laptop ([conditions](docs/RESULTS.md#conditions)):
 
-Clients send a model alias in `model`, never a provider model. A TOML config file maps each alias to an ordered list of (provider instance, provider model) pairs (D-010, D-044). `LLMGATEWAY_CONFIG` names the file. When it is unset, a built-in default with the mock provider only is used. An alias that is not configured gets 400 `unknown_model`. The response's `model` is the provider model that answered, `provider` is its provider type (D-045), and `provider_instance` is the config instance that served (D-063). A bad config stops startup with one `llmgateway: configuration error: ...` line. `LLMGATEWAY_PROVIDER` is no longer read; if it is still set, startup stops.
+- **Through a [30 s full outage](docs/RESULTS.md#m8-outage) of one provider, [100%](docs/RESULTS.md#m8-window) of requests were served with fallback on, and [0%](docs/RESULTS.md#m8-window) with it off**, in all three runs of each, at 50 req/s.
+- **The gateway adds [2.0 ms at p95](docs/RESULTS.md#m1-overhead)** (2.02 ms, range 1.81 to 2.11 over three runs) over the same mock called directly.
 
-Mock provider (the default, no key needed). Terminal 1:
+![Success rate per second with fallback on and off during a 30 s outage of one provider, and each run's breaker state](docs/results/m8-outage.svg)
 
-```powershell
-uv sync
-$env:LLMGATEWAY_DATABASE_URL = Read-Host "Postgres URL" -MaskInput
-$env:LLMGATEWAY_REDIS_URL = "redis://127.0.0.1:6379/0"
-uv run uvicorn llmgateway.main:app --host 127.0.0.1 --port 8000
-```
+With fallback off, the requests that arrived in the first 0.2 s of the outage got 502, and the breaker then refused the rest with 503 without calling the provider. With fallback on, every request in the window was served by the second provider.
 
-Terminal 2: alias `mock`, served by the mock as model `mock-1`:
+## Quickstart
 
-```powershell
-Invoke-RestMethod http://127.0.0.1:8000/healthz
-$auth = @{ Authorization = "Bearer $key" }
-$body = @{ model = "mock"; max_tokens = 32; messages = @(@{ role = "user"; content = "hello there" }) } | ConvertTo-Json -Depth 5
-Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/v1/chat -Headers $auth -ContentType "application/json" -Body $body
-```
+Needs Docker with Compose v2. Nothing else: the default config uses the built-in mock provider, so no provider key is needed and nothing is billed.
 
-The router retries retryable failures: up to 3 attempts per alias entry with jittered backoff, a `retry-after` of up to 5 s honored, 60 s per attempt and one 90 s deadline for the whole request (D-050, D-051, D-061). Real calls can therefore be made up to 3 times per entry, so 6 times for an alias with two entries, as in `config/providers.toml`, and each may cost money. Each failed attempt writes one `attempt_failed` log line with the provider status and a fixed reason code, such as `API_KEY_INVALID` or `billing`, so a bad key and a billing failure can be told apart; none of that reaches the client (D-054).
-
-Each provider instance has a circuit breaker, held in process memory, so with several workers each has its own (D-055). 15 failures in the last 20 outcomes open it; timeouts, provider failures and auth errors are failures, and rate limits and bad requests are neutral and do not count (D-056, D-057). While it is open no call is made: a retry in progress stops, and the request moves to the alias's next entry; it gets 503 `provider_circuit_open` with `Retry-After` only when every entry refused (D-058, D-060). After 30 s the next request is a single trial call: if it succeeds the breaker closes, and if it fails the cooldown restarts. Every state change writes one `breaker_state_change` log line with the time, instance, from-state, to-state and reason (D-059).
-
-A request goes down its alias's list: everything but a bad request moves to the next entry, including rate limits, auth errors and a malformed 2xx, and an empty `max_tokens` answer counts as an answer (D-060). The client gets the last failure that really happened. One 90 s deadline covers the whole request, and a non-last entry must finish 30 s before it, so a hung first entry still leaves the next one time (D-061). Each move writes one `fallback_taken` log line. The response's `provider_instance` names the config instance that served (D-063). Before each retry and each move the gateway checks that the client is still connected; if it has gone, no further call is made and the request line says `status=499` (D-062).
-
-Set `stream` to true and the same endpoint answers with server-sent events: `delta` events, then one `end` event with the usage and everything else a normal response carries, in the same shape for Claude, Gemini and the mock (D-073). For Claude and Gemini that is proven against provider frames built from their docs, and one real streaming request per provider passed in the owner's live run on 2026-11-11 (D-074, D-075). Two more live runs showed Gemini's streamed usage counts are cumulative and its thinking count repeats its final value on every chunk, so the gateway takes the last value and never adds them up (D-075, D-097). Terminal 2, with the mock:
-
-```powershell
-$body = @{ model = "mock"; max_tokens = 32; stream = $true; messages = @(@{ role = "user"; content = "hello there" }) } | ConvertTo-Json -Depth 5
-$body | curl.exe -sN -X POST http://127.0.0.1:8000/v1/chat -H "authorization: Bearer $key" -H "content-type: application/json" --data-binary "@-"
-```
-
-A stream goes down its alias's list exactly as above until its first event, a delta with text or the end, so a failure before then retries or falls back, and if nothing serves, the client gets the usual JSON error, not a 200 (D-068). After the first event there is no retry and no fallback: a failure sends one `error` event with a fixed code and ends the body, with no `end` event, so a client can tell a partial answer from a whole one, and it writes a `stream_failed` line (D-069). The limit after the first event is 60 s between events, with no limit on the total (D-070). A stream counts as one breaker outcome, decided when it ends, so a provider that drops streams partway still trips the breaker (D-071). A client that disconnects, or stops reading for 60 s, closes the upstream connection at once (D-072). Whether closing it stops the provider's billing at that moment is not documented, so that part is unverified.
-
-**Usage and cost (D-095 to D-099).** Every call the gateway makes to a provider is one row in Postgres's `usage_records` table: retries, fallback attempts, failures and streams cut short included, not just the answer the client got. A row names the key's tenant and key id, the alias, the provider instance and model, the attempt number, the outcome (`success`, `failed` or `abandoned`, with a fixed reason), the token counts as the provider reported them (thinking included, never capped at `max_tokens`) and the cost in integer nano-dollars (10⁻⁹ USD). A stream that stops early records the last counts the provider gave and is marked `partial`; a failed non-streaming call has no counts. Because Claude reports its output count only near the end of a stream, a stream that stops early also records, in their own columns, the characters actually sent to the client (`delivered_chars`) and an output token count estimated from them (`estimated_output_tokens`, about 2.7 characters per token for Claude and 4 for Gemini, from the providers' docs; one live sample of English prose per provider came out 14% and 19% high, a single sample, not a calibration). They are estimates, never added to the provider's counts and never priced, so the cost of a cut stream stays a lower bound (D-101). Prices come from `src/llmgateway/prices.toml`, where each price carries its source page and the day it was read; a configured Claude or Gemini model without a price stops startup. The mock costs 0, and its counts are words, not tokens. Records are queued in memory and written in batches by a background task, so an answer never waits on the database and a failed write never fails it; a failed write is logged (`usage_write_failed`) and those rows are lost. To see a tenant's spend in the Compose stack:
-
-```powershell
-docker compose exec -T postgres psql -U llmgateway -d llmgateway -c "SELECT tenant_id, count(*), sum(cost_nanousd) / 1e9 AS usd FROM usage_records GROUP BY tenant_id"
-```
-
-Two mocks in one alias, with no key: `$env:LLMGATEWAY_CONFIG = "config/mock-fallback.toml"`, then send alias `mock-fallback`. Its first instance has 20 ms latency and fails 30% of attempts, and a request whose attempts all fail, or that its breaker refuses, is served by the second instance. That failure rate can also open the breaker by chance (D-057).
-
-To fail a mock on demand, set `LLMGATEWAY_FAULTS`, unset by default (D-064). `$env:LLMGATEWAY_FAULTS = "mock-primary=1.0"` fails every call to that instance; `"mock-primary=1.0@60+30"` does so from 60 s after its first call, for 30 s. It can only name mock instances, so with any other instance startup stops, and a run with faults writes a `fault_injection_on` line at startup.
-
-Claude and Gemini (real API calls, which cost money). `config/providers.toml` defines alias `fast` (`gemini-3.5-flash-lite`, then `claude-haiku-5-5`) and alias `smart` (`claude-opus-5-5`, then `gemini-3.6-flash`) (D-047). It needs both keys; to use only one provider, write a config with only that provider's instance. Terminal 1; the variables last only for this PowerShell session, and `Read-Host` keeps the keys out of your command history:
-
-```powershell
-$env:LLMGATEWAY_CONFIG = "config/providers.toml"
-$env:ANTHROPIC_API_KEY = Read-Host "Anthropic API key" -MaskInput
-$env:GEMINI_API_KEY = Read-Host "Gemini API key" -MaskInput
-uv run uvicorn llmgateway.main:app --host 127.0.0.1 --port 8000
-```
-
-Terminal 2: alias `fast` (served by Gemini, `gemini-3.5-flash-lite`), then an alias that is not configured. The demo leaves out `smart`, whose first entry is Claude Opus, the most expensive model:
-
-```powershell
-foreach ($alias in "fast", "no-such-alias") {
-  $body = @{ model = $alias; max_tokens = 256; messages = @(@{ role = "user"; content = "Say hello in five words." }) } | ConvertTo-Json -Depth 5
-  $r = Invoke-WebRequest -Method Post -Uri http://127.0.0.1:8000/v1/chat -Headers @{ Authorization = "Bearer $key" } -ContentType "application/json" -Body $body -SkipHttpErrorCheck
-  $j = $r.Content | ConvertFrom-Json
-  "alias=$alias status=$($r.StatusCode) x-request-id=$($r.Headers['x-request-id']) provider=$($j.provider) model=$($j.model) error=$($j.error.code)"
-}
-```
-
-When done, stop uvicorn (Ctrl+C) and, in terminal 1, `Remove-Item Env:LLMGATEWAY_CONFIG, Env:ANTHROPIC_API_KEY, Env:GEMINI_API_KEY`.
-
-Every gateway log line starts with its time in UTC with an explicit offset, such as `2026-11-04T21:00:00.123+00:00`, and `breaker_state_change`'s `ts` field uses the same format (D-082).
-
-### With Docker Compose
-
-Docker with Compose v2. From a clean clone, this builds the gateway's image, starts Postgres, runs the migrations once in a `migrate` container, then starts the gateway and Redis, and returns once they are healthy (D-078, D-092). Then it makes a key in the gateway's container and calls the gateway with it:
-
-```powershell
+```bash
+git clone https://github.com/Jasmeet-011/LLMGateway.git
+cd LLMGateway
 docker compose up --build --wait
-Invoke-RestMethod http://127.0.0.1:8000/healthz
-$key = docker compose exec -T api python -m llmgateway.keys create --tenant demo
-$body = @{ model = "mock"; max_tokens = 32; messages = @(@{ role = "user"; content = "hello there" }) } | ConvertTo-Json -Depth 5
-Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/v1/chat -Headers @{ Authorization = "Bearer $key" } -ContentType "application/json" -Body $body
+KEY=$(docker compose exec -T api python -m llmgateway.keys create --tenant demo)
 ```
 
-The gateway is on `127.0.0.1:8000` only, with the built-in mock-only config and no provider keys. Redis holds the rate limiter's buckets. Neither Postgres's nor Redis's port is published. Postgres's password is a local development default unless `POSTGRES_PASSWORD` is set. `docker compose down -v` stops everything and removes the database volume. Every image is pinned by tag and digest (D-079).
+`up --wait` builds the image, starts Postgres and Redis, runs the database migrations, and returns when the gateway is healthy on `127.0.0.1:8000`. The key is printed once; Postgres keeps only its SHA-256.
 
-## Tests and CI
+A normal request (`mock` is a model alias that the default config maps to the mock provider):
 
-`.\scripts\check.ps1` runs `uv sync --locked`, pytest, ruff, ruff format and mypy, and prints `PASS` (CLAUDE.md). Two kinds of test are left out of a plain `uv run pytest`: `live`, which call the real providers and only the owner runs, and `integration`, which need the Compose stack:
+```bash
+curl -s http://127.0.0.1:8000/v1/chat \
+  -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
+  -d '{"model": "mock", "max_tokens": 32, "messages": [{"role": "user", "content": "hello there"}]}'
+```
+
+The same request, streamed as server-sent events (`delta` events, then one `end` event with the usage):
+
+```bash
+curl -sN http://127.0.0.1:8000/v1/chat \
+  -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
+  -d '{"model": "mock", "max_tokens": 32, "stream": true, "messages": [{"role": "user", "content": "hello there"}]}'
+```
+
+`docker compose down -v` stops everything and deletes the database volume.
+
+<details>
+<summary>The same in PowerShell 7</summary>
 
 ```powershell
+git clone https://github.com/Jasmeet-011/LLMGateway.git
+cd LLMGateway
 docker compose up --build --wait
-$env:LLMGATEWAY_BASE_URL = "http://127.0.0.1:8000"
-uv run pytest -m integration
+$KEY = docker compose exec -T api python -m llmgateway.keys create --tenant demo
+curl.exe -s http://127.0.0.1:8000/v1/chat -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" -d '{"model": "mock", "max_tokens": 32, "messages": [{"role": "user", "content": "hello there"}]}'
+curl.exe -sN http://127.0.0.1:8000/v1/chat -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" -d '{"model": "mock", "max_tokens": 32, "stream": true, "messages": [{"role": "user", "content": "hello there"}]}'
+docker compose down -v
 ```
 
-The integration tests make, revoke and read keys and usage rows through `docker compose exec`, so they need the `docker` CLI, run the rate limit script in the Redis container and start a second gateway on `127.0.0.1:8001` with `docker compose run` (so that port must be free), pause Redis to prove a slow take is shed, and the last ones stop and restart Postgres to prove the 503 and Redis to prove the limiter fails open once its breaker is open (D-094, D-109, D-100).
+</details>
 
-GitHub Actions runs `check.ps1` on Linux, and builds and starts the Compose stack and runs the integration tests against it, on every push to `main` and every pull request (D-080, D-081). It uses no secrets, never runs the live tests, and every job has a 15-minute limit.
+To call the real Claude and Gemini APIs (which costs money), to use the cache, or to inject failures, see [docs/USAGE.md](docs/USAGE.md).
 
-## Known limitations
+## Features
 
-The full list is in [docs/RESULTS.md, Known limitations](docs/RESULTS.md#known-limitations). In short:
+- **One API for both providers.** Clients send a model alias; a TOML config maps it to an ordered list of provider models ([D-010](DECISIONS.md#d-010-model-aliases-with-explicit-fallback-lists), [D-044](DECISIONS.md#d-044-gateway-configuration-a-toml-file-named-by-llmgateway_config)).
+- **Adapters over raw httpx**, not the provider SDKs, so the only retries are the router's ([D-032](DECISIONS.md#d-032-raw-httpx-for-provider-calls-not-the-anthropic-sdk)).
+- **Normalized SSE streaming:** one event shape for Claude, Gemini and the mock, and an explicit `error` event when a stream fails partway ([D-068](DECISIONS.md#d-068-the-first-event-commits-a-stream-before-it-a-stream-is-an-ordinary-request), [D-069](DECISIONS.md#d-069-a-failure-after-the-first-event-ends-the-stream-with-an-error-event), [D-073](DECISIONS.md#d-073-streamend-carries-what-chatresponse-carries-streamerror-joins-the-events)).
+- **API keys hashed in Postgres**, checked before the body is read, with one identical 401 for every kind of bad key ([D-086](DECISIONS.md#d-086-key-format-lgw_key-id_secret-shown-once-never-stored-what-the-logs-may-hold) to [D-089](DECISIONS.md#d-089-auth-runs-first-before-the-body-is-read-one-401-for-every-bad-key)).
+- **Request body limit** of 1 MiB, enforced on chunked bodies too ([D-108](DECISIONS.md#d-108-order-auth-then-the-body-size-limit-then-the-rate-limiter-all-before-the-body-is-parsed-the-body-limit-is-413-request_too_large)).
+- **Per-key token-bucket rate limit** in one Redis Lua script that reads Redis's clock, so every worker shares one exact limit ([D-103](DECISIONS.md#d-103-the-token-bucket-is-one-lua-script-one-atomic-read-modify-write-per-request), [D-104](DECISIONS.md#d-104-the-bucket-reads-rediss-clock-inside-the-script)).
+- **Tenant-scoped response cache** in Redis, opt-in per request ([D-110](DECISIONS.md#d-110-the-cache-key-tenant-alias-and-its-resolved-entries-and-every-request-field-that-changes-the-answer-as-canonical-json-hashed-with-sha-256), [D-111](DECISIONS.md#d-111-cacheable-means-not-streaming-the-client-opted-in-with-x-gateway-cache-use-and-no-temperature-above-0)).
+- **Timeouts and retries:** up to 3 attempts per provider with full-jitter backoff, 60 s per attempt and 90 s per request ([D-050](DECISIONS.md#d-050-router-retries-attempts-backoff-with-full-jitter-per-attempt-timeout-and-total-deadline)).
+- **Circuit breaker** per provider instance: 15 failures in the last 20 attempts open it for 30 s, then one probe ([D-055](DECISIONS.md#d-055-one-in-process-circuit-breaker-per-config-instance), [D-057](DECISIONS.md#d-057-trip-rule-15-failures-in-the-last-20-outcomes-30-s-cooldown-one-probe)).
+- **Provider fallback** on anything but a bad request, with 30 s of the deadline kept for the next provider ([D-060](DECISIONS.md#d-060-everything-but-a-bad-request-falls-back), [D-061](DECISIONS.md#d-061-one-deadline-for-the-whole-request-a-non-last-entry-leaves-30-s-attempts-number-per-entry)).
+- **Usage and cost:** one Postgres row per provider attempt, retries and failures included, with cost in integer nano-dollars, written off the response path ([D-095](DECISIONS.md#d-095-one-usage-record-per-adapter-attempt-made-by-the-router-with-the-principal-added-by-the-app), [D-096](DECISIONS.md#d-096-money-is-an-integer-number-of-nano-dollars), [D-099](DECISIONS.md#d-099-writing-records-a-bounded-queue-and-one-writer-task-per-worker-batched-into-usage_records-a-failed-write-is-logged-and-lost)).
+- **Fault injection** for mock providers only, including a timed outage window ([D-064](DECISIONS.md#d-064-llmgateway_faults-fault-windows-for-mock-instances-only)).
 
-- **The load-test numbers come from one laptop against mock providers,** with the gateway, Postgres, Redis, the mocks and k6 sharing one Docker VM. They describe the gateway's own cost and behavior, not Claude's or Gemini's.
-- **One gateway worker** (one uvicorn process, plain asyncio and h11), because the fault window and the circuit breakers are per process.
-- **Measurement 4's baseline still retries.** Retries have no switch (D-050), so "fallback off" is compared with "everything on", not with a bare call, and the secondary provider is healthy in every run.
-- **Thinking can make short answers expensive.** Gemini bills thinking as output, and `max_tokens` does not bound it (D-049). In the owner's live run at `LOW` thinking, `gemini-3.6-flash` spent 246 thinking tokens on a 17-token answer, so it billed 263 output tokens. The gateway asks for `MINIMAL`: in one live run through the adapter (2026-11-13), `gemini-3.6-flash` produced no thinking on that short prompt and billed 20 output tokens for a 20-token answer. That is one sample on one prompt; a harder prompt may still think at `MINIMAL`, and then a short answer can cost many times what its visible length suggests.
+## Design decisions
 
-## Results
+Every decision, with the alternatives it beat and its risks, is in [DECISIONS.md](DECISIONS.md). Five of them:
 
-Measured with k6 against mock providers on one laptop, 2026-11-13. Each figure is the median of three runs, [minimum to maximum], or the value all three runs had. Conditions, every run's numbers, definitions and limitations are in [docs/RESULTS.md](docs/RESULTS.md).
+- **No retry after the provider answered 2xx** ([D-052](DECISIONS.md#d-052-no-retry-after-the-provider-answered-with-a-2xx)). If a provider returns 200 with a body the gateway cannot parse, the answer was generated and billed, so a retry would pay for it twice. The router does not retry it; it may still fall back to the next provider, which costs at most one more call.
+- **SHA-256 for API keys, not bcrypt** ([D-087](DECISIONS.md#d-087-key-hash-sha-256-of-the-whole-key-no-pepper-not-bcrypt-or-argon2)). A key's secret is 256 random bits, so no offline guess can find it under any hash. A slow hash protects low-entropy passwords; here it would only add CPU to every request and give unauthenticated callers a cheap way to load the gateway. A key is found by its public id and compared in constant time, with a dummy compare for unknown ids ([D-088](DECISIONS.md#d-088-lookup-by-key-id-then-a-constant-time-compare-with-a-dummy-compare-when-the-id-is-unknown)).
+- **The rate limiter fails open when Redis is down; auth fails closed when Postgres is down** ([D-106](DECISIONS.md#d-106-redis-down-or-slow-the-limiter-fails-open-after-250-ms-unlike-auth-which-fails-closed)). Auth decides whether anyone may spend; the limiter only paces keys that are already verified and billed. A Redis that is slow rather than down is treated differently: a rate-limit check with no answer in 1 s is refused with 503, and the limiter's own breaker counts a timeout only if no other check succeeded meanwhile, which tells a Redis outage apart from an overloaded gateway.
+- **The cache is opt-in** ([D-111](DECISIONS.md#d-111-cacheable-means-not-streaming-the-client-opted-in-with-x-gateway-cache-use-and-no-temperature-above-0)). No request field can promise a repeatable answer: Claude's current API rejects `temperature`, and newer Gemini models ignore it. So a client asks for a cached answer with `x-gateway-cache: use`, and a temperature above 0 is never cached. The tenant is inside the hashed key, so one tenant never gets another's answer, and a fast hit never tells one tenant what another asked ([D-110](DECISIONS.md#d-110-the-cache-key-tenant-alias-and-its-resolved-entries-and-every-request-field-that-changes-the-answer-as-canonical-json-hashed-with-sha-256)).
+- **The outage measurement was fixed before it ran** ([D-121](DECISIONS.md#d-121-the-run-protocol-pre-registered-runs-in-a-fixed-order-three-repetitions-median-and-range-no-quiet-reruns), [D-123](DECISIONS.md#d-123-resume-bullet-2-cites-measurement-8-not-measurement-4s-a-and-b)). Every run, its command and how it is aggregated were pushed before the first run; each figure is the median of three runs with the range, and a run is repeated only for a recorded defect. The headline cites the full-outage test, not the 30%-failure test, because retries have no switch: the 30% test's "fallback off" baseline already retried, so it showed fallback adding only 2.8 points.
+
+## Testing
+
+- **Test-first.** A separate tester agent writes each milestone's tests from the spec, not from the code. From M9 on, each milestone's tests were run and seen failing before any implementation was written.
+- **Mutation-checked.** Every failure-path test is checked by breaking the code it guards on purpose and confirming the test fails.
+- **No real provider calls in the default run.** Unit tests use fakes, `httpx.MockTransport` and the mock provider. Tests that call the real Claude and Gemini APIs are marked `live` and run only by the owner.
+- **Integration tests on real Postgres and Redis.** They run against the Compose stack: the rate-limit script on the real Redis, exactly the allowed number passing under concurrency, tenant isolation in the cache, and Postgres and Redis outages ([D-081](DECISIONS.md#d-081-integration-tests-the-integration-marker-run-against-the-compose-stack)).
+- **CI.** GitHub Actions runs ruff, ruff format, mypy (strict) and pytest, then builds the Compose stack and runs the integration tests, on every push to `main` ([D-080](DECISIONS.md#d-080-ci-one-github-actions-workflow-on-linux-running-checkps1-itself)).
+
+Locally, `.\scripts\check.ps1` runs the same five checks (PowerShell). [docs/USAGE.md](docs/USAGE.md#tests-and-ci) shows how to run the integration tests.
+
+## Load testing
+
+k6 drove the gateway with every component on and the providers replaced by mocks, in one Docker VM on one laptop, one gateway worker. Each figure is the median of three runs, [minimum to maximum]:
 
 | Measurement | Result |
 | --- | --- |
 | Gateway overhead over the same mock called directly, 50 req/s | p50 1.07 ms [0.93 to 1.10], p95 2.02 ms [1.81 to 2.11] |
 | Throughput, one worker, 50 concurrent clients | 509.3 req/s [489.1 to 537.0], no errors |
-| Cache, 80% repeated prompts | hit p50 2.81 ms [2.23 to 2.94] vs miss p50 24.92 ms [23.78 to 25.43]; hit rate 79.64% in all three (set by the workload) |
-| 30% injected provider failures, 50 req/s | 97.20% [96.87 to 97.40] successful with fallback off (retries on), 100.00% [100.00 to 100.00] with fallback on |
-| One provider fully down for 30 s, 50 req/s | inside the outage, 0.00% successful with fallback off and 100.00% with fallback on, in all three runs of each; the breaker opened 0.2 s into it in all six |
+| Cache, 80% repeated prompts | hit p50 2.81 ms [2.23 to 2.94] vs miss p50 24.92 ms [23.78 to 25.43] |
+| 30% injected provider failures, 50 req/s | 97.20% [96.87 to 97.40] successful with fallback off (retries on), 100.00% with fallback on |
+| One provider fully down for 30 s, 50 req/s | inside the outage, 0.00% successful with fallback off and 100.00% with fallback on; the breaker opened 0.2 s in |
 | Burst of 100 against a 20-request bucket | exactly 20 served and 80 refused with 429 and `Retry-After`, in 3 of 3 runs |
 
-![Success rate per second with fallback on and off during a 30 s outage of one provider](docs/results/m8-outage.svg)
+[docs/RESULTS.md](docs/RESULTS.md) has the machine, the exact commands, every run's numbers, the raw output and the code that turns it into these tables. In every failure run, the usage rows in Postgres were counted against the gateway's own log and k6's results, and every count matched.
 
-## Project docs
+## Known limitations
 
-- [PLAN.md](PLAN.md): scope and schedule
-- [DECISIONS.md](DECISIONS.md): design decision log
-- [FLOW.md](FLOW.md): request flow and error mapping spec
-- [CLAUDE.md](CLAUDE.md): rules for AI-assisted work in this repo
+The full list is in [docs/RESULTS.md](docs/RESULTS.md#known-limitations). In short:
+
+- **Mocks on one laptop.** The numbers describe the gateway's own cost and behavior, not Claude's or Gemini's latency or reliability.
+- **Injected failures are fast and clean.** Real outages are often slow timeouts, which would change both success rates and latency.
+- **One worker.** Breakers and fault windows are per process, so the tests ran one uvicorn process; more workers would raise throughput but split them.
+- **The second provider was always healthy** in the fallback tests, which is the best case for fallback.
+- **Spend caps, request coalescing and metrics are not built**; they were stretch goals ([D-031](DECISIONS.md#d-031-scope-for-done)).
+
+## How this was built
+
+Built with [Claude Code](https://claude.com/claude-code) under a test-first workflow with independent tester and reviewer agents: the rules are in [CLAUDE.md](CLAUDE.md), and the agents' briefs in [.claude/agents/](.claude/agents/). The tester writes tests from the spec and runs the mutation checks; the reviewer reads each finished milestone and returns PASS or FAIL. I set the plan and its milestones ([PLAN.md](PLAN.md)), approved every decision in [DECISIONS.md](DECISIONS.md), and ran the tests against the real Claude and Gemini APIs myself.
+
+## Project layout
+
+```
+src/llmgateway/
+  app.py, main.py             FastAPI app, middleware order, startup
+  schema.py, errors.py        request and response models, error mapping
+  config.py                   alias config and settings
+  auth.py, keystore.py, keys.py           API keys: hashing, lookup, CLI
+  bodylimit.py                request body limit
+  ratelimit.py, ratelimit.lua, redisguard.py   token bucket in Redis
+  cache.py                    response cache
+  router.py, breaker.py       retries, deadlines, circuit breaker, fallback
+  streaming.py                SSE responses and client disconnects
+  providers/                  Claude, Gemini and mock adapters; SSE decoder
+  usage.py, usagestore.py, prices.py, prices.toml   usage and cost
+  migrations/                 Alembic migrations
+config/                       alias configs: mock pair, real providers, load test
+tests/                        unit, integration and live tests
+loadtest/                     k6 scripts, run script, report generator
+docs/                         RESULTS.md, raw load-test output, USAGE.md
+scripts/check.ps1             the five checks
+PLAN.md, DECISIONS.md, FLOW.md   scope, decision log, request-flow spec
+```
+
+## License
+
+[MIT](LICENSE).
