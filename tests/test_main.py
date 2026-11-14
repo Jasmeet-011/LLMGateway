@@ -11,8 +11,8 @@ does, and check that a bad configuration exits with one clean line on stderr:
 no traceback, and none of the planted values. They wait for the child with no
 timeout of their own, and the probe child makes no real waits, so a result never
 depends on how long the host took: a 60 s limit here failed a healthy child when the
-laptop stalled coming out of Modern Standby (mistakes log, 2026-11-04, in
-docs/archive/2026-11-sessions.md). A child that really hangs meets the one 300 s limit
+laptop stalled coming out of Modern Standby (the owner's mistakes log, 2026-11-04,
+kept outside the repo). A child that really hangs meets the one 300 s limit
 on every test (D-066): on Windows that ends the whole run with exit 1, which cannot give
 a false pass, and the child outlives pytest and has to be stopped by hand. M13's CI job
 keeps its own time limit as the outer guard (PLAN.md).

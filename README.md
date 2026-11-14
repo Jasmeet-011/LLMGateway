@@ -4,7 +4,7 @@ LLMGateway is a FastAPI service that sits in front of Anthropic Claude and Googl
 
 In k6 load tests against mock providers on one laptop, it served [100%](docs/RESULTS.md#m8-window) of requests through a [30 s full outage](docs/RESULTS.md#m8-outage) of one provider ([0%](docs/RESULTS.md#m8-window) without fallback), with the gateway adding [2.0 ms at p95](docs/RESULTS.md#m1-overhead). The conditions and limits are in [docs/RESULTS.md](docs/RESULTS.md).
 
-**Status:** done against the definition of done in [PLAN.md](PLAN.md); [PROGRESS.md](PROGRESS.md) lists what is built and verified.
+**Status:** done against the definition of done in [PLAN.md](PLAN.md).
 
 ## Architecture
 
@@ -187,7 +187,6 @@ Measured with k6 against mock providers on one laptop, 2026-11-13. Each figure i
 ## Project docs
 
 - [PLAN.md](PLAN.md): scope and schedule
-- [PROGRESS.md](PROGRESS.md): milestone checklist
 - [DECISIONS.md](DECISIONS.md): design decision log
 - [FLOW.md](FLOW.md): request flow and error mapping spec
 - [CLAUDE.md](CLAUDE.md): rules for AI-assisted work in this repo

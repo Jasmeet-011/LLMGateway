@@ -13,6 +13,6 @@ Review the milestone's changes against:
 - CLAUDE.md rules: no prompt content or secrets in logs, errors or reprs; provider error text never passed to clients; no retries outside the router; dependencies inside the age floor and allowed for the milestone.
 - Schema: if schema.py changed, is every change covered by a D-entry, and do FLOW.md and the tests match it?
 - Tests: would each test fail if the code were wrong? Is there a mutation table covering every failure path?
-- Honesty: does README.md, PROGRESS.md or FLOW.md claim anything the code on this branch does not do?
+- Honesty: does README.md, FLOW.md or the owner's local `notes/PROGRESS.md` (when present; it is not in the repo) claim anything the code on this branch does not do?
 
 Return BLOCKING, SHOULD FIX and NOTES, each item with file and line, then a verdict: PASS (no BLOCKING items) or FAIL.

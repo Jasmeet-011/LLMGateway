@@ -8,7 +8,7 @@ How a request moves through LLMGateway, in plain English, and how failures map t
 
 ## 2. Status
 
-What is built and verified is tracked only in [PROGRESS.md](PROGRESS.md).
+What is built is summarized in [README.md](README.md). The owner's progress log, with each milestone's evidence, is kept in a local `notes/PROGRESS.md` that is not in the repo.
 
 ## 3. Big picture
 
@@ -268,7 +268,7 @@ sequenceDiagram
 
 ## 8. Module map
 
-The target layout of `src/llmgateway` and what each module owns. Names of modules not written yet may change; which modules exist is in [PROGRESS.md](PROGRESS.md).
+The target layout of `src/llmgateway` and what each module owns. Names of modules not written yet may change; which modules exist is in [src/llmgateway/](src/llmgateway/).
 
 ```
 src/llmgateway/
@@ -352,7 +352,7 @@ Listed, not answered.
 
 ## 12. Keeping this file honest
 
-- No status, dates or commit SHAs here; status lives in [PROGRESS.md](PROGRESS.md).
+- No status, dates or commit SHAs here; status lives in [README.md](README.md) and the owner's local progress log.
 - Edit the target-design diagrams and the error mapping only when a decision in DECISIONS.md changes the design, and link its D-number in the affected section.
 - When code and this file disagree, either the code is fixed or a new D-entry changes the spec; the spec is never edited silently to match the code.
 

@@ -20,7 +20,7 @@ D-031, verbatim: "The project is done when everything the two resume bullets nee
 
 ## Milestones
 
-Worked in order. Status and evidence are in [PROGRESS.md](PROGRESS.md); this file says what each milestone is and how it is proven. Every milestone also needs `.\scripts\check.ps1` to pass and a mutation check on each of its failure-path tests (CLAUDE.md).
+Worked in order. Status and evidence are in the owner's local progress log (`notes/PROGRESS.md`, not in the repo; CLAUDE.md); this file says what each milestone is and how it is proven. Every milestone also needs `.\scripts\check.ps1` to pass and a mutation check on each of its failure-path tests (CLAUDE.md).
 
 ### Done
 
