@@ -32,7 +32,7 @@ Usage records live in Postgres (D-099). Where spend caps and coalescing state li
 
 ## 4. Order of checks per request
 
-Decided in D-018, with the API key moved first by D-089, and the body size limit and the rate limit placed next by D-108. A missing or bad key is rejected with 401 `invalid_api_key`, and a key that cannot be checked with 503 `auth_unavailable` (D-091), before the body is read. A body over the size limit is rejected with 413 `request_too_large`, and a key over its rate limit with 429 `rate_limited`, both before the body is parsed (D-107, D-108). Body validation rejects with 422 (D-019), and a `model` that is not a configured alias with 400 `unknown_model` (D-045). Which checks exist today is in [PROGRESS.md](PROGRESS.md).
+Decided in D-018, with the API key moved first by D-089, and the body size limit and the rate limit placed next by D-108. A missing or bad key is rejected with 401 `invalid_api_key`, and a key that cannot be checked with 503 `auth_unavailable` (D-091), before the body is read. A body over the size limit is rejected with 413 `request_too_large`, and a key over its rate limit with 429 `rate_limited`, both before the body is parsed (D-107, D-108). Body validation rejects with 422 (D-019), and a `model` that is not a configured alias with 400 `unknown_model` (D-045). Which checks exist today is in [docs/USAGE.md](docs/USAGE.md#request-lifecycle).
 
 ```mermaid
 flowchart TD

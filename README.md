@@ -81,7 +81,7 @@ curl -sN http://127.0.0.1:8000/v1/chat \
 `docker compose down -v` stops everything and deletes the database volume.
 
 <details>
-<summary>The same in PowerShell 7</summary>
+<summary>The same in PowerShell 7.3 or later</summary>
 
 ```powershell
 git clone https://github.com/Jasmeet-011/LLMGateway.git
@@ -107,7 +107,7 @@ To call the real Claude and Gemini APIs (which costs money), to use the cache, o
 - **Per-key token-bucket rate limit** in one Redis Lua script that reads Redis's clock, so every worker shares one exact limit ([D-103](DECISIONS.md#d-103-the-token-bucket-is-one-lua-script-one-atomic-read-modify-write-per-request), [D-104](DECISIONS.md#d-104-the-bucket-reads-rediss-clock-inside-the-script)).
 - **Tenant-scoped response cache** in Redis, opt-in per request ([D-110](DECISIONS.md#d-110-the-cache-key-tenant-alias-and-its-resolved-entries-and-every-request-field-that-changes-the-answer-as-canonical-json-hashed-with-sha-256), [D-111](DECISIONS.md#d-111-cacheable-means-not-streaming-the-client-opted-in-with-x-gateway-cache-use-and-no-temperature-above-0)).
 - **Timeouts and retries:** up to 3 attempts per provider with full-jitter backoff, 60 s per attempt and 90 s per request ([D-050](DECISIONS.md#d-050-router-retries-attempts-backoff-with-full-jitter-per-attempt-timeout-and-total-deadline)).
-- **Circuit breaker** per provider instance: 15 failures in the last 20 attempts open it for 30 s, then one probe ([D-055](DECISIONS.md#d-055-one-in-process-circuit-breaker-per-config-instance), [D-057](DECISIONS.md#d-057-trip-rule-15-failures-in-the-last-20-outcomes-30-s-cooldown-one-probe)).
+- **Circuit breaker** per provider instance: 15 failures in the last 20 outcomes open it (rate limits and bad requests do not count) for 30 s, then one probe ([D-055](DECISIONS.md#d-055-one-in-process-circuit-breaker-per-config-instance), [D-057](DECISIONS.md#d-057-trip-rule-15-failures-in-the-last-20-outcomes-30-s-cooldown-one-probe)).
 - **Provider fallback** on anything but a bad request, with 30 s of the deadline kept for the next provider ([D-060](DECISIONS.md#d-060-everything-but-a-bad-request-falls-back), [D-061](DECISIONS.md#d-061-one-deadline-for-the-whole-request-a-non-last-entry-leaves-30-s-attempts-number-per-entry)).
 - **Usage and cost:** one Postgres row per provider attempt, retries and failures included, with cost in integer nano-dollars, written off the response path ([D-095](DECISIONS.md#d-095-one-usage-record-per-adapter-attempt-made-by-the-router-with-the-principal-added-by-the-app), [D-096](DECISIONS.md#d-096-money-is-an-integer-number-of-nano-dollars), [D-099](DECISIONS.md#d-099-writing-records-a-bounded-queue-and-one-writer-task-per-worker-batched-into-usage_records-a-failed-write-is-logged-and-lost)).
 - **Fault injection** for mock providers only, including a timed outage window ([D-064](DECISIONS.md#d-064-llmgateway_faults-fault-windows-for-mock-instances-only)).
@@ -116,7 +116,7 @@ To call the real Claude and Gemini APIs (which costs money), to use the cache, o
 
 Every decision, with the alternatives it beat and its risks, is in [DECISIONS.md](DECISIONS.md). Five of them:
 
-- **No retry after the provider answered 2xx** ([D-052](DECISIONS.md#d-052-no-retry-after-the-provider-answered-with-a-2xx)). If a provider returns 200 with a body the gateway cannot parse, the answer was generated and billed, so a retry would pay for it twice. The router does not retry it; it may still fall back to the next provider, which costs at most one more call.
+- **No retry after the provider answered 2xx** ([D-052](DECISIONS.md#d-052-no-retry-after-the-provider-answered-with-a-2xx)). If a provider returns 200 with a body the gateway cannot parse, the answer was generated and billed, so a retry would pay for it twice. The router does not retry it; it may still fall back to the next provider, so at most one more answer is paid for per provider in the list.
 - **SHA-256 for API keys, not bcrypt** ([D-087](DECISIONS.md#d-087-key-hash-sha-256-of-the-whole-key-no-pepper-not-bcrypt-or-argon2)). A key's secret is 256 random bits, so no offline guess can find it under any hash. A slow hash protects low-entropy passwords; here it would only add CPU to every request and give unauthenticated callers a cheap way to load the gateway. A key is found by its public id and compared in constant time, with a dummy compare for unknown ids ([D-088](DECISIONS.md#d-088-lookup-by-key-id-then-a-constant-time-compare-with-a-dummy-compare-when-the-id-is-unknown)).
 - **The rate limiter fails open when Redis is down; auth fails closed when Postgres is down** ([D-106](DECISIONS.md#d-106-redis-down-or-slow-the-limiter-fails-open-after-250-ms-unlike-auth-which-fails-closed)). Auth decides whether anyone may spend; the limiter only paces keys that are already verified and billed. A Redis that is slow rather than down is treated differently: a rate-limit check with no answer in 1 s is refused with 503, and the limiter's own breaker counts a timeout only if no other check succeeded meanwhile, which tells a Redis outage apart from an overloaded gateway.
 - **The cache is opt-in** ([D-111](DECISIONS.md#d-111-cacheable-means-not-streaming-the-client-opted-in-with-x-gateway-cache-use-and-no-temperature-above-0)). No request field can promise a repeatable answer: Claude's current API rejects `temperature`, and newer Gemini models ignore it. So a client asks for a cached answer with `x-gateway-cache: use`, and a temperature above 0 is never cached. The tenant is inside the hashed key, so one tenant never gets another's answer, and a fast hit never tells one tenant what another asked ([D-110](DECISIONS.md#d-110-the-cache-key-tenant-alias-and-its-resolved-entries-and-every-request-field-that-changes-the-answer-as-canonical-json-hashed-with-sha-256)).
@@ -124,17 +124,17 @@ Every decision, with the alternatives it beat and its risks, is in [DECISIONS.md
 
 ## Testing
 
-- **Test-first.** A separate tester agent writes each milestone's tests from the spec, not from the code. From M9 on, each milestone's tests were run and seen failing before any implementation was written.
-- **Mutation-checked.** Every failure-path test is checked by breaking the code it guards on purpose and confirming the test fails.
+- **Test-first.** From milestone M7 on, a separate tester agent wrote each milestone's tests from the spec, not from the code. From M9 on, each milestone's tests were run and seen failing before any implementation was written.
+- **Mutation-checked.** From M7 on (and for the earlier error-mapping tests), every failure-path test was checked by breaking the code it guards on purpose and confirming the test fails.
 - **No real provider calls in the default run.** Unit tests use fakes, `httpx.MockTransport` and the mock provider. Tests that call the real Claude and Gemini APIs are marked `live` and run only by the owner.
 - **Integration tests on real Postgres and Redis.** They run against the Compose stack: the rate-limit script on the real Redis, exactly the allowed number passing under concurrency, tenant isolation in the cache, and Postgres and Redis outages ([D-081](DECISIONS.md#d-081-integration-tests-the-integration-marker-run-against-the-compose-stack)).
-- **CI.** GitHub Actions runs ruff, ruff format, mypy (strict) and pytest, then builds the Compose stack and runs the integration tests, on every push to `main` ([D-080](DECISIONS.md#d-080-ci-one-github-actions-workflow-on-linux-running-checkps1-itself)).
+- **CI.** GitHub Actions runs `uv sync --locked`, ruff, ruff format, mypy (strict) and pytest, then builds the Compose stack and runs the integration tests, on every push to `main` ([D-080](DECISIONS.md#d-080-ci-one-github-actions-workflow-on-linux-running-checkps1-itself)).
 
 Locally, `.\scripts\check.ps1` runs the same five checks (PowerShell). [docs/USAGE.md](docs/USAGE.md#tests-and-ci) shows how to run the integration tests.
 
 ## Load testing
 
-k6 drove the gateway with every component on and the providers replaced by mocks, in one Docker VM on one laptop, one gateway worker. Each figure is the median of three runs, [minimum to maximum]:
+k6 drove the gateway with auth, the body limit, the rate limiter (its Redis script runs on every request), the router and accounting all on, and the providers replaced by mocks; requests opted into the cache only in the cache test. Everything ran in one Docker VM on one laptop, one gateway worker. Each figure is the median of three runs, [minimum to maximum]:
 
 | Measurement | Result |
 | --- | --- |
